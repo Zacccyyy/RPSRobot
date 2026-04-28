@@ -10,7 +10,8 @@ from ui_base import *
 # ============================================================
 
 def draw_menu_screen(frame, menu_items, selected_index, config,
-                     show_help=False, voice_mode_active=False, in_submenu=False):
+                     show_help=False, voice_mode_active=False, in_submenu=False,
+                     update_label=""):
     layout = _menu_layout(frame)
     w, h = layout["w"], layout["h"]
     x1, y1, x2, y2 = layout["panel"]
@@ -20,6 +21,19 @@ def draw_menu_screen(frame, menu_items, selected_index, config,
 
     top_right = "UP/DOWN Navigate | Enter Select | ESC Back | Q Quit"
     draw_top_bar(frame, "RPS ROBOT", top_right)
+
+    # Update banner — pulsing yellow strip above the menu panel
+    if update_label:
+        import time as _t, math as _m
+        pulse  = 0.65 + 0.35 * abs(_m.sin(_t.monotonic() * _m.pi * 1.2))
+        bc     = tuple(min(255, int(c * pulse)) for c in COL_YELLOW)
+        ban_y1 = y1 - _ix(h * 0.060)
+        ban_y2 = y1 - _ix(h * 0.008)
+        draw_panel(frame, _ix(w*0.03), ban_y1, _ix(w*0.97), ban_y2,
+                   fill=(18, 15, 0), alpha=0.90, border=bc, border_thickness=2)
+        draw_centered_text_in_rect(frame, update_label,
+            (_ix(w*0.04), ban_y1, _ix(w*0.96), ban_y2),
+            base_scale=0.36, color=bc, thickness=1, outline=2)
 
     draw_panel(frame, x1, y1, x2, y2, fill=COL_BG_PANEL, alpha=0.92,
                border=COL_CYAN, border_thickness=2)

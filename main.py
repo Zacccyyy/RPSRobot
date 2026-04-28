@@ -4,6 +4,7 @@ import subprocess
 import threading
 import queue as _queue
 import cv2
+import auto_updater
 
 from gesture_state import GestureStateTracker
 from rps_game_state import RPSGameController
@@ -2512,6 +2513,9 @@ def handle_settings_key(app_state, key):
 def run():
     app_state = build_app_state()
 
+    # Check for updates silently in background — won't slow startup
+    auto_updater.check_in_background()
+
     cap = cv2.VideoCapture(0)
 
     if not cap.isOpened():
@@ -3169,6 +3173,7 @@ def run():
                     show_help=app_state.get("show_help", False),
                     voice_mode_active=app_state.get("voice_mode_active", False),
                     in_submenu=False,
+                    update_label=auto_updater.status_label(),
                 )
                 if _nav_enabled:
                     draw_gesture_nav_overlay(frame, app_state["gesture_nav"].get_cursor_info())
@@ -3549,6 +3554,14 @@ def run():
                 if result == "quit":
                     finalize_active_challenge_run(app_state, status="abandoned")
                     break
+                # U key — apply update if one is available
+                if key in (ord("u"), ord("U")):
+                    if auto_updater.get_state()["status"] == "update_available":
+                        auto_updater.apply_and_restart(
+                            on_error=lambda msg: app_state.update(
+                                {"collector_message": f"Update failed: {msg[:60]}"}
+                            )
+                        )
 
             elif app_state["app_screen"] == "GAME_CATEGORY":
                 result = handle_menu_key(app_state, key)
