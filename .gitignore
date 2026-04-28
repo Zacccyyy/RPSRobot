@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+*.xlsx
+*.csv
+config.json
+zac.json
+zac_fp.json
+michael_m.json
