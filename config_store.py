@@ -32,6 +32,8 @@ DEFAULT_CONFIG = {
     "voice_model": "US English",    # US English / Indian English
     "first_run_complete": False,    # True after first player name set
     "colourblind_mode": False,      # Replace colour-only indicators with shapes
+    "analytics_consent": None,      # None=not asked, True=accepted, False=declined
+    "discord_webhook_url": "",      # Override webhook URL (optional, uses hardcoded default if blank)
 }
 
 

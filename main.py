@@ -6,7 +6,7 @@ import queue as _queue
 import cv2
 import auto_updater
 from feedback_store import save_feedback
-from privacy_notice import (has_consent, needs_consent_prompt,
+from privacy_notice import (has_consent, has_declined, needs_consent_prompt,
                              set_consent, get_webhook_url, consent_summary)
 from discord_reporter import send_crash_report, send_feedback as discord_send_feedback
 
@@ -2419,7 +2419,8 @@ def activate_settings_item(app_state):
         app_state["_hand_diag_controller"] = HandDiagController(store=store)
         app_state["app_screen"] = "HAND_DIAG"
     elif item["key"] == "__privacy__":
-        app_state["_consent_selected"] = 0 if has_consent(app_state["config"]) else 1
+        # Default to Accept highlighted unless they previously declined
+        app_state["_consent_selected"] = 1 if has_declined(app_state["config"]) else 0
         app_state["app_screen"] = "CONSENT"
 
 
@@ -3846,17 +3847,17 @@ def run():
             # ── CONSENT screen ────────────────────────────────────────────────
             elif app_state["app_screen"] == "CONSENT":
                 sel = app_state.get("_consent_selected", 0)
-                if key in KEY_LEFT or key == ord("\t"):
+                if key in KEY_LEFT:
                     app_state["_consent_selected"] = 0
                 elif key in KEY_RIGHT:
                     app_state["_consent_selected"] = 1
                 elif key == ord("\t"):
+                    # TAB toggles between the two buttons
                     app_state["_consent_selected"] = 1 - sel
                 elif key in KEY_ENTER:
                     accepted = (sel == 0)
                     set_consent(app_state["config"], accepted)
                     save_config(app_state["config"])
-                    # Move to login or menu
                     if not app_state["config"].get("player_name", "").strip():
                         app_state["app_screen"] = "LOGIN"
                     else:

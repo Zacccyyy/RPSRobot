@@ -4,6 +4,10 @@ discord_reporter.py
 Sends crash reports and player feedback to a private Discord channel
 via webhook. This is the developer's channel — players never see it.
 
+The DEFAULT_WEBHOOK_URL is hardcoded so all users' reports reach the
+developer automatically. The config can override it with a custom URL
+(useful if the webhook ever needs to be rotated without a code push).
+
 Data sent:
   Crash reports:  timestamp, OS, Python version, git hash, error + traceback
   Feedback:       player name, message, timestamp, git hash
@@ -11,45 +15,53 @@ Data sent:
 Data NOT sent:
   - Gameplay data or round history
   - Camera or video data
-  - IP addresses (Discord may log these server-side, per Discord's own policy)
   - Any data beyond what the player explicitly types in the feedback form
 
 Consent:
   Nothing is sent unless the player explicitly accepted the privacy notice
-  on first launch. The consent preference is stored in config.json and can
-  be changed at any time in Settings.
-
-Configuration:
-  The webhook URL is stored in config.json under "discord_webhook_url".
-  Set it once from Settings → Developer → Set Discord Webhook.
-  Leave blank to disable sending entirely (local save still works).
+  on first launch. Stored in config.json under "analytics_consent".
 """
 
 import json
-import sys
 import threading
 import urllib.request
 import urllib.error
 
+# ── Hardcoded default webhook (Option A) ─────────────────────────────────────
+# Replace this URL with your actual Discord webhook URL.
+# All users send to this channel automatically if they accept the privacy notice.
+# To get a webhook URL:
+#   Discord → your server → channel settings → Integrations → Webhooks → New Webhook → Copy URL
+DEFAULT_WEBHOOK_URL = "https://discord.com/api/webhooks/1499027787757916302/yrriB3OWpwRvqhg-rKIhMkDU_m3wQ4AooRBZIknOE6WJSpKj7gkhEb0dUV9sRZuo0R6n"
 
-# Character limit per Discord message (2000 is Discord's hard limit)
+# Discord hard limit per message
 _DISCORD_LIMIT = 1950
+
+
+def _resolve_url(config_url: str) -> str:
+    """
+    Use config URL if set and valid, otherwise fall back to hardcoded default.
+    This allows rotating the webhook without a code push by updating config.
+    """
+    if config_url and config_url.startswith("https://discord.com/api/webhooks/"):
+        return config_url
+    if DEFAULT_WEBHOOK_URL.startswith("https://discord.com/api/webhooks/"):
+        return DEFAULT_WEBHOOK_URL
+    return ""
 
 
 def _post(webhook_url: str, content: str) -> bool:
     """
     POST a message to a Discord webhook.
-    Truncates content if over Discord's 2000-char limit.
     Returns True on success, False on any error.
     """
-    if not webhook_url or not webhook_url.startswith("https://discord.com/api/webhooks/"):
+    if not webhook_url:
         return False
 
     if len(content) > _DISCORD_LIMIT:
         content = content[:_DISCORD_LIMIT - 20] + "\n...(truncated)"
 
     payload = json.dumps({"content": f"```\n{content}\n```"}).encode("utf-8")
-
     req = urllib.request.Request(
         webhook_url,
         data=payload,
@@ -59,39 +71,34 @@ def _post(webhook_url: str, content: str) -> bool:
     try:
         with urllib.request.urlopen(req, timeout=8) as resp:
             return resp.status in (200, 204)
-    except (urllib.error.URLError, OSError):
-        return False
     except Exception:
         return False
 
 
-def send_crash_report(webhook_url: str, report: str) -> None:
+def send_crash_report(config_url: str, report: str) -> None:
     """
     Send a crash report to Discord in a background thread.
     Fire-and-forget — never blocks the main process.
     """
-    if not webhook_url:
+    url = _resolve_url(config_url)
+    if not url:
         return
 
-    header  = "🔴 CRASH REPORT"
-    message = f"{header}\n{'─' * 40}\n{report}"
-
-    t = threading.Thread(
-        target=_post,
-        args=(webhook_url, message),
-        daemon=True,
-        name="CrashReporter",
-    )
-    t.start()
+    message = f"🔴 CRASH REPORT\n{'─' * 40}\n{report}"
+    threading.Thread(
+        target=_post, args=(url, message),
+        daemon=True, name="CrashReporter"
+    ).start()
 
 
-def send_feedback(webhook_url: str, player: str, text: str,
+def send_feedback(config_url: str, player: str, text: str,
                   version: str = "") -> None:
     """
     Send player feedback to Discord in a background thread.
     Fire-and-forget — never blocks the main process.
     """
-    if not webhook_url:
+    url = _resolve_url(config_url)
+    if not url:
         return
 
     ver     = version[:7] if version else "unknown"
@@ -103,21 +110,14 @@ def send_feedback(webhook_url: str, player: str, text: str,
         f"\n"
         f"{text.strip()}"
     )
-
-    t = threading.Thread(
-        target=_post,
-        args=(webhook_url, message),
-        daemon=True,
-        name="FeedbackSender",
-    )
-    t.start()
+    threading.Thread(
+        target=_post, args=(url, message),
+        daemon=True, name="FeedbackSender"
+    ).start()
 
 
 def validate_webhook_url(url: str) -> bool:
-    """
-    Check if a string looks like a valid Discord webhook URL.
-    Does not make a network request.
-    """
+    """Check if a string looks like a valid Discord webhook URL."""
     return (
         isinstance(url, str) and
         url.startswith("https://discord.com/api/webhooks/") and
