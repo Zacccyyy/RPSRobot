@@ -2314,7 +2314,7 @@ def draw_notes_screen(frame, text_buffer, submitted=False, saved_path=""):
 def draw_consent_screen(frame, selected=0):
     """
     First-run privacy consent screen.
-    shown once before the player enters their name.
+    Shown once before the player enters their name.
     selected: 0 = Accept, 1 = Decline
     """
     import math as _math
@@ -2323,90 +2323,141 @@ def draw_consent_screen(frame, selected=0):
     w, h = frame.shape[1], frame.shape[0]
     t    = _time.monotonic()
 
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=(4, 6, 16), alpha=0.88,
-               border=(30, 30, 50), border_thickness=0)
+    # Full dark background
+    draw_panel(frame, 0, 0, w - 1, h - 1, fill=(4, 6, 16), alpha=0.90,
+               border=(4, 6, 16), border_thickness=0)
+
     draw_top_bar(frame, "RPS ROBOT", "Privacy Notice")
 
-    # Title
+    # ── Title ────────────────────────────────────────────────────────────
+    title_y1 = _ix(h * 0.08)
+    title_y2 = _ix(h * 0.16)
     draw_centered_text_in_rect(frame, "BEFORE YOU PLAY",
-        (0, _ix(h*0.08), w, _ix(h*0.17)),
-        base_scale=0.70, color=COL_CYAN, thickness=2, outline=4)
+        (0, title_y1, w, title_y2),
+        base_scale=0.65, color=COL_CYAN, thickness=2, outline=4)
 
-    # Main panel
-    px1, px2 = _ix(w*0.06), _ix(w*0.94)
-    py1, py2 = _ix(h*0.18), _ix(h*0.72)
+    # ── Content panel — occupies middle section ──────────────────────────
+    px1 = _ix(w * 0.07)
+    px2 = _ix(w * 0.93)
+    py1 = _ix(h * 0.17)
+    py2 = _ix(h * 0.70)
+    pw  = px2 - px1
+    ph  = py2 - py1
+
     draw_panel(frame, px1, py1, px2, py2,
-               fill=(6, 10, 24), alpha=0.92,
-               border=(60, 80, 100), border_thickness=1)
+               fill=(6, 10, 24), alpha=0.94,
+               border=(50, 70, 100), border_thickness=1)
 
-    pad = _ix(w * 0.03)
-    ty  = py1 + _ix(h * 0.03)
-    lh  = _ix(h * 0.052)
+    # Content rows — fixed pixel positions, not cumulative offsets
+    # This prevents any overflow regardless of line count
+    pad  = _ix(w * 0.035)
+    tx   = px1 + pad
+    rows = [
+        # (y_fraction_of_panel, text, color, scale)
+        (0.06,  "To help improve RPS Robot, the app can optionally send:",
+                (160, 190, 220), 0.36),
 
-    def _line(text, col=None, scale=0.34):
-        nonlocal ty
-        draw_outlined_text(frame, text, px1 + pad, ty, scale,
-                           col or COL_TEXT_ACCENT, thickness=1, outline=2)
-        ty += lh
+        (0.20,  "CRASH REPORTS  (automatic, if the app stops unexpectedly)",
+                (100, 210, 120), 0.34),
+        (0.28,  "   Includes: error message, OS version, Python version, app version.",
+                (100, 130, 110), 0.28),
+        (0.34,  "   Never includes: gameplay data, camera feed, or personal info.",
+                (100, 130, 110), 0.28),
 
-    def _gap():
-        nonlocal ty
-        ty += _ix(h * 0.015)
+        (0.48,  "FEEDBACK  (only when you press ENTER to submit a note)",
+                (100, 210, 120), 0.34),
+        (0.56,  "   Includes: your player name, the message you typed, timestamp.",
+                (100, 130, 110), 0.28),
 
-    _line("To help improve RPS Robot, the app can send:", COL_TEXT_ACCENT, 0.36)
-    _gap()
-    _line("  [+]  Crash reports  -  if the app stops unexpectedly", (100, 200, 100))
-    _line("     (includes: error message, OS, Python version,", COL_TEXT_DIM, 0.30)
-    _line("      app version number  -  NO gameplay or video data)", COL_TEXT_DIM, 0.30)
-    _gap()
-    _line("  [+]  Feedback you choose to write  -  only when you", (100, 200, 100))
-    _line("     press ENTER to submit a note from the menu", COL_TEXT_DIM, 0.30)
-    _gap()
-    _line("  [x]  Nothing else. No camera data. No round history.", COL_YELLOW)
-    _line("     No location. No automatic tracking of any kind.", COL_YELLOW)
-    _gap()
-    _line("Data is sent to a private developer Discord channel.", COL_TEXT_DIM, 0.30)
-    _line("You can change this at any time in Settings > Privacy.", COL_TEXT_DIM, 0.30)
+        (0.70,  "NOTHING ELSE is ever sent. No camera. No location. No tracking.",
+                (220, 200, 100), 0.32),
 
-    # Buttons
-    btn_y1 = _ix(h * 0.74)
-    btn_y2 = _ix(h * 0.88)
-    mid    = w // 2
-    gap    = _ix(w * 0.03)
+        (0.82,  "All data goes to a private developer Discord channel only.",
+                (100, 110, 130), 0.27),
+        (0.90,  "You can change this choice at any time in Settings > Privacy.",
+                (100, 110, 130), 0.27),
+    ]
 
-    # Accept button
-    ac_x1, ac_x2 = _ix(w*0.08), mid - gap
-    ac_col  = COL_GREEN if selected == 0 else (30, 60, 30)
-    ac_bdr  = COL_GREEN if selected == 0 else (40, 80, 40)
-    draw_panel(frame, ac_x1, btn_y1, ac_x2, btn_y2,
-               fill=ac_col if selected == 0 else (8, 18, 8),
-               alpha=0.92, border=ac_bdr, border_thickness=2)
-    draw_centered_text_in_rect(frame, "ACCEPT",
-        (ac_x1, btn_y1, ac_x2, btn_y2),
-        base_scale=0.55, color=(20, 20, 20) if selected == 0 else (60, 120, 60),
-        thickness=2, outline=1)
-    draw_centered_text_in_rect(frame, "Send crash reports + feedback",
-        (ac_x1, btn_y1 + _ix(h*0.055), ac_x2, btn_y2),
-        base_scale=0.26,
-        color=(10, 10, 10) if selected == 0 else (40, 80, 40),
-        thickness=1, outline=0)
+    for frac, text, col, scale in rows:
+        ty = py1 + int(ph * frac)
+        draw_outlined_text(frame, text, tx, ty, scale, col,
+                           thickness=1, outline=2)
 
-    # Decline button
-    dc_x1, dc_x2 = mid + gap, _ix(w*0.92)
-    dc_col  = (180, 80, 80) if selected == 1 else (8, 8, 18)
-    dc_bdr  = (200, 80, 80) if selected == 1 else (80, 40, 40)
-    draw_panel(frame, dc_x1, btn_y1, dc_x2, btn_y2,
-               fill=dc_col, alpha=0.92, border=dc_bdr, border_thickness=2)
-    draw_centered_text_in_rect(frame, "NO THANKS",
-        (dc_x1, btn_y1, dc_x2, btn_y2),
-        base_scale=0.55,
-        color=(20, 20, 20) if selected == 1 else (120, 60, 60),
-        thickness=2, outline=1)
-    draw_centered_text_in_rect(frame, "Save locally only",
-        (dc_x1, btn_y1 + _ix(h*0.055), dc_x2, btn_y2),
-        base_scale=0.26,
-        color=(10, 10, 10) if selected == 1 else (80, 40, 40),
-        thickness=1, outline=0)
+    # ── Buttons ──────────────────────────────────────────────────────────
+    # Fixed positions — never overlap the content panel
+    btn_y1  = _ix(h * 0.73)
+    btn_y2  = _ix(h * 0.89)
+    btn_h   = btn_y2 - btn_y1
+    btn_mid = w // 2
+    btn_gap = _ix(w * 0.025)
+
+    # -- Accept --
+    ac_x1 = _ix(w * 0.07)
+    ac_x2 = btn_mid - btn_gap
+
+    if selected == 0:
+        # Selected: dark background, bright cyan border, white text
+        draw_panel(frame, ac_x1, btn_y1, ac_x2, btn_y2,
+                   fill=(8, 28, 18), alpha=0.96,
+                   border=(60, 220, 120), border_thickness=3)
+        # Label
+        draw_centered_text_in_rect(frame, "ACCEPT",
+            (ac_x1, btn_y1, ac_x2, btn_y1 + int(btn_h * 0.55)),
+            base_scale=0.54, color=(60, 230, 130), thickness=2, outline=3)
+        # Subtitle
+        draw_centered_text_in_rect(frame, "Send crash reports + feedback",
+            (ac_x1, btn_y1 + int(btn_h * 0.58), ac_x2, btn_y2),
+            base_scale=0.27, color=(60, 160, 90), thickness=1, outline=2)
+    else:
+        # Unselected: very dark, dim text
+        draw_panel(frame, ac_x1, btn_y1, ac_x2, btn_y2,
+                   fill=(6, 14, 10), alpha=0.90,
+                   border=(30, 80, 50), border_thickness=1)
+        draw_centered_text_in_rect(frame, "ACCEPT",
+            (ac_x1, btn_y1, ac_x2, btn_y1 + int(btn_h * 0.55)),
+            base_scale=0.54, color=(40, 120, 70), thickness=1, outline=2)
+        draw_centered_text_in_rect(frame, "Send crash reports + feedback",
+            (ac_x1, btn_y1 + int(btn_h * 0.58), ac_x2, btn_y2),
+            base_scale=0.27, color=(30, 80, 50), thickness=1, outline=1)
+
+    # -- No Thanks --
+    dc_x1 = btn_mid + btn_gap
+    dc_x2 = _ix(w * 0.93)
+
+    if selected == 1:
+        # Selected: dark background, red border, red text
+        draw_panel(frame, dc_x1, btn_y1, dc_x2, btn_y2,
+                   fill=(28, 8, 8), alpha=0.96,
+                   border=(220, 80, 80), border_thickness=3)
+        draw_centered_text_in_rect(frame, "NO THANKS",
+            (dc_x1, btn_y1, dc_x2, btn_y1 + int(btn_h * 0.55)),
+            base_scale=0.54, color=(230, 90, 90), thickness=2, outline=3)
+        draw_centered_text_in_rect(frame, "Save locally only",
+            (dc_x1, btn_y1 + int(btn_h * 0.58), dc_x2, btn_y2),
+            base_scale=0.27, color=(160, 70, 70), thickness=1, outline=2)
+    else:
+        # Unselected: very dark, dim text
+        draw_panel(frame, dc_x1, btn_y1, dc_x2, btn_y2,
+                   fill=(14, 6, 6), alpha=0.90,
+                   border=(80, 30, 30), border_thickness=1)
+        draw_centered_text_in_rect(frame, "NO THANKS",
+            (dc_x1, btn_y1, dc_x2, btn_y1 + int(btn_h * 0.55)),
+            base_scale=0.54, color=(120, 50, 50), thickness=1, outline=2)
+        draw_centered_text_in_rect(frame, "Save locally only",
+            (dc_x1, btn_y1 + int(btn_h * 0.58), dc_x2, btn_y2),
+            base_scale=0.27, color=(80, 35, 35), thickness=1, outline=1)
+
+    # Selection indicator arrow above active button
+    pulse = 0.6 + 0.4 * abs(_math.sin(t * _math.pi * 1.5))
+    arr_col = tuple(min(255, int(c * pulse)) for c in
+                    ((60, 220, 120) if selected == 0 else (220, 80, 80)))
+    arr_cx = (ac_x1 + ac_x2) // 2 if selected == 0 else (dc_x1 + dc_x2) // 2
+    arr_y  = btn_y1 - _ix(h * 0.015)
+    cv2.fillPoly(frame, [__import__('numpy').array([
+        [arr_cx,          arr_y],
+        [arr_cx - _ix(w*0.015), arr_y - _ix(h*0.025)],
+        [arr_cx + _ix(w*0.015), arr_y - _ix(h*0.025)],
+    ], dtype=__import__('numpy').int32)], arr_col)
 
     draw_bottom_bar(frame,
-        "LEFT / RIGHT  -  choose  |  ENTER  -  confirm  |  TAB  -  switch")
+        "LEFT / RIGHT  -  choose  |  ENTER  -  confirm  |  TAB  -  toggle")
