@@ -4091,11 +4091,11 @@ if __name__ == "__main__":
             from discord_reporter import send_crash_report as _send_crash
             _cfg = _load_cfg()
             if _has_consent(_cfg):
-                _webhook = _get_webhook(_cfg)
-                if _webhook:
-                    _send_crash(_webhook, _report)
-        except Exception:
-            pass
+                # Pass config URL - discord_reporter falls back to
+                # hardcoded DEFAULT_WEBHOOK_URL if config URL is empty
+                _send_crash(get_webhook_url(_cfg), _report)
+        except Exception as _disc_err:
+            print(f"[Discord] Could not send crash report: {_disc_err}")
 
         print("\n" + "=" * 60)
         print("CRASH REPORT")

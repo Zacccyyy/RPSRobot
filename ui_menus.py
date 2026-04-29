@@ -2279,7 +2279,7 @@ def draw_notes_screen(frame, text_buffer, submitted=False, saved_path="", return
     visible = lines[-max_lines:] if len(lines) > max_lines else lines
     for i, line in enumerate(visible):
         draw_outlined_text(frame, line, text_x, text_y + i * line_h,
-                           0.36, COL_TEXT_LIGHT, thickness=1, outline=2)
+                           0.36, COL_TEXT, thickness=1, outline=2)
 
     # Blinking cursor on last line
     if abs(_math.sin(t * _math.pi * 1.5)) > 0.5:
