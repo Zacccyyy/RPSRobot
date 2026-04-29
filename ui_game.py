@@ -573,7 +573,7 @@ def draw_game_mode_view(frame, game_state, emotion_state=None, voice_mode_active
     if voice_mode_active:
         bottom_hint = "Say READY > ONE > TWO > THREE > ROCK/PAPER/SCISSORS  |  BACK = menu  |  ? Help"
     else:
-        bottom_hint = "ESC Back  |  M Diagnostic  |  N Sound  |  C Commentary  |  ? Help  |  Q Quit"
+        bottom_hint = "ESC Back  |  M Diagnostic  |  S Sound  |  C Commentary  |  ? Help  |  Q Quit"
     draw_bottom_bar(frame, bottom_hint)
     draw_arcade_header(frame)
     draw_game_status_strip(frame, game_state)

@@ -2201,7 +2201,7 @@ def draw_hardware_test_view(frame, diag_state):
 # PLAYER FEEDBACK / NOTES SCREEN
 # ============================================================
 
-def draw_notes_screen(frame, text_buffer, submitted=False, saved_path=""):
+def draw_notes_screen(frame, text_buffer, submitted=False, saved_path="", return_screen="MENU"):
     """
     Full-screen note-taking screen.
     Player types a suggestion/feedback and presses ENTER to submit.

@@ -601,6 +601,7 @@ def build_app_state():
         "_notes_text":            "",
         "_notes_submitted":       False,
         "_notes_saved_path":      "",
+        "_notes_from_screen":     "MENU",
         "_login_mode":            "type",  # "type" | "fingerprint"
         "_snd_last_state":      "",
         "_snd_last_beat_count": 0,
@@ -3550,7 +3551,8 @@ def run():
                 draw_notes_screen(frame,
                     text_buffer  = app_state["_notes_text"],
                     submitted    = app_state["_notes_submitted"],
-                    saved_path   = app_state["_notes_saved_path"])
+                    saved_path   = app_state["_notes_saved_path"],
+                    return_screen= app_state.get("_notes_from_screen", "MENU"))
 
             elif app_state["app_screen"] == "CONSENT":
                 draw_consent_screen(frame,
@@ -3606,10 +3608,11 @@ def run():
                         )
                 # N key  -  open player notes/feedback screen
                 if key in (ord("n"), ord("N")):
-                    app_state["_notes_text"]       = ""
-                    app_state["_notes_submitted"]  = False
-                    app_state["_notes_saved_path"] = ""
-                    app_state["app_screen"]        = "NOTES"
+                    app_state["_notes_text"]        = ""
+                    app_state["_notes_submitted"]   = False
+                    app_state["_notes_saved_path"]  = ""
+                    app_state["_notes_from_screen"] = "MENU"
+                    app_state["app_screen"]         = "NOTES"
 
             elif app_state["app_screen"] == "GAME_CATEGORY":
                 result = handle_menu_key(app_state, key)
@@ -3759,9 +3762,21 @@ def run():
                 elif key == ord("e"):
                     app_state["emotion_debug"] = not app_state["emotion_debug"]
                     print(f"[Emotion] Debug overlay: {'ON' if app_state['emotion_debug'] else 'OFF'}")
-                elif key == ord("n"):
+                elif key in (ord("s"), ord("S")):
                     on = app_state["sound_player"].toggle()
                     print(f"[Sound] {'ON' if on else 'OFF'}")
+                elif key == ord("c"):
+                    on = app_state["commentary_engine"].toggle()
+                    if not on:
+                        app_state["commentary_engine"].clear()
+                    print(f"[Commentary] {'ON' if on else 'OFF'}")
+                elif key in (ord("n"), ord("N")):
+                    # Open feedback notes from anywhere in the game
+                    app_state["_notes_text"]       = ""
+                    app_state["_notes_submitted"]  = False
+                    app_state["_notes_saved_path"] = ""
+                    app_state["_notes_from_screen"] = app_state["app_screen"]
+                    app_state["app_screen"]        = "NOTES"
                 elif key == ord("c"):
                     on = app_state["commentary_engine"].toggle()
                     if not on:
@@ -3866,10 +3881,18 @@ def run():
             # ── NOTES screen ─────────────────────────────────────────────────
             elif app_state["app_screen"] == "NOTES":
                 if app_state["_notes_submitted"]:
-                    # Any key returns to menu after submission
-                    open_menu(app_state)
+                    # Return to wherever the player came from
+                    _return_to = app_state.get("_notes_from_screen", "MENU")
+                    if _return_to == "MENU":
+                        open_menu(app_state)
+                    else:
+                        app_state["app_screen"] = _return_to
                 elif key == KEY_ESC:
-                    open_menu(app_state)
+                    _return_to = app_state.get("_notes_from_screen", "MENU")
+                    if _return_to == "MENU":
+                        open_menu(app_state)
+                    else:
+                        app_state["app_screen"] = _return_to
                 elif key in KEY_ENTER:
                     text = app_state["_notes_text"].strip()
                     if text:
