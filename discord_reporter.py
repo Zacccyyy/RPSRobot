@@ -50,12 +50,13 @@ def _resolve_url(config_url: str) -> str:
     return ""
 
 
-def _post(webhook_url: str, content: str) -> bool:
+def _post(webhook_url: str, content: str, label: str = "") -> bool:
     """
     POST a message to a Discord webhook.
     Returns True on success, False on any error.
     """
     if not webhook_url:
+        print(f"[Discord] {label} - no URL, skipping")
         return False
 
     if len(content) > _DISCORD_LIMIT:
@@ -70,37 +71,43 @@ def _post(webhook_url: str, content: str) -> bool:
     )
     try:
         with urllib.request.urlopen(req, timeout=8) as resp:
-            return resp.status in (200, 204)
-    except Exception:
+            ok = resp.status in (200, 204)
+            if ok:
+                print(f"[Discord] {label} - sent OK (HTTP {resp.status})")
+            else:
+                print(f"[Discord] {label} - unexpected HTTP {resp.status}")
+            return ok
+    except urllib.error.HTTPError as e:
+        print(f"[Discord] {label} - HTTP error {e.code}: {e.reason}")
+        return False
+    except urllib.error.URLError as e:
+        print(f"[Discord] {label} - network error: {e.reason}")
+        return False
+    except Exception as e:
+        print(f"[Discord] {label} - unexpected error: {e}")
         return False
 
 
 def send_crash_report(config_url: str, report: str) -> None:
-    """
-    Send a crash report to Discord in a background thread.
-    Fire-and-forget  -  never blocks the main process.
-    """
+    """Send a crash report to Discord in a background thread."""
     url = _resolve_url(config_url)
     if not url:
+        print("[Discord] Crash report - no webhook URL available")
         return
-
     message = f"[CRASH REPORT]\n{'-' * 40}\n{report}"
     threading.Thread(
-        target=_post, args=(url, message),
+        target=_post, args=(url, message, "crash report"),
         daemon=True, name="CrashReporter"
     ).start()
 
 
 def send_feedback(config_url: str, player: str, text: str,
                   version: str = "") -> None:
-    """
-    Send player feedback to Discord in a background thread.
-    Fire-and-forget  -  never blocks the main process.
-    """
+    """Send player feedback to Discord in a background thread."""
     url = _resolve_url(config_url)
     if not url:
+        print("[Discord] Feedback - no webhook URL available")
         return
-
     ver     = version[:7] if version else "unknown"
     message = (
         f"[PLAYER FEEDBACK]\n"
@@ -111,7 +118,7 @@ def send_feedback(config_url: str, player: str, text: str,
         f"{text.strip()}"
     )
     threading.Thread(
-        target=_post, args=(url, message),
+        target=_post, args=(url, message, f"feedback from {player}"),
         daemon=True, name="FeedbackSender"
     ).start()
 
