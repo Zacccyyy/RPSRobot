@@ -1,0 +1,19 @@
+{
+  "default_play_mode": "FairPlay",
+  "default_display_mode": "Game",
+  "camera_resolution": "640x480",
+  "hand_orientation": "Side",
+  "player_name": "",
+  "clone_opponent": "",
+  "shoot_window_seconds": 0.9,
+  "rock_assume_seconds": 0.25,
+  "beat_cooldown": 0.18,
+  "handedness_threshold": 0.8,
+  "ai_difficulty": "Normal",
+  "ai_personality": "Normal",
+  "voice_model": "US English",
+  "first_run_complete": false,
+  "colourblind_mode": false,
+  "analytics_consent": null,
+  "discord_webhook_url": ""
+}
