@@ -193,10 +193,16 @@ def apply_update():
 def restart_app():
     """
     Restart the current Python process in-place.
-    Preserves the venv and all command-line arguments.
+    Uses os.execv on macOS/Linux (clean in-place replace).
+    Uses subprocess + sys.exit on Windows (execv is unreliable there).
     """
     python = sys.executable
-    os.execv(python, [python] + sys.argv)
+    args   = [python] + sys.argv
+    if sys.platform == "win32":
+        subprocess.Popen(args)
+        sys.exit(0)
+    else:
+        os.execv(python, args)
 
 
 # ── Convenience: apply + restart ──────────────────────────────────────────────

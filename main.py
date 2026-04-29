@@ -3841,16 +3841,22 @@ def run():
 
 
 def _close_terminal():
-    """Close the terminal window that launched this app (macOS)."""
+    """Close the terminal window that launched this app."""
     try:
-        subprocess.Popen(
-            [
-                "osascript", "-e",
-                'tell application "Terminal" to close first window',
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        if sys.platform == "darwin":
+            subprocess.Popen(
+                ["osascript", "-e",
+                 'tell application "Terminal" to close first window'],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        elif sys.platform == "win32":
+            # Close the console window on Windows
+            subprocess.Popen(
+                ["cmd", "/c", "exit"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
     except Exception:
         pass
 
