@@ -53,6 +53,7 @@ PACKAGES = [
     ("pyserial (ESP32)", "pyserial"),
     ("Anthropic (AI)",   "anthropic"),
     ("urllib3",          "urllib3"),
+    ("Sentry (reporting)", "sentry-sdk>=2.0.0"),
 ]
 
 # ── Platform ──────────────────────────────────────────────────────────────────

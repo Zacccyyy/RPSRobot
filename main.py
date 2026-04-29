@@ -7,8 +7,8 @@ import cv2
 import auto_updater
 from feedback_store import save_feedback
 from privacy_notice import (has_consent, has_declined, needs_consent_prompt,
-                             set_consent, get_webhook_url, consent_summary)
-from discord_reporter import send_crash_report, send_feedback as discord_send_feedback
+                             set_consent, consent_summary)
+from sentry_reporter import send_crash_report as sentry_crash, send_feedback as sentry_feedback
 
 from gesture_state import GestureStateTracker
 from rps_game_state import RPSGameController
@@ -3959,10 +3959,12 @@ def run():
                         path   = save_feedback(player, text, git_sha=sha)
                         app_state["_notes_submitted"]  = True
                         app_state["_notes_saved_path"] = str(path)
-                        # Send to Discord if consent given
+                        # Send to Sentry if consent given
                         if has_consent(app_state["config"]):
-                            webhook = get_webhook_url(app_state["config"])
-                            discord_send_feedback(webhook, player, text, sha)
+                            sentry_feedback(player, text, sha)
+                        else:
+                            _consent_val = app_state["config"].get("analytics_consent")
+                            print(f"[Sentry] Feedback NOT sent - consent={_consent_val}")
                 elif key in (8, 127):  # backspace
                     app_state["_notes_text"] = app_state["_notes_text"][:-1]
                 elif 32 <= key <= 126:  # printable ASCII
@@ -4085,19 +4087,20 @@ if __name__ == "__main__":
         except Exception:
             pass
 
-        # Send to Discord if player gave consent
+        # Send to Sentry if player gave consent
         try:
             from config_store import load_config as _load_cfg
             from privacy_notice import has_consent as _has_consent
-            from privacy_notice import get_webhook_url as _get_webhook
-            from discord_reporter import send_crash_report as _send_crash
+            from sentry_reporter import send_crash_report as _sentry_crash
             _cfg = _load_cfg()
+            _consent_val = _cfg.get("analytics_consent")
+            print(f"[Sentry] Crash report - consent={_consent_val}")
             if _has_consent(_cfg):
-                # Pass config URL - discord_reporter falls back to
-                # hardcoded DEFAULT_WEBHOOK_URL if config URL is empty
-                _send_crash(get_webhook_url(_cfg), _report)
-        except Exception as _disc_err:
-            print(f"[Discord] Could not send crash report: {_disc_err}")
+                _sentry_crash(_exc, _report,
+                              player_name=_cfg.get("player_name", "unknown"),
+                              version=_version)
+        except Exception as _s_err:
+            print(f"[Sentry] Could not send crash report: {_s_err}")
 
         print("\n" + "=" * 60)
         print("CRASH REPORT")

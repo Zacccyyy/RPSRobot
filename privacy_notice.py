@@ -46,16 +46,6 @@ def set_consent(config: dict, accepted: bool) -> dict:
     return config
 
 
-def get_webhook_url(config: dict) -> str:
-    """Return the Discord webhook URL, or empty string if not set."""
-    return config.get("discord_webhook_url", "")
-
-
-def set_webhook_url(config: dict, url: str) -> dict:
-    """Store the Discord webhook URL. Returns updated config."""
-    config["discord_webhook_url"] = url.strip()
-    return config
-
 
 def consent_summary(config: dict) -> str:
     """Human-readable one-line summary of current consent state."""

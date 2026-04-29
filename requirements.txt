@@ -8,3 +8,4 @@ vosk>=0.3.45
 pyserial>=3.5
 anthropic>=0.25.0
 urllib3>=2.0.0
+sentry-sdk>=2.0.0
