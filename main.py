@@ -5,6 +5,10 @@ import threading
 import queue as _queue
 import cv2
 import auto_updater
+from feedback_store import save_feedback
+from privacy_notice import (has_consent, needs_consent_prompt,
+                             set_consent, get_webhook_url, consent_summary)
+from discord_reporter import send_crash_report, send_feedback as discord_send_feedback
 
 from gesture_state import GestureStateTracker
 from rps_game_state import RPSGameController
@@ -59,6 +63,8 @@ from ui_renderer import (
     draw_hand_enroll_view,
     draw_hand_login_view,
     draw_hardware_test_view,
+    draw_notes_screen,
+    draw_consent_screen,
 )
 
 from config_store import (
@@ -201,6 +207,12 @@ SETTINGS_SCHEMA = [
         "label": "Switch Player",
         "type": "action",
         "desc": "Return to the login screen to change the active player.",
+    },
+    {
+        "key": "__privacy__",
+        "label": "Privacy Settings",
+        "type": "action",
+        "desc": "Review or change your consent for sending crash reports and feedback to the developer.",
     },
     {
         "key": "__back__",
@@ -529,7 +541,12 @@ def build_app_state():
     challenge_logger = _AsyncChallengeStatsLogger(ChallengeStatsLogger())
 
     app_state = {
-        "app_screen": "LOGIN" if not config.get("player_name", "").strip() else "MENU",
+        "app_screen": (
+            "CONSENT" if needs_consent_prompt(config)
+            else "LOGIN" if not config.get("player_name", "").strip()
+            else "MENU"
+        ),
+        "_consent_selected": 0,   # 0=Accept, 1=Decline
         "menu_index": 0,
         "settings_index": 0,
         "features_index": 0,
@@ -581,6 +598,9 @@ def build_app_state():
         "_fp_enroll_controller":  None,   # built on demand when enrolling
         "_fp_login_controller":   None,   # built on demand for login
         "_login_text":            config.get("player_name", ""),
+        "_notes_text":            "",
+        "_notes_submitted":       False,
+        "_notes_saved_path":      "",
         "_login_mode":            "type",  # "type" | "fingerprint"
         "_snd_last_state":      "",
         "_snd_last_beat_count": 0,
@@ -2394,6 +2414,13 @@ def activate_settings_item(app_state):
         app_state["_login_text"] = ""
         app_state["_login_mode"] = "type"
         app_state["app_screen"]  = "LOGIN"
+    elif item["key"] == "__hand_diag__":
+        store = app_state["fingerprint_store"]
+        app_state["_hand_diag_controller"] = HandDiagController(store=store)
+        app_state["app_screen"] = "HAND_DIAG"
+    elif item["key"] == "__privacy__":
+        app_state["_consent_selected"] = 0 if has_consent(app_state["config"]) else 1
+        app_state["app_screen"] = "CONSENT"
 
 
 def format_setting_value(app_state, item):
@@ -3518,6 +3545,16 @@ def run():
                     disp = ctrl.get_display_state()
                     draw_hardware_test_view(frame, disp)
 
+            elif app_state["app_screen"] == "NOTES":
+                draw_notes_screen(frame,
+                    text_buffer  = app_state["_notes_text"],
+                    submitted    = app_state["_notes_submitted"],
+                    saved_path   = app_state["_notes_saved_path"])
+
+            elif app_state["app_screen"] == "CONSENT":
+                draw_consent_screen(frame,
+                    selected=app_state.get("_consent_selected", 0))
+
             # --- Emotion landmark debug overlay (Diagnostic mode only) ---
             if app_state.get("emotion_debug") and app_state.get("display_mode") == "Diagnostic":
                 debug_info = app_state["emotion_tracker"].get_debug_overlay(
@@ -3566,6 +3603,12 @@ def run():
                                 {"collector_message": f"Update failed: {msg[:60]}"}
                             )
                         )
+                # N key — open player notes/feedback screen
+                if key in (ord("n"), ord("N")):
+                    app_state["_notes_text"]       = ""
+                    app_state["_notes_submitted"]  = False
+                    app_state["_notes_saved_path"] = ""
+                    app_state["app_screen"]        = "NOTES"
 
             elif app_state["app_screen"] == "GAME_CATEGORY":
                 result = handle_menu_key(app_state, key)
@@ -3800,6 +3843,50 @@ def run():
                     if key == KEY_ESC:
                         app_state["_login_mode"] = "type"
 
+            # ── CONSENT screen ────────────────────────────────────────────────
+            elif app_state["app_screen"] == "CONSENT":
+                sel = app_state.get("_consent_selected", 0)
+                if key in KEY_LEFT or key == ord("\t"):
+                    app_state["_consent_selected"] = 0
+                elif key in KEY_RIGHT:
+                    app_state["_consent_selected"] = 1
+                elif key == ord("\t"):
+                    app_state["_consent_selected"] = 1 - sel
+                elif key in KEY_ENTER:
+                    accepted = (sel == 0)
+                    set_consent(app_state["config"], accepted)
+                    save_config(app_state["config"])
+                    # Move to login or menu
+                    if not app_state["config"].get("player_name", "").strip():
+                        app_state["app_screen"] = "LOGIN"
+                    else:
+                        open_menu(app_state)
+
+            # ── NOTES screen ─────────────────────────────────────────────────
+            elif app_state["app_screen"] == "NOTES":
+                if app_state["_notes_submitted"]:
+                    # Any key returns to menu after submission
+                    open_menu(app_state)
+                elif key == KEY_ESC:
+                    open_menu(app_state)
+                elif key in KEY_ENTER:
+                    text = app_state["_notes_text"].strip()
+                    if text:
+                        player = app_state["config"].get("player_name", "unknown")
+                        sha    = auto_updater.get_local_sha() or ""
+                        path   = save_feedback(player, text, git_sha=sha)
+                        app_state["_notes_submitted"]  = True
+                        app_state["_notes_saved_path"] = str(path)
+                        # Send to Discord if consent given
+                        if has_consent(app_state["config"]):
+                            webhook = get_webhook_url(app_state["config"])
+                            discord_send_feedback(webhook, player, text, sha)
+                elif key in (8, 127):  # backspace
+                    app_state["_notes_text"] = app_state["_notes_text"][:-1]
+                elif 32 <= key <= 126:  # printable ASCII
+                    if len(app_state["_notes_text"]) < 500:
+                        app_state["_notes_text"] += chr(key)
+
             # ── HARDWARE_TEST screen ─────────────────────────────────────────
             elif app_state["app_screen"] == "HARDWARE_TEST":
                 ctrl = app_state.get("hardware_test")
@@ -3877,11 +3964,28 @@ if __name__ == "__main__":
         os.makedirs(_crash_dir, exist_ok=True)
         _crash_path = os.path.join(_crash_dir, f"crash_{_ts}.txt")
 
+        # Also save to crash_reports/ subfolder (easier to find and review)
+        _reports_dir = os.path.join(_crash_dir, "crash_reports")
+        os.makedirs(_reports_dir, exist_ok=True)
+        _reports_path = os.path.join(_reports_dir, f"crash_{_ts}.txt")
+
+        # Get version info for context
+        try:
+            _sha = auto_updater.get_local_sha() or "unknown"
+            _version = _sha[:7]
+        except Exception:
+            _version = "unknown"
+
+        import platform as _platform
         _report = (
             f"RPS Robot Crash Report\n"
             f"======================\n"
-            f"Time:    {_ts}\n"
-            f"Error:   {type(_exc).__name__}: {_exc}\n\n"
+            f"Time:     {_ts}\n"
+            f"Version:  {_version}\n"
+            f"Platform: {_platform.system()} {_platform.release()} "
+            f"({_platform.machine()})\n"
+            f"Python:   {_platform.python_version()}\n"
+            f"Error:    {type(_exc).__name__}: {_exc}\n\n"
             f"Traceback:\n"
             f"{_tb.format_exc()}\n"
         )
@@ -3889,6 +3993,27 @@ if __name__ == "__main__":
         try:
             with open(_crash_path, "w") as _f:
                 _f.write(_report)
+        except Exception:
+            pass
+
+        # Save copy to crash_reports/ subfolder
+        try:
+            with open(_reports_path, "w") as _f:
+                _f.write(_report)
+        except Exception:
+            pass
+
+        # Send to Discord if player gave consent
+        try:
+            from config_store import load_config as _load_cfg
+            from privacy_notice import has_consent as _has_consent
+            from privacy_notice import get_webhook_url as _get_webhook
+            from discord_reporter import send_crash_report as _send_crash
+            _cfg = _load_cfg()
+            if _has_consent(_cfg):
+                _webhook = _get_webhook(_cfg)
+                if _webhook:
+                    _send_crash(_webhook, _report)
         except Exception:
             pass
 

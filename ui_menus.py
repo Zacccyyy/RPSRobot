@@ -19,7 +19,7 @@ def draw_menu_screen(frame, menu_items, selected_index, config,
     draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_BG_DARK, alpha=0.75,
                border=COL_BG_DARK, border_thickness=0)
 
-    top_right = "UP/DOWN Navigate | Enter Select | ESC Back | Q Quit"
+    top_right = "UP/DOWN Navigate | Enter Select | N Feedback | ESC Back | Q Quit"
     draw_top_bar(frame, "RPS ROBOT", top_right)
 
     # Update banner — pulsing yellow strip above the menu panel
@@ -2195,3 +2195,218 @@ def draw_hardware_test_view(frame, diag_state):
 
     draw_bottom_bar(frame,
         "[ ] Cycle ports  |  ENTER Connect  |  R Rock  P Paper  S Scissors  |  T Ping  |  X Disconnect  |  ESC Back")
+
+
+# ============================================================
+# PLAYER FEEDBACK / NOTES SCREEN
+# ============================================================
+
+def draw_notes_screen(frame, text_buffer, submitted=False, saved_path=""):
+    """
+    Full-screen note-taking screen.
+    Player types a suggestion/feedback and presses ENTER to submit.
+    """
+    import time as _time
+    import math as _math
+
+    w, h = frame.shape[1], frame.shape[0]
+    t    = _time.monotonic()
+
+    draw_panel(frame, 0, 0, w - 1, h - 1, fill=(4, 6, 16), alpha=0.80,
+               border=(30, 30, 50), border_thickness=0)
+    draw_top_bar(frame, "PLAYER FEEDBACK",
+                 "Type your suggestion and press ENTER  |  ESC Cancel")
+
+    if submitted:
+        # Confirmation screen
+        pulse = 0.85 + 0.15 * abs(_math.sin(t * _math.pi * 1.5))
+        col   = tuple(min(255, int(c * pulse)) for c in COL_GREEN)
+        draw_centered_text_in_rect(frame, "FEEDBACK SUBMITTED",
+            (0, _ix(h*0.28), w, _ix(h*0.42)),
+            base_scale=0.80, color=col, thickness=3, outline=5)
+        draw_centered_text_in_rect(frame,
+            "Thank you! Your suggestion has been saved.",
+            (0, _ix(h*0.45), w, _ix(h*0.53)),
+            base_scale=0.38, color=COL_TEXT_ACCENT, thickness=1, outline=2)
+        if saved_path:
+            fname = saved_path.split("/")[-1].split("\\")[-1]
+            draw_centered_text_in_rect(frame, f"Saved as: {fname}",
+                (0, _ix(h*0.54), w, _ix(h*0.61)),
+                base_scale=0.30, color=COL_TEXT_DIM, thickness=1, outline=1)
+        draw_centered_text_in_rect(frame, "Press any key to return to menu",
+            (0, _ix(h*0.65), w, _ix(h*0.73)),
+            base_scale=0.38, color=COL_TEXT_DIM, thickness=1, outline=2)
+        draw_bottom_bar(frame, "Any key — return to menu")
+        return
+
+    # Instruction
+    draw_centered_text_in_rect(frame,
+        "Share a suggestion, bug report, or idea for the game:",
+        (0, _ix(h*0.10), w, _ix(h*0.18)),
+        base_scale=0.40, color=COL_TEXT_ACCENT, thickness=1, outline=2)
+
+    # Text input box
+    box_x1 = _ix(w * 0.06)
+    box_x2 = _ix(w * 0.94)
+    box_y1 = _ix(h * 0.20)
+    box_y2 = _ix(h * 0.72)
+    draw_panel(frame, box_x1, box_y1, box_x2, box_y2,
+               fill=(6, 10, 24), alpha=0.92,
+               border=COL_CYAN, border_thickness=2)
+
+    # Word-wrap the text buffer
+    max_chars_per_line = 72
+    words   = text_buffer.replace("\n", " \n ").split(" ")
+    lines   = []
+    current = ""
+    for word in words:
+        if word == "\n":
+            lines.append(current)
+            current = ""
+        elif len(current) + len(word) + 1 <= max_chars_per_line:
+            current = (current + " " + word).strip()
+        else:
+            lines.append(current)
+            current = word
+    lines.append(current)
+
+    # Draw lines
+    line_h   = _ix(h * 0.048)
+    text_x   = box_x1 + _ix(w * 0.025)
+    text_y   = box_y1 + _ix(h * 0.03)
+    max_lines = int((box_y2 - box_y1 - _ix(h*0.06)) / line_h)
+
+    visible = lines[-max_lines:] if len(lines) > max_lines else lines
+    for i, line in enumerate(visible):
+        draw_outlined_text(frame, line, text_x, text_y + i * line_h,
+                           0.36, COL_TEXT_LIGHT, thickness=1, outline=2)
+
+    # Blinking cursor on last line
+    if abs(_math.sin(t * _math.pi * 1.5)) > 0.5:
+        last_line = visible[-1] if visible else ""
+        tw, _     = cv2.getTextSize(last_line, cv2.FONT_HERSHEY_SIMPLEX, 0.36, 1)
+        cur_x     = text_x + tw[0] + 3
+        cur_y_top = text_y + (len(visible) - 1) * line_h - _ix(h * 0.02)
+        cur_y_bot = cur_y_top + _ix(h * 0.035)
+        cv2.line(frame, (cur_x, cur_y_top), (cur_x, cur_y_bot), COL_CYAN, 2)
+
+    # Character count
+    char_count = len(text_buffer)
+    max_chars  = 500
+    cc_col     = COL_TEXT_DIM if char_count < max_chars * 0.8 else COL_YELLOW
+    draw_outlined_text(frame, f"{char_count}/{max_chars}",
+                       box_x2 - _ix(w*0.10), box_y2 - _ix(h*0.015),
+                       0.30, cc_col, thickness=1, outline=1)
+
+    # Hints
+    draw_centered_text_in_rect(frame,
+        "ENTER submit  |  BACKSPACE delete  |  ESC cancel",
+        (0, _ix(h*0.74), w, _ix(h*0.81)),
+        base_scale=0.34, color=COL_TEXT_DIM, thickness=1, outline=1)
+
+    draw_bottom_bar(frame, "ENTER — Submit feedback  |  ESC — Cancel")
+
+
+# ============================================================
+# PRIVACY CONSENT SCREEN
+# ============================================================
+
+def draw_consent_screen(frame, selected=0):
+    """
+    First-run privacy consent screen.
+    shown once before the player enters their name.
+    selected: 0 = Accept, 1 = Decline
+    """
+    import math as _math
+    import time as _time
+
+    w, h = frame.shape[1], frame.shape[0]
+    t    = _time.monotonic()
+
+    draw_panel(frame, 0, 0, w - 1, h - 1, fill=(4, 6, 16), alpha=0.88,
+               border=(30, 30, 50), border_thickness=0)
+    draw_top_bar(frame, "RPS ROBOT", "Privacy Notice")
+
+    # Title
+    draw_centered_text_in_rect(frame, "BEFORE YOU PLAY",
+        (0, _ix(h*0.08), w, _ix(h*0.17)),
+        base_scale=0.70, color=COL_CYAN, thickness=2, outline=4)
+
+    # Main panel
+    px1, px2 = _ix(w*0.06), _ix(w*0.94)
+    py1, py2 = _ix(h*0.18), _ix(h*0.72)
+    draw_panel(frame, px1, py1, px2, py2,
+               fill=(6, 10, 24), alpha=0.92,
+               border=(60, 80, 100), border_thickness=1)
+
+    pad = _ix(w * 0.03)
+    ty  = py1 + _ix(h * 0.03)
+    lh  = _ix(h * 0.052)
+
+    def _line(text, col=None, scale=0.34):
+        nonlocal ty
+        draw_outlined_text(frame, text, px1 + pad, ty, scale,
+                           col or COL_TEXT_ACCENT, thickness=1, outline=2)
+        ty += lh
+
+    def _gap():
+        nonlocal ty
+        ty += _ix(h * 0.015)
+
+    _line("To help improve RPS Robot, the app can send:", COL_TEXT_ACCENT, 0.36)
+    _gap()
+    _line("  ✓  Crash reports — if the app stops unexpectedly", (100, 200, 100))
+    _line("     (includes: error message, OS, Python version,", COL_TEXT_DIM, 0.30)
+    _line("      app version number — NO gameplay or video data)", COL_TEXT_DIM, 0.30)
+    _gap()
+    _line("  ✓  Feedback you choose to write — only when you", (100, 200, 100))
+    _line("     press ENTER to submit a note from the menu", COL_TEXT_DIM, 0.30)
+    _gap()
+    _line("  ✗  Nothing else. No camera data. No round history.", COL_YELLOW)
+    _line("     No location. No automatic tracking of any kind.", COL_YELLOW)
+    _gap()
+    _line("Data is sent to a private developer Discord channel.", COL_TEXT_DIM, 0.30)
+    _line("You can change this at any time in Settings > Privacy.", COL_TEXT_DIM, 0.30)
+
+    # Buttons
+    btn_y1 = _ix(h * 0.74)
+    btn_y2 = _ix(h * 0.88)
+    mid    = w // 2
+    gap    = _ix(w * 0.03)
+
+    # Accept button
+    ac_x1, ac_x2 = _ix(w*0.08), mid - gap
+    ac_col  = COL_GREEN if selected == 0 else (30, 60, 30)
+    ac_bdr  = COL_GREEN if selected == 0 else (40, 80, 40)
+    draw_panel(frame, ac_x1, btn_y1, ac_x2, btn_y2,
+               fill=ac_col if selected == 0 else (8, 18, 8),
+               alpha=0.92, border=ac_bdr, border_thickness=2)
+    draw_centered_text_in_rect(frame, "ACCEPT",
+        (ac_x1, btn_y1, ac_x2, btn_y2),
+        base_scale=0.55, color=(20, 20, 20) if selected == 0 else (60, 120, 60),
+        thickness=2, outline=1)
+    draw_centered_text_in_rect(frame, "Send crash reports + feedback",
+        (ac_x1, btn_y1 + _ix(h*0.055), ac_x2, btn_y2),
+        base_scale=0.26,
+        color=(10, 10, 10) if selected == 0 else (40, 80, 40),
+        thickness=1, outline=0)
+
+    # Decline button
+    dc_x1, dc_x2 = mid + gap, _ix(w*0.92)
+    dc_col  = (180, 80, 80) if selected == 1 else (8, 8, 18)
+    dc_bdr  = (200, 80, 80) if selected == 1 else (80, 40, 40)
+    draw_panel(frame, dc_x1, btn_y1, dc_x2, btn_y2,
+               fill=dc_col, alpha=0.92, border=dc_bdr, border_thickness=2)
+    draw_centered_text_in_rect(frame, "NO THANKS",
+        (dc_x1, btn_y1, dc_x2, btn_y2),
+        base_scale=0.55,
+        color=(20, 20, 20) if selected == 1 else (120, 60, 60),
+        thickness=2, outline=1)
+    draw_centered_text_in_rect(frame, "Save locally only",
+        (dc_x1, btn_y1 + _ix(h*0.055), dc_x2, btn_y2),
+        base_scale=0.26,
+        color=(10, 10, 10) if selected == 1 else (80, 40, 40),
+        thickness=1, outline=0)
+
+    draw_bottom_bar(frame,
+        "LEFT / RIGHT — choose  |  ENTER — confirm  |  TAB — switch")

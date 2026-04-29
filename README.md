@@ -80,6 +80,8 @@ Or open Command Prompt and run:
 curl -fsSL https://raw.githubusercontent.com/Zacccyyy/RPSRobot/main/install.py -o %USERPROFILE%\Downloads\install.py
 ```
 
+> `%USERPROFILE%` is Windows shorthand for your home folder, e.g. `C:\Users\YourName`
+
 ### Step 3 — Open Command Prompt
 
 Press `Win + R`, type `cmd`, press Enter.
@@ -195,6 +197,16 @@ Data saved to:
 
 ---
 
+## Player Feedback
+
+Players can submit feature suggestions and feedback from inside the app.
+
+Press **`N`** from the main menu to open the Notes screen. Type your suggestion
+and press **Enter** to submit. Each submission is saved as a timestamped `.txt`
+file to `Desktop/CapStone/feedback/` so the developer can review them.
+
+---
+
 ## Physical Robot Arm (Optional)
 
 If using the ESP32 microcontroller:
@@ -210,18 +222,32 @@ The app works fully without the robot arm.
 
 ## Data & Privacy
 
-All data is stored locally. Nothing is sent to any server except AI Commentary
-(optional, off by default) which sends round history to the Anthropic API.
+RPS Robot asks for your consent on first launch before sending any data
+outside your device. You can change your choice at any time in
+**Settings → Privacy Settings**.
+
+**If you accept:** crash reports and feedback you submit are sent to a
+private developer Discord channel to help improve the app.
+
+**If you decline:** everything stays on your device only. Nothing is sent.
+
+All data is stored locally at `Desktop/CapStone/`:
 
 ```
 Desktop/CapStone/
-├── fingerprints/               Hand geometry profiles
-├── profiles/                   Player game statistics
-├── simulations/                AI simulation results
+├── fingerprints/               Hand geometry profiles (local only)
+├── profiles/                   Player game statistics (local only)
+├── simulations/                AI simulation results (local only)
+├── feedback/                   Your submitted suggestions (local copy)
+├── crash_reports/              Crash reports (local copy)
 ├── challenge_research_log.xlsx
-├── player_research_log.xlsx
-└── crash_*.txt                 Crash reports (if any)
+└── player_research_log.xlsx
 ```
+
+**What is never collected:** camera data, gameplay video, location,
+hand scan biometrics, or any background tracking.
+
+For full details see [PRIVACY.md](PRIVACY.md).
 
 ---
 
@@ -262,7 +288,7 @@ Desktop/CapStone/
 - Python 3.9+
 - OpenCV 4.11 — camera capture and display
 - MediaPipe 0.10.21 — hand landmark detection (21 landmarks)
-- scikit-learn — SVM gesture classifier + hand biometrics
+- scikit-learn — MLP gesture classifier + SVM hand biometrics
 - Vosk — offline speech recognition
 - Anthropic Claude API — AI commentary
 - openpyxl — research data logging to Excel
@@ -272,10 +298,99 @@ Desktop/CapStone/
 
 ## Academic Attribution
 
-Developed as part of an undergraduate robotics engineering capstone project.
+This system was developed as part of an undergraduate robotics engineering
+capstone project. The following open-source projects, libraries, and research
+papers directly influenced the design and implementation.
 
-- Ghanbari et al. (2022). Hand geometry biometrics using MediaPipe. ICEE 2022.
-- Zhang et al. (2020). MediaPipe Hands: On-device Real-time Hand Tracking. arXiv.
+### Core Libraries
+
+| Library | Version | Use | Link |
+|---|---|---|---|
+| MediaPipe | 0.10.21 | 21-point hand landmark detection | [github.com/google/mediapipe](https://github.com/google/mediapipe) |
+| OpenCV | 4.11.0 | Camera capture, frame rendering, UI | [github.com/opencv/opencv](https://github.com/opencv/opencv) |
+| scikit-learn | Latest | MLP classifier, SVM biometrics | [github.com/scikit-learn/scikit-learn](https://github.com/scikit-learn/scikit-learn) |
+| Vosk | 0.3.45+ | Offline speech recognition | [github.com/alphacep/vosk-api](https://github.com/alphacep/vosk-api) |
+| Anthropic Python SDK | Latest | Claude API integration | [github.com/anthropics/anthropic-sdk-python](https://github.com/anthropics/anthropic-sdk-python) |
+| NumPy | 1.26.4 | Numerical computation | [github.com/numpy/numpy](https://github.com/numpy/numpy) |
+| openpyxl | Latest | Excel research data logging | [github.com/theorchard/openpyxl](https://github.com/theorchard/openpyxl) |
+| pyserial | Latest | ESP32 serial communication | [github.com/pyserial/pyserial](https://github.com/pyserial/pyserial) |
+
+### Gesture Recognition — GitHub Projects
+
+These open-source projects directly influenced the gesture classification pipeline.
+No code was directly copied — each project informed architectural and methodological decisions.
+
+- **Kazuhito00/hand-gesture-recognition-using-mediapipe** (2021)
+  The data collection workflow and keypoint normalisation strategy (translate to wrist origin, scale by palm size) directly inspired our landmark collection and front-on training system.
+  [github.com/Kazuhito00/hand-gesture-recognition-using-mediapipe](https://github.com/Kazuhito00/hand-gesture-recognition-using-mediapipe)
+
+- **andypotato/fingerpose** (2022)
+  The curl-state analysis approach (NoCurl / HalfCurl / FullCurl using PIP and DIP joint angles) was adopted from this library's published curl thresholds and integrated into our hybrid detection pipeline.
+  [github.com/andypotato/fingerpose](https://github.com/andypotato/fingerpose)
+
+- **AishTron7/Rock-Paper-Scissor** (2023)
+  Validated that SGD classifiers on MediaPipe landmarks can achieve 99.7% accuracy, informing our confidence threshold tuning.
+  [github.com/AishTron7/Rock-Paper-Scissor](https://github.com/AishTron7/Rock-Paper-Scissor)
+
+- **stefanluncanu24/RockPaperScissors-using-MediaPipe-Cv2** (2023)
+  XGBoost-based gesture recognition approach reviewed for comparison against our MLP architecture.
+  [github.com/stefanluncanu24/RockPaperScissors-using-MediaPipe-Cv2](https://github.com/stefanluncanu24/RockPaperScissors-using-MediaPipe-Cv2)
+
+- **ChetanNair/Rock-Paper-Scissors** (2023)
+  OpenCV and MediaPipe finger-counting approach reviewed during early gesture detection development.
+  [github.com/ChetanNair/Rock-Paper-Scissors](https://github.com/ChetanNair/Rock-Paper-Scissors)
+
+- **hjpulkki/RPS** (2020)
+  Deep learning approach using Keras RNN for gesture sequence modelling, reviewed for comparison.
+  [github.com/hjpulkki/RPS](https://github.com/hjpulkki/RPS)
+
+### AI Opponent — GitHub Projects
+
+These projects were reviewed as part of the adversarial AI literature survey.
+Our AI architecture differs from all of them by implementing intentional imperfection
+and personality-based play rather than pure win-maximisation.
+
+- **dmickelson/Rock-paper-scissors** (2023) — LSTM move prediction
+  [github.com/dmickelson/Rock-paper-scissors](https://github.com/dmickelson/Rock-paper-scissors)
+
+- **MattYu/Project---Predictive-Rock-Paper-Scissor-AI** (2020) — 15-scheme swarm mind with N-gram matching
+  [github.com/MattYu/Project---Predictive-Rock-Paper-Scissor-AI-](https://github.com/MattYu/Project---Predictive-Rock-Paper-Scissor-AI-)
+
+- **Asylumrunner/Rock-Paper-Scissors-AI** (2019) — Markov chain transition modelling
+  [github.com/Asylumrunner/Rock-Paper-Scissors-AI](https://github.com/Asylumrunner/Rock-Paper-Scissors-AI)
+
+- **wesleytian/roshambo-god** (2018) — Bayesian prediction
+  [github.com/wesleytian/roshambo-god](https://github.com/wesleytian/roshambo-god)
+
+- **goelp14/RockPaperScissors** (2021) — Markov Chain difficulty tiers
+  [github.com/goelp14/RockPaperScissors](https://github.com/goelp14/RockPaperScissors)
+
+- **wmodes/rock-paper-scissors** (2023) — Heuristic computer player strategies
+  [github.com/wmodes/rock-paper-scissors](https://github.com/wmodes/rock-paper-scissors)
+
+- **Raymond Hettinger — Pattern Recognition and Reinforcement Learning (PyCon 2019)**
+  Digraph-based prediction with strategy weighting.
+  [rhettinger.github.io/rock_paper.html](https://rhettinger.github.io/rock_paper.html)
+
+### Academic Papers
+
+- Zhang, H., et al. (2020). MediaPipe Hands: On-device Real-time Hand Tracking. *arXiv:2006.10214*
+
+- Ghanbari, A., et al. (2022). Hand geometry biometrics using MediaPipe landmark ratios. *ICEE 2022*
+
+- Zhang, Y., Moisan, E., & Gonzalez, C. (2021). Heterogeneous cycle-based behaviours in sequential RPS. *Cognitive Science*
+
+- Brockbank, E., & Vul, E. (2021). Failure to randomise against adaptive opponents. *Psychological Science*
+
+- Qi, J., et al. (2021). A review of vision-based hand gesture recognition for HRI. *Complex & Intelligent Systems*
+
+- Ahmad, T., et al. (2021). MLP classifiers on MediaPipe landmarks for gesture recognition. *IEEE Access*
+
+- Amprimo, G., et al. (2022). MediaPipe hand tracking accuracy for clinical applications. *IEEE CBMS*
+
+- Zohaib, M., & Nakanishi, J. (2020). Diversifying DDA agents via player state modelling. *IEEE ToG*
+
+- Dyson, B.J., et al. (2016). Negative outcomes evoke cyclic decisions in RPS. *Nature Scientific Reports*
 
 ---
 
