@@ -811,7 +811,7 @@ def start_game(app_state, mode=None, from_category=False):
                 loaded = store.load_ai_state(player_name, ctrl.ai)
                 if loaded:
                     print(f"[AI] Restored learned model for {player_name} in {ctrl_key}")
-                    break  # only need to load once — they share the same pattern
+                    break  # only need to load once  -  they share the same pattern
 
     print(f"Play mode: {app_state['play_mode']}")
     print(f"Display mode: {app_state['display_mode']}")
@@ -1931,7 +1931,7 @@ def apply_setting_change(app_state, direction):
 def _launch_rpsls(app_state, from_category=False, diagnostic=False):
     """
     Launch RPSLS with a side-mode notice.
-    Always forces hand_orientation to 'Side' — front-on detection is unreliable
+    Always forces hand_orientation to 'Side'  -  front-on detection is unreliable
     for Lizard and Spock.  Shows a one-time notice screen before the game starts.
     """
     # Force Side orientation for RPSLS
@@ -2409,7 +2409,7 @@ def activate_settings_item(app_state):
                 player_name=player, store=store)
             app_state["app_screen"] = "FP_ENROLL"
         else:
-            print("[Fingerprint] No player name set — cannot enroll.")
+            print("[Fingerprint] No player name set  -  cannot enroll.")
     elif item["key"] == "__switch_player__":
         app_state["_login_text"] = ""
         app_state["_login_mode"] = "type"
@@ -2545,7 +2545,7 @@ def handle_settings_key(app_state, key):
 def run():
     app_state = build_app_state()
 
-    # Check for updates silently in background — won't slow startup
+    # Check for updates silently in background  -  won't slow startup
     auto_updater.check_in_background()
 
     cap = cv2.VideoCapture(0)
@@ -2741,7 +2741,7 @@ def run():
                 # --- Sound effects ---
                 _dispatch_sounds(app_state, game_state)
 
-                # Modes that don't use RPS round mechanics — skip all the
+                # Modes that don't use RPS round mechanics  -  skip all the
                 # round-result bookkeeping, profile recording, flash/streak,
                 # commentary, voice dispatch, and session summary entirely.
                 _is_rps_mode = _mode not in (
@@ -2822,7 +2822,7 @@ def run():
                                 if hasattr(controller, "inject_voice_throw"):
                                     controller.inject_voice_throw(event["gesture"])
 
-                    # Tracker reset — clears countdown Rock so it doesn't
+                    # Tracker reset  -  clears countdown Rock so it doesn't
                     # contaminate the SHOOT throw.
                     if game_state.get("request_tracker_reset"):
                         app_state["tracker"].clear_for_new_throw()
@@ -2841,7 +2841,7 @@ def run():
                 # --- Record round to player profile (RPS modes only) ---
                 # Emotion is captured at the END of the ROUND_RESULT display.
                 # Non-RPS modes (Snake, Rehab, Squid, Reflex, Simon) don't
-                # produce gesture vs gesture round records — skip entirely.
+                # produce gesture vs gesture round records  -  skip entirely.
                 player_name = app_state["config"].get("player_name", "").strip()
                 if player_name and _is_rps_mode:
                     gs_state = game_state.get("state")
@@ -3071,7 +3071,7 @@ def run():
                 if commentary_line:
                     _h = frame.shape[0]
                     _w = frame.shape[1]
-                    # Position above the bottom bar — bottom bar is ~8% from bottom
+                    # Position above the bottom bar  -  bottom bar is ~8% from bottom
                     strip_y1 = _h - _ix(_h * 0.16)
                     strip_y2 = _h - _ix(_h * 0.09)
                     # Dark semi-transparent strip
@@ -3094,9 +3094,9 @@ def run():
                 # ── Voice status badge (non-RPS game modes) ─────────────────
                 # RPS modes have voice UI built into draw_game_mode_view.
                 # Non-RPS modes get a compact badge: mic status + mode hint.
-                # Positioned below the top bar (9%–18% height, right-aligned)
-                # except Squid Game which has a full-width banner at 0–13%,
-                # so its badge drops to 14%–23%.
+                # Positioned below the top bar (9% - 18% height, right-aligned)
+                # except Squid Game which has a full-width banner at 0 - 13%,
+                # so its badge drops to 14% - 23%.
                 if (app_state.get("voice_mode_active") and not _is_rps_mode):
                     from ui_base import _ix as _ix
                     _vw = frame.shape[1]
@@ -3107,14 +3107,14 @@ def run():
                     # Badge text: mic indicator + last heard word
                     _badge = (f"MIC  {_lw.upper()}" if _lw else "MIC  ON")
 
-                    # Per-mode hint line — what can actually be said
+                    # Per-mode hint line  -  what can actually be said
                     _voice_hints = {
                         "GestureRehab":    "SAY: START  BACK  QUIT",
                         "ReflexSolo":      "SAY: RESTART  BACK  QUIT",
                         "SimonSaysSolo":   "SAY: BACK  QUIT",
                         "SquidGame":       "SAY: BACK  QUIT",
                         "ArcadeSnake":     "GESTURE ONLY  |  BACK = ESC key",
-                        # Two-player — voice not useful, show disclaimer
+                        # Two-player  -  voice not useful, show disclaimer
                         "ReflexTwoPlayer": "VOICE N/A  (2P hands needed)",
                         "SimonSays2P":     "VOICE N/A  (2P hands needed)",
                         "SquidGame2P":     "VOICE N/A  (2P hands needed)",
@@ -3130,7 +3130,7 @@ def run():
                     _bh  = _by2 - _by1
                     _bw  = _bx2 - _bx1
 
-                    # Only draw if badge fits — skip at very low resolutions
+                    # Only draw if badge fits  -  skip at very low resolutions
                     if _bw > 60 and _bh > 20:
                         # Semi-transparent dark panel
                         _ov = frame.copy()
@@ -3248,7 +3248,7 @@ def run():
 
                 if _notice_hand:
                     # process_hand_frame returns raw hand state (not tracker state).
-                    # Use raw_gesture directly — dwell timer provides the stability.
+                    # Use raw_gesture directly  -  dwell timer provides the stability.
                     _notice_raw  = _notice_hand.get("raw_gesture", "Unknown")
                     _notice_cur  = _notice_raw if _notice_raw in (
                         "Rock", "Paper", "Scissors", "Spock", "Lizard") else "Unknown"
@@ -3256,17 +3256,17 @@ def run():
                     _now_t = time.monotonic()
                     if _notice_cur != "Unknown" and _notice_cur not in _ticked:
                         if _notice_cur == _dwell_g:
-                            # Same gesture — check if dwell time elapsed
+                            # Same gesture  -  check if dwell time elapsed
                             if _now_t - _dwell_t >= _DWELL_SECS:
                                 _ticked.add(_notice_cur)
                                 app_state["_rpsls_dwell_gesture"] = None
                                 app_state["_rpsls_dwell_since"]   = 0.0
                         else:
-                            # New gesture — start dwell timer
+                            # New gesture  -  start dwell timer
                             app_state["_rpsls_dwell_gesture"] = _notice_cur
                             app_state["_rpsls_dwell_since"]   = _now_t
                     elif _notice_cur == "Unknown":
-                        # No valid gesture — reset dwell
+                        # No valid gesture  -  reset dwell
                         app_state["_rpsls_dwell_gesture"] = None
                         app_state["_rpsls_dwell_since"]   = 0.0
 
@@ -3596,7 +3596,7 @@ def run():
                 if result == "quit":
                     finalize_active_challenge_run(app_state, status="abandoned")
                     break
-                # U key — apply update if one is available
+                # U key  -  apply update if one is available
                 if key in (ord("u"), ord("U")):
                     if auto_updater.get_state()["status"] == "update_available":
                         auto_updater.apply_and_restart(
@@ -3604,7 +3604,7 @@ def run():
                                 {"collector_message": f"Update failed: {msg[:60]}"}
                             )
                         )
-                # N key — open player notes/feedback screen
+                # N key  -  open player notes/feedback screen
                 if key in (ord("n"), ord("N")):
                     app_state["_notes_text"]       = ""
                     app_state["_notes_submitted"]  = False

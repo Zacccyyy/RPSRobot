@@ -709,7 +709,7 @@ def draw_game_category_screen(frame, categories, category_index, mode_index,
         base_scale=0.52, color=COL_CYAN, thickness=2, outline=3)
 
     n_cats       = len(categories)
-    VISIBLE_CATS = 6   # how many rows visible at once — matches original sizing
+    VISIBLE_CATS = 6   # how many rows visible at once  -  matches original sizing
     cat_area_top = py1 + _ix(ph * 0.14)
     item_h       = _ix(ph * 0.78 / VISIBLE_CATS)   # fixed height regardless of total count
     bar_half     = min(_ix(h * 0.016), item_h // 2 - 3)
@@ -1881,7 +1881,7 @@ def draw_gesture_nav_overlay(frame, cursor_info):
 
 def draw_login_screen(frame, login_text="", saved_name="", verified_players=None):
     """
-    Login screen — shown on first launch or when switching player.
+    Login screen  -  shown on first launch or when switching player.
 
     - If saved_name is set: shows "Continue as <name>" option
     - If verified_players exist: shows "Login via Fingerprint" option
@@ -2076,7 +2076,7 @@ def draw_hardware_test_view(frame, diag_state):
     ly += _ix(h * 0.04)
 
     if not available:
-        draw_outlined_text(frame, "  (none found — is ESP32 plugged in?)",
+        draw_outlined_text(frame, "  (none found  -  is ESP32 plugged in?)",
                            lx1 + pad, ly, 0.32, (180, 100, 60),
                            thickness=1, outline=1)
         ly += _ix(h * 0.04)
@@ -2236,7 +2236,7 @@ def draw_notes_screen(frame, text_buffer, submitted=False, saved_path=""):
         draw_centered_text_in_rect(frame, "Press any key to return to menu",
             (0, _ix(h*0.65), w, _ix(h*0.73)),
             base_scale=0.38, color=COL_TEXT_DIM, thickness=1, outline=2)
-        draw_bottom_bar(frame, "Any key — return to menu")
+        draw_bottom_bar(frame, "Any key  -  return to menu")
         return
 
     # Instruction
@@ -2304,7 +2304,7 @@ def draw_notes_screen(frame, text_buffer, submitted=False, saved_path=""):
         (0, _ix(h*0.74), w, _ix(h*0.81)),
         base_scale=0.34, color=COL_TEXT_DIM, thickness=1, outline=1)
 
-    draw_bottom_bar(frame, "ENTER — Submit feedback  |  ESC — Cancel")
+    draw_bottom_bar(frame, "ENTER  -  Submit feedback  |  ESC  -  Cancel")
 
 
 # ============================================================
@@ -2355,14 +2355,14 @@ def draw_consent_screen(frame, selected=0):
 
     _line("To help improve RPS Robot, the app can send:", COL_TEXT_ACCENT, 0.36)
     _gap()
-    _line("  ✓  Crash reports — if the app stops unexpectedly", (100, 200, 100))
+    _line("  [+]  Crash reports  -  if the app stops unexpectedly", (100, 200, 100))
     _line("     (includes: error message, OS, Python version,", COL_TEXT_DIM, 0.30)
-    _line("      app version number — NO gameplay or video data)", COL_TEXT_DIM, 0.30)
+    _line("      app version number  -  NO gameplay or video data)", COL_TEXT_DIM, 0.30)
     _gap()
-    _line("  ✓  Feedback you choose to write — only when you", (100, 200, 100))
+    _line("  [+]  Feedback you choose to write  -  only when you", (100, 200, 100))
     _line("     press ENTER to submit a note from the menu", COL_TEXT_DIM, 0.30)
     _gap()
-    _line("  ✗  Nothing else. No camera data. No round history.", COL_YELLOW)
+    _line("  [x]  Nothing else. No camera data. No round history.", COL_YELLOW)
     _line("     No location. No automatic tracking of any kind.", COL_YELLOW)
     _gap()
     _line("Data is sent to a private developer Discord channel.", COL_TEXT_DIM, 0.30)
@@ -2409,4 +2409,4 @@ def draw_consent_screen(frame, selected=0):
         thickness=1, outline=0)
 
     draw_bottom_bar(frame,
-        "LEFT / RIGHT — choose  |  ENTER — confirm  |  TAB — switch")
+        "LEFT / RIGHT  -  choose  |  ENTER  -  confirm  |  TAB  -  switch")

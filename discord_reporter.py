@@ -2,7 +2,7 @@
 discord_reporter.py
 ===================
 Sends crash reports and player feedback to a private Discord channel
-via webhook. This is the developer's channel — players never see it.
+via webhook. This is the developer's channel  -  players never see it.
 
 The DEFAULT_WEBHOOK_URL is hardcoded so all users' reports reach the
 developer automatically. The config can override it with a custom URL
@@ -27,7 +27,7 @@ import threading
 import urllib.request
 import urllib.error
 
-# ── Hardcoded default webhook (Option A) ─────────────────────────────────────
+# -- Hardcoded default webhook (Option A) -------------------------------------
 # Replace this URL with your actual Discord webhook URL.
 # All users send to this channel automatically if they accept the privacy notice.
 # To get a webhook URL:
@@ -78,13 +78,13 @@ def _post(webhook_url: str, content: str) -> bool:
 def send_crash_report(config_url: str, report: str) -> None:
     """
     Send a crash report to Discord in a background thread.
-    Fire-and-forget — never blocks the main process.
+    Fire-and-forget  -  never blocks the main process.
     """
     url = _resolve_url(config_url)
     if not url:
         return
 
-    message = f"🔴 CRASH REPORT\n{'─' * 40}\n{report}"
+    message = f"[CRASH REPORT]\n{'-' * 40}\n{report}"
     threading.Thread(
         target=_post, args=(url, message),
         daemon=True, name="CrashReporter"
@@ -95,7 +95,7 @@ def send_feedback(config_url: str, player: str, text: str,
                   version: str = "") -> None:
     """
     Send player feedback to Discord in a background thread.
-    Fire-and-forget — never blocks the main process.
+    Fire-and-forget  -  never blocks the main process.
     """
     url = _resolve_url(config_url)
     if not url:
@@ -103,8 +103,8 @@ def send_feedback(config_url: str, player: str, text: str,
 
     ver     = version[:7] if version else "unknown"
     message = (
-        f"💬 PLAYER FEEDBACK\n"
-        f"{'─' * 40}\n"
+        f"[PLAYER FEEDBACK]\n"
+        f"{'-' * 40}\n"
         f"Player:  {player}\n"
         f"Version: {ver}\n"
         f"\n"

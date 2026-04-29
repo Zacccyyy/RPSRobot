@@ -5,9 +5,9 @@ Manages the player's consent preference for sending crash reports
 and feedback to the developer via Discord webhook.
 
 Consent is stored in config.json under "analytics_consent":
-    None    — not yet asked (show consent screen on next launch)
-    True    — player accepted (send crash reports + feedback)
-    False   — player declined (save locally only, never send)
+    None     -  not yet asked (show consent screen on next launch)
+    True     -  player accepted (send crash reports + feedback)
+    False    -  player declined (save locally only, never send)
 
 The consent screen is shown ONCE on first launch, before the player
 enters their name. It can be revisited and changed at any time from
@@ -62,5 +62,5 @@ def consent_summary(config: dict) -> str:
     if needs_consent_prompt(config):
         return "Not yet asked"
     if has_consent(config):
-        return "Accepted — crash reports and feedback sent to developer"
-    return "Declined — data saved locally only"
+        return "Accepted  -  crash reports and feedback sent to developer"
+    return "Declined  -  data saved locally only"
