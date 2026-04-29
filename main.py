@@ -2481,6 +2481,10 @@ def handle_settings_key(app_state, key):
             # Mark first run done once any name is confirmed
             if item["key"] == "player_name" and val:
                 app_state["config"]["first_run_complete"] = True
+                # Ensure a profile exists for the new name
+                app_state["profile_store"].get_or_create_profile(val)
+                # Refresh player stats so they reflect the new name immediately
+                open_player_stats(app_state)
             save_config(app_state["config"])
             app_state["_settings_text_edit"] = False
         elif key == 8 or key == 127:  # backspace
@@ -3780,8 +3784,7 @@ def run():
                             save_config(app_state["config"])
                             # Load or create profile
                             ps = app_state["profile_store"]
-                            if not ps.load_profile(name):
-                                ps.create_profile(name)
+                            ps.get_or_create_profile(name)
                             open_menu(app_state)
                     elif 32 <= key <= 126:  # printable ASCII
                         if len(app_state["_login_text"]) < 20:
