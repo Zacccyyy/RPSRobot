@@ -3640,12 +3640,14 @@ def run():
                         elif app_state["app_screen"] == "TUTORIAL" and app_state.get("tutorial_voice_mode"):
                             handle_voice_tutorial_event(app_state, event)
 
-            if key == ord("q"):
+            _on_notes = app_state["app_screen"] == "NOTES"
+
+            if key == ord("q") and not _on_notes:
                 finalize_active_challenge_run(app_state, status="abandoned")
                 break
 
-            # SPACE - toggle idle mode from any screen
-            if key == ord(" "):
+            # SPACE - toggle idle mode from any screen except NOTES
+            if key == ord(" ") and not _on_notes:
                 _idle = not _idle
                 print(f"[Idle] {'Paused' if _idle else 'Resumed'} via SPACE")
 
