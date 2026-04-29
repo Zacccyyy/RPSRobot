@@ -2560,9 +2560,59 @@ def run():
 
     cv2.namedWindow(WINDOW_NAME)
 
+    # Idle mode: suspends all processing to save CPU/battery.
+    # Zero overhead - no OS calls, no subprocesses, no polling.
+    # SPACE key toggles manually. Minimise auto-triggers via WND_PROP_VISIBLE.
+    # While idle: one cap.read() per 200ms, everything else skipped.
+    _idle       = False
+    _idle_frame = None   # last rendered frame, shown frozen during idle
+
     with create_hands_detector() as hands, create_nav_detector() as nav_hands:
         _nav_skip_tick = 0   # throttle nav gesture processing on menu screens
         while True:
+            _loop_now = time.monotonic()
+
+            # Minimise detection - single integer property read, zero cost
+            try:
+                if cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1:
+                    if not _idle:
+                        _idle = True
+                        print("[Idle] Window minimised - processing suspended")
+            except Exception:
+                pass
+
+            # SPACE key (handled below in key section) sets _idle = True/False
+            # Idle block: frozen frame + overlay, 5fps, skip all game logic
+            if _idle:
+                if _idle_frame is not None:
+                    _disp    = _idle_frame.copy()
+                    _ih, _iw = _disp.shape[:2]
+                    _overlay = _disp.copy()
+                    cv2.rectangle(_overlay, (0, 0), (_iw, _ih), (0, 0, 0), -1)
+                    cv2.addWeighted(_overlay, 0.60, _disp, 0.40, 0, _disp)
+                    _msg = "PAUSED  -  press SPACE to resume"
+                    _tw  = cv2.getTextSize(_msg, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)[0][0]
+                    _tx, _ty = (_iw - _tw) // 2, _ih // 2
+                    cv2.putText(_disp, _msg, (_tx+1, _ty+1),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0,0,0), 3, cv2.LINE_AA)
+                    cv2.putText(_disp, _msg, (_tx, _ty),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.55, (100,180,200), 2, cv2.LINE_AA)
+                    _sub = "All processing paused  -  game state preserved"
+                    _sw  = cv2.getTextSize(_sub, cv2.FONT_HERSHEY_SIMPLEX, 0.35, 1)[0][0]
+                    cv2.putText(_disp, _sub, ((_iw-_sw)//2+1, _ty+30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0,0,0), 2, cv2.LINE_AA)
+                    cv2.putText(_disp, _sub, ((_iw-_sw)//2, _ty+29),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.35, (70,110,130), 1, cv2.LINE_AA)
+                    cv2.imshow(WINDOW_NAME, _disp)
+                key = cv2.waitKey(200) & 0xFF
+                if key == ord(" "):
+                    _idle = False
+                    print("[Idle] Resumed via SPACE")
+                elif key == ord("q"):
+                    finalize_active_challenge_run(app_state, status="abandoned")
+                    break
+                continue   # skip all game logic
+
             ret, frame = cap.read()
             if not ret:
                 print("Could not read frame.")
@@ -3565,6 +3615,7 @@ def run():
                 )
                 draw_emotion_debug(frame, debug_info)
 
+            _idle_frame = frame.copy()   # save for idle overlay
             cv2.imshow(WINDOW_NAME, frame)
 
             key = cv2.waitKey(1) & 0xFF
@@ -3592,6 +3643,11 @@ def run():
             if key == ord("q"):
                 finalize_active_challenge_run(app_state, status="abandoned")
                 break
+
+            # SPACE - toggle idle mode from any screen
+            if key == ord(" "):
+                _idle = not _idle
+                print(f"[Idle] {'Paused' if _idle else 'Resumed'} via SPACE")
 
             if app_state["app_screen"] == "MENU":
                 result = handle_menu_key(app_state, key)
