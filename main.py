@@ -3788,14 +3788,16 @@ def run():
                         elif app_state["app_screen"] == "TUTORIAL" and app_state.get("tutorial_voice_mode"):
                             handle_voice_tutorial_event(app_state, event)
 
-            _on_notes = app_state["app_screen"] == "NOTES"
+            _on_notes       = app_state["app_screen"] == "NOTES"
+            _on_calibration = app_state["app_screen"] == "CALIBRATION"
+            _block_globals  = _on_notes or _on_calibration
 
-            if key == ord("q") and not _on_notes:
+            if key == ord("q") and not _block_globals:
                 finalize_active_challenge_run(app_state, status="abandoned")
                 break
 
-            # SPACE - toggle idle mode from any screen except NOTES
-            if key == ord(" ") and not _on_notes:
+            # SPACE - toggle idle mode from any screen except NOTES and CALIBRATION
+            if key == ord(" ") and not _block_globals:
                 _idle = not _idle
                 print(f"[Idle] {'Paused' if _idle else 'Resumed'} via SPACE")
 
