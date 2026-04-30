@@ -43,17 +43,17 @@ VOSK_MODEL    = "vosk-model-small-en-us-0.15"
 VOSK_URL      = f"https://alphacephei.com/vosk/models/{VOSK_MODEL}.zip"
 
 PACKAGES = [
-    ("NumPy",            "numpy==1.26.4"),
-    ("OpenCV",           "opencv-python==4.11.0.86"),
-    ("MediaPipe",        "mediapipe==0.10.21"),
-    ("scikit-learn",     "scikit-learn"),
-    ("openpyxl",         "openpyxl"),
-    ("Pillow",           "Pillow"),
-    ("Vosk (speech)",    "vosk"),
-    ("pyserial (ESP32)", "pyserial"),
-    ("Anthropic (AI)",   "anthropic"),
-    ("urllib3",          "urllib3"),
-    ("Sentry (reporting)", "sentry-sdk>=2.0.0"),
+    ("NumPy",             "numpy>=1.26.4,<2.0"),
+    ("OpenCV",            "opencv-python>=4.8.0"),
+    ("MediaPipe",         "mediapipe>=0.10.9"),
+    ("scikit-learn",      "scikit-learn>=1.3.0"),
+    ("openpyxl",          "openpyxl>=3.1.0"),
+    ("Pillow",            "Pillow>=10.0.0"),
+    ("Vosk (speech)",     "vosk>=0.3.45"),
+    ("pyserial (ESP32)",  "pyserial>=3.5"),
+    ("Anthropic (AI)",    "anthropic>=0.25.0"),
+    ("urllib3",           "urllib3>=2.0.0"),
+    ("Sentry (reporting)","sentry-sdk>=2.0.0"),
 ]
 
 # ── Platform ──────────────────────────────────────────────────────────────────
@@ -132,6 +132,72 @@ def print_banner():
 
 # ── Step 1: System check ──────────────────────────────────────────────────────
 
+def _install_python312_windows():
+    """
+    Install Python 3.12 on Windows via winget and re-launch this installer
+    using the newly installed Python 3.12.
+    """
+    # Try to find Python 3.12 already installed first
+    for candidate in ["py", "python3.12", "python"]:
+        try:
+            result = subprocess.run(
+                [candidate, "-c",
+                 "import sys; v=sys.version_info; print(v.major,v.minor)"],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                parts = result.stdout.strip().split()
+                if len(parts) == 2 and int(parts[0]) == 3 and int(parts[1]) == 12:
+                    py312 = shutil.which(candidate)
+                    if py312:
+                        info(f"Found Python 3.12 at {py312} - relaunching...")
+                        os.execv(py312, [py312] + sys.argv)
+        except Exception:
+            continue
+
+    # Not found - install via winget
+    if command_exists("winget"):
+        info("Installing Python 3.12 via winget...")
+        try:
+            run(["winget", "install", "--id", "Python.Python.3.12",
+                 "-e", "--source", "winget",
+                 "--accept-package-agreements",
+                 "--accept-source-agreements"])
+            ok("Python 3.12 installed")
+        except Exception as e:
+            fail(f"Could not install Python 3.12 automatically: {e}")
+            fail("Please install Python 3.12 manually from:")
+            fail("  https://www.python.org/downloads/release/python-3129/")
+            fail("Make sure to tick 'Add Python to PATH' during install.")
+            fail("Then re-run:  python install.py")
+            sys.exit(1)
+    else:
+        fail("Cannot install Python 3.12 automatically (winget not available).")
+        fail("Please install Python 3.12 from:")
+        fail("  https://www.python.org/downloads/release/python-3129/")
+        fail("Make sure to tick 'Add Python to PATH' during install.")
+        fail("Then re-run:  python install.py")
+        sys.exit(1)
+
+    # Find and re-launch with Python 3.12
+    py312_paths = [
+        r"C:\Users\{}\AppData\Local\Programs\Python\Python312\python.exe".format(
+            os.environ.get("USERNAME", "user")),
+        r"C:\Program Files\Python312\python.exe",
+    ]
+    for p in py312_paths:
+        if pathlib.Path(p).exists():
+            info(f"Relaunching installer with Python 3.12...")
+            print()
+            os.execv(p, [p] + sys.argv)
+
+    # If we can't find it, ask user to rerun manually
+    warn("Python 3.12 installed. Please close this window and run:")
+    warn("  python install.py")
+    warn("(Python 3.12 will be used automatically)")
+    sys.exit(0)
+
+
 def check_system():
     step("Step 1 — Checking system requirements")
 
@@ -154,13 +220,27 @@ def check_system():
     else:
         ok(f"Linux ({platform.release()})")
 
-    # Python version
+    # Python version check
+    # MediaPipe only supports Python 3.9 - 3.12.
+    # Python 3.13+ breaks MediaPipe due to ABI changes in CPython.
     py = sys.version_info
     if py < (3, 9):
         fail(f"Python {py.major}.{py.minor} detected. Python 3.9+ is required.")
         fail("Download from https://www.python.org/downloads/")
         sys.exit(1)
-    ok(f"Python {py.major}.{py.minor}.{py.micro}")
+    elif py >= (3, 13):
+        warn(f"Python {py.major}.{py.minor} detected.")
+        warn("MediaPipe does not support Python 3.13 or later yet.")
+        warn("Python 3.12 is required. Installing it now...")
+        print()
+        if IS_WIN:
+            _install_python312_windows()
+        else:
+            fail("Please install Python 3.12 from https://www.python.org/downloads/")
+            fail("Then re-run this installer using:  python3.12 install.py")
+            sys.exit(1)
+    else:
+        ok(f"Python {py.major}.{py.minor}.{py.micro} (compatible)")
 
     info("A webcam is required. Built-in or USB webcam both work.")
     print()
