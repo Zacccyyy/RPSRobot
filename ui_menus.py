@@ -2510,7 +2510,7 @@ def draw_calibration_view(frame, cal_state, hand_state=None):
                border=(4,6,16), border_thickness=0)
 
     draw_top_bar(frame, "GESTURE CALIBRATION",
-                 "Recommended for best accuracy  |  ESC to skip")
+                 "Recommended for best accuracy  |  ESC to skip  |  U to update")
 
     # ── INTRO ────────────────────────────────────────────────────────────
     if phase == "INTRO":
@@ -2529,9 +2529,9 @@ def draw_calibration_view(frame, cal_state, hand_state=None):
                    COL_TEXT_ACCENT, 0.36),
             (0.18, "This takes about 1 minute and only happens once.", COL_TEXT_DIM, 0.32),
             (0.30, "You will be asked to show:", COL_TEXT_ACCENT, 0.36),
-            (0.40, "  Rock  -  15 samples", (100, 200, 120), 0.34),
-            (0.48, "  Paper  -  15 samples", (100, 200, 120), 0.34),
-            (0.56, "  Scissors  -  15 samples", (100, 200, 120), 0.34),
+            (0.40, "  Rock  -  20 samples", (100, 200, 120), 0.34),
+            (0.48, "  Paper  -  20 samples", (100, 200, 120), 0.34),
+            (0.56, "  Scissors  -  20 samples", (100, 200, 120), 0.34),
             (0.68, "Press SPACE each time to capture a frame.", COL_TEXT_ACCENT, 0.34),
             (0.78, "Make sure your hand is clearly visible.", COL_TEXT_DIM, 0.30),
         ]

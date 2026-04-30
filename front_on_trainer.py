@@ -19,7 +19,13 @@ import numpy as np
 from pathlib import Path
 
 
-MODEL_DIR = Path.home() / "Desktop" / "CapStone"
+try:
+    from capstone_paths import CAPSTONE_DIR as MODEL_DIR
+except ImportError:
+    import sys as _sys
+    MODEL_DIR = (Path.home() / "Desktop" / "CapStone"
+                 if _sys.platform == "darwin"
+                 else Path.home() / "CapStone")
 CSV_PATH = MODEL_DIR / "front_on_training_data.csv"
 MODEL_PATH = MODEL_DIR / "front_on_gesture_model.pkl"
 
@@ -79,21 +85,21 @@ def train_and_save():
         print(f"  {INT_TO_LABEL[u]}: {c}")
 
     min_count = min(counts)
-    if min_count < 10:
-        print(f"[Trainer] WARNING: Need at least 10 samples per gesture. "
-              f"Smallest class has {min_count}.")
-        if min_count < 3:
-            print("[Trainer] Not enough data to train. Collect more samples.")
-            return None
+    if min_count < 5:
+        print(f"[Trainer] Not enough data to train. Need at least 5 per gesture, "
+              f"smallest class has {min_count}.")
+        return None
 
     # Small MLP — fast to train, plenty for 3-class on 42 features.
+    # Disable early_stopping for small datasets (needs enough for validation split)
+    use_early_stopping = len(X) >= 60
     model = MLPClassifier(
         hidden_layer_sizes=(64, 32),
         activation="relu",
-        max_iter=500,
+        max_iter=1000,
         random_state=42,
-        early_stopping=True,
-        validation_fraction=0.15,
+        early_stopping=use_early_stopping,
+        validation_fraction=0.15 if use_early_stopping else 0.0,
     )
 
     # Cross-validation if enough data.

@@ -3802,19 +3802,20 @@ def run():
                 _idle = not _idle
                 print(f"[Idle] {'Paused' if _idle else 'Resumed'} via SPACE")
 
+            # U key - apply update from ANY screen (so users never get stuck)
+            if key in (ord("u"), ord("U")):
+                if auto_updater.get_state()["status"] == "update_available":
+                    auto_updater.apply_and_restart(
+                        on_error=lambda msg: app_state.update(
+                            {"collector_message": f"Update failed: {msg[:60]}"}
+                        )
+                    )
+
             if app_state["app_screen"] == "MENU":
                 result = handle_menu_key(app_state, key)
                 if result == "quit":
                     finalize_active_challenge_run(app_state, status="abandoned")
                     break
-                # U key  -  apply update if one is available
-                if key in (ord("u"), ord("U")):
-                    if auto_updater.get_state()["status"] == "update_available":
-                        auto_updater.apply_and_restart(
-                            on_error=lambda msg: app_state.update(
-                                {"collector_message": f"Update failed: {msg[:60]}"}
-                            )
-                        )
                 # N key  -  open player notes/feedback screen
                 if key in (ord("n"), ord("N")):
                     app_state["_notes_text"]        = ""

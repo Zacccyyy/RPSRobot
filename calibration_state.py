@@ -31,7 +31,7 @@ except ImportError:
                     else Path.home() / "CapStone")
 
 # How many samples needed per gesture
-SAMPLES_PER_GESTURE = 15
+SAMPLES_PER_GESTURE = 20
 GESTURES            = ["Rock", "Paper", "Scissors"]
 
 # Instructions shown for each gesture
