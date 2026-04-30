@@ -4,6 +4,7 @@ import sys
 import subprocess
 import threading
 import pathlib
+import shutil
 import queue as _queue
 import cv2
 import auto_updater
@@ -2559,23 +2560,118 @@ def handle_settings_key(app_state, key):
 
 
 def _set_app_icon():
-    """Set the app icon in the Dock (macOS) and taskbar (Windows)."""
-    icon_path = pathlib.Path(__file__).parent / "TheRPSRobot.png"
-    if not icon_path.exists():
+    """
+    Set the app icon everywhere it appears.
+    Runs on every launch so updates automatically apply the icon too.
+      - macOS: Dock icon (AppKit) + .command file icon (osascript)
+      - Windows: .lnk shortcut icon (PowerShell)
+    All failures are silent - icon is purely cosmetic.
+    """
+    icon_png = pathlib.Path(__file__).parent / "TheRPSRobot.png"
+    if not icon_png.exists():
         return
-    try:
-        if sys.platform == "darwin":
-            # Set Dock icon using AppKit via PyObjC (included with macOS Python)
+
+    # ── macOS ──────────────────────────────────────────────────────────
+    if sys.platform == "darwin":
+        # 1. Dock icon while app is running
+        try:
             from AppKit import NSApplication, NSImage
-            img = NSImage.alloc().initWithContentsOfFile_(str(icon_path))
+            img = NSImage.alloc().initWithContentsOfFile_(str(icon_png))
             if img:
                 NSApplication.sharedApplication().setApplicationIconImage_(img)
-        elif sys.platform == "win32":
-            # Set window icon via OpenCV on Windows
-            # This runs after namedWindow is created
-            pass   # handled in cv2 window setup below
-    except Exception:
-        pass   # silently skip - icon is cosmetic
+        except Exception:
+            pass
+
+        # 2. .command launcher icon on Desktop
+        try:
+            import subprocess as _sp
+            desktop  = pathlib.Path.home() / "Desktop"
+            launcher = desktop / "Launch RPS Robot.command"
+            icns     = pathlib.Path(__file__).parent / "TheRPSRobot.icns"
+
+            # Build .icns if not present
+            if not icns.exists():
+                iconset = pathlib.Path(__file__).parent / "TheRPSRobot.iconset"
+                iconset.mkdir(exist_ok=True)
+                from PIL import Image as _Img
+                sizes = {
+                    "icon_16x16.png": 16, "icon_16x16@2x.png": 32,
+                    "icon_32x32.png": 32, "icon_32x32@2x.png": 64,
+                    "icon_128x128.png": 128, "icon_128x128@2x.png": 256,
+                    "icon_256x256.png": 256, "icon_256x256@2x.png": 512,
+                    "icon_512x512.png": 512, "icon_512x512@2x.png": 1024,
+                }
+                src = _Img.open(icon_png).convert("RGBA")
+                for fname, sz in sizes.items():
+                    src.resize((sz, sz), _Img.LANCZOS).save(iconset / fname)
+                _sp.run(["iconutil", "-c", "icns", str(iconset),
+                         "-o", str(icns)], capture_output=True)
+                import shutil as _sh
+                _sh.rmtree(iconset, ignore_errors=True)
+
+            # Apply icon to launcher file
+            if icns.exists() and launcher.exists():
+                if shutil.which("fileicon"):
+                    _sp.run(["fileicon", "set", str(launcher), str(icns)],
+                            capture_output=True)
+                else:
+                    _sp.run(["osascript", "-l", "JavaScript", "-e", f'''
+                        var ws = $.NSWorkspace.sharedWorkspace;
+                        var img = $.NSImage.alloc.initWithContentsOfFile("{icns}");
+                        ws.setIconForFileOptions(img, "{launcher}", 0);
+                    '''], capture_output=True)
+        except Exception:
+            pass
+
+    # ── Windows ────────────────────────────────────────────────────────
+    elif sys.platform == "win32":
+        try:
+            import subprocess as _sp
+
+            # Get real Desktop path from registry
+            desktop = pathlib.Path.home() / "Desktop"
+            try:
+                import winreg
+                with winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders"
+                ) as k:
+                    desktop = pathlib.Path(winreg.QueryValueEx(k, "Desktop")[0])
+            except Exception:
+                pass
+
+            ico = pathlib.Path(__file__).parent / "TheRPSRobot.ico"
+
+            # Generate .ico if missing
+            if not ico.exists() and icon_png.exists():
+                from PIL import Image as _Img
+                src   = _Img.open(icon_png).convert("RGBA")
+                sizes = [(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)]
+                imgs  = [src.resize(s, _Img.LANCZOS) for s in sizes]
+                imgs[0].save(str(ico), format="ICO",
+                             sizes=sizes, append_images=imgs[1:])
+
+            lnk = desktop / "RPS Robot.lnk"
+            bat = desktop / "Launch RPS Robot.bat"
+            app_dir = pathlib.Path(__file__).parent
+
+            if ico.exists() and bat.exists():
+                ico_s = str(ico).replace("\\", "\\\\")
+                bat_s = str(bat).replace("\\", "\\\\")
+                lnk_s = str(lnk).replace("\\", "\\\\")
+                app_s = str(app_dir).replace("\\", "\\\\")
+                ps = (
+                    f'$ws=$((New-Object -ComObject WScript.Shell));'
+                    f'$s=$ws.CreateShortcut("{lnk_s}");'
+                    f'$s.TargetPath="{bat_s}";'
+                    f'$s.WorkingDirectory="{app_s}";'
+                    f'$s.IconLocation="{ico_s},0";'
+                    f'$s.Description="Launch RPS Robot";'
+                    f'$s.Save()'
+                )
+                _sp.run(["powershell", "-Command", ps], capture_output=True)
+        except Exception:
+            pass
 
 
 def run():
