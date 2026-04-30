@@ -2652,7 +2652,7 @@ def _set_app_icon():
                              sizes=sizes, append_images=imgs[1:])
 
             lnk = desktop / "RPS Robot.lnk"
-            bat = desktop / "Launch RPS Robot.bat"
+            bat = pathlib.Path(__file__).parent / "Launch RPS Robot.bat"
             app_dir = pathlib.Path(__file__).parent
 
             if ico.exists() and bat.exists():

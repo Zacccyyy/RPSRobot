@@ -488,7 +488,8 @@ def setup_data_and_launcher():
 
 
 def _create_mac_launcher(desktop, data_dir):
-    launcher = desktop / "Launch RPS Robot.command"
+    # Store the actual .command in the app folder (not Desktop)
+    launcher = APP_DIR / "Launch RPS Robot.command"
     launcher.write_text(textwrap.dedent(f"""\
         #!/bin/bash
         cd "{APP_DIR}"
@@ -505,70 +506,81 @@ def _create_mac_launcher(desktop, data_dir):
         fi
     """))
     launcher.chmod(0o755)
-    ok(f"Launcher created: {launcher}")
 
-    # Set icon on the .command file using fileicon or sips+iconutil
+    # Build .icns from the PNG
     icon_png  = APP_DIR / "TheRPSRobot.png"
     icon_icns = APP_DIR / "TheRPSRobot.icns"
 
-    # Build .icns from the PNG using iconutil (built into macOS)
-    if icon_png.exists() and not icon_icns.exists():
+    if icon_png.exists():
         try:
             iconset = APP_DIR / "TheRPSRobot.iconset"
             iconset.mkdir(exist_ok=True)
             sizes = {
-                "icon_16x16.png": 16, "icon_16x16@2x.png": 32,
-                "icon_32x32.png": 32, "icon_32x32@2x.png": 64,
-                "icon_128x128.png": 128, "icon_128x128@2x.png": 256,
-                "icon_256x256.png": 256, "icon_256x256@2x.png": 512,
-                "icon_512x512.png": 512, "icon_512x512@2x.png": 1024,
+                "icon_16x16.png":      16,
+                "icon_16x16@2x.png":   32,
+                "icon_32x32.png":      32,
+                "icon_32x32@2x.png":   64,
+                "icon_128x128.png":    128,
+                "icon_128x128@2x.png": 256,
+                "icon_256x256.png":    256,
+                "icon_256x256@2x.png": 512,
+                "icon_512x512.png":    512,
+                "icon_512x512@2x.png": 1024,
             }
             from PIL import Image
+            # Open at full resolution for best quality downscaling
             src = Image.open(icon_png).convert("RGBA")
             for fname, sz in sizes.items():
-                src.resize((sz, sz), Image.LANCZOS).save(iconset / fname)
-            subprocess.run(["iconutil", "-c", "icns", str(iconset),
-                            "-o", str(icon_icns)],
-                           capture_output=True)
+                src.resize((sz, sz), Image.LANCZOS).save(
+                    iconset / fname, optimize=True)
+            result = subprocess.run(
+                ["iconutil", "-c", "icns", str(iconset), "-o", str(icon_icns)],
+                capture_output=True)
             import shutil as _sh
             _sh.rmtree(iconset, ignore_errors=True)
-            ok("App icon (.icns) created")
+            if result.returncode == 0:
+                ok("App icon (.icns) created at full quality")
+            else:
+                warn("iconutil failed - icon may not appear")
         except Exception as e:
             warn(f"Could not create .icns: {e}")
 
-    # Apply icon to the launcher file using fileicon (if installed)
-    # or fallback to Finder's SetFile/osascript approach
+    # Apply icon to launcher and create Desktop alias via osascript
     if icon_icns.exists():
         try:
-            # Try fileicon (brew install fileicon)
-            if command_exists("fileicon"):
-                subprocess.run(["fileicon", "set", str(launcher), str(icon_icns)],
-                               capture_output=True)
-                ok("Launcher icon set")
-            else:
-                # Use osascript to set icon via Finder
-                script = (
-                    f'use framework "Foundation"\n'
-                    f'use framework "AppKit"\n'
-                    f'set iconPath to POSIX file "{icon_icns}"\n'
-                    f'set targetPath to POSIX file "{launcher}"\n'
-                    f'set theImage to current application\'s NSImage\'s alloc\'s '
-                    f'initWithContentsOfFile:(iconPath\'s POSIX path)\n'
-                    f'current application\'s NSWorkspace\'s sharedWorkspace\'s '
-                    f'setIcon:theImage forFile:(targetPath\'s POSIX path) options:0\n'
-                )
-                subprocess.run(["osascript", "-l", "JavaScript", "-e",
-                    f'''
-                    var workspace = $.NSWorkspace.sharedWorkspace;
-                    var icon = $.NSImage.alloc.initWithContentsOfFile("{icon_icns}");
-                    workspace.setIconForFileOptions(icon, "{launcher}", 0);
-                    '''],
-                    capture_output=True)
-                ok("Launcher icon set")
+            # Set icon on the .command file
+            subprocess.run(["osascript", "-l", "JavaScript", "-e", f'''
+                ObjC.import("AppKit");
+                var img = $.NSImage.alloc.initWithContentsOfFile("{icon_icns}");
+                var ws  = $.NSWorkspace.sharedWorkspace;
+                ws.setIconForFileOptions(img, "{launcher}", 0);
+            '''], capture_output=True)
         except Exception:
             pass
 
-    # Data folder symlink
+    # Create a Desktop alias pointing to the launcher (cleaner than symlink)
+    alias_name = "RPS Robot"
+    desktop_alias = desktop / alias_name
+    try:
+        subprocess.run(["osascript", "-e", f'''
+            tell application "Finder"
+                set src to POSIX file "{launcher}" as alias
+                set dst to POSIX file "{desktop}" as alias
+                make alias file to src at dst
+                set name of result to "{alias_name}"
+            end tell
+        '''], capture_output=True, timeout=10)
+        ok(f"Desktop icon created: '{alias_name}'")
+    except Exception:
+        # Fallback: symlink
+        try:
+            if not desktop_alias.exists():
+                desktop_alias.symlink_to(launcher)
+            ok(f"Desktop shortcut created: '{alias_name}'")
+        except Exception as e:
+            warn(f"Could not create Desktop icon: {e}")
+
+    # Data folder shortcut
     symlink = desktop / "RPS Robot Data"
     if not symlink.exists():
         try:
@@ -579,8 +591,8 @@ def _create_mac_launcher(desktop, data_dir):
 
 
 def _create_windows_launcher(desktop, data_dir):
-    # Create the .bat file
-    bat = desktop / "Launch RPS Robot.bat"
+    # Store the .bat in the APP folder (not on Desktop - keeps Desktop clean)
+    bat = APP_DIR / "Launch RPS Robot.bat"
     try:
         bat.write_text(textwrap.dedent(f"""\
             @echo off
@@ -597,49 +609,54 @@ def _create_windows_launcher(desktop, data_dir):
                 pause
             )
         """))
-        ok(f"Launcher created: {bat}")
     except Exception as e:
-        warn(f"Could not create launcher: {e}")
-        warn(f"Launch manually: cd {APP_DIR} && .venv\\Scripts\\python.exe main.py")
+        warn(f"Could not create launcher script: {e}")
+        return
 
-    # Create a proper .lnk shortcut with icon embedded
-    # .lnk is what Windows shows on Desktop with custom icons
+    # Build high-quality .ico (up to 256px - Windows ICO format limit)
+    # Also save a separate 512px PNG for use where supported
     ico_path = APP_DIR / "TheRPSRobot.ico"
+    png_path = APP_DIR / "TheRPSRobot.png"
+
+    if png_path.exists():
+        try:
+            from PIL import Image
+            src = Image.open(png_path).convert("RGBA")
+            # Windows ICO max is 256x256 for the format
+            # but we include all sizes for crisp rendering at every size
+            ico_sizes = [(16,16),(24,24),(32,32),(48,48),(64,64),(96,96),(128,128),(256,256)]
+            ico_imgs  = [src.resize(s, Image.LANCZOS) for s in ico_sizes]
+            ico_imgs[0].save(
+                str(ico_path), format="ICO",
+                sizes=ico_sizes,
+                append_images=ico_imgs[1:]
+            )
+            ok("App icon (.ico) created at full quality")
+        except Exception as e:
+            warn(f"Could not create .ico: {e}")
+
+    # Create ONE clean .lnk shortcut on Desktop with the high-quality icon
     lnk_path = desktop / "RPS Robot.lnk"
+    app_str  = str(APP_DIR)
+    bat_str  = str(bat)
+    lnk_str  = str(lnk_path)
+    ico_str  = str(ico_path)
 
-    # Convert PNG to ICO if needed
-    if not ico_path.exists():
-        png_path = APP_DIR / "TheRPSRobot.png"
-        if png_path.exists():
-            try:
-                from PIL import Image
-                src = Image.open(png_path).convert("RGBA")
-                sizes = [(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)]
-                imgs  = [src.resize(s, Image.LANCZOS) for s in sizes]
-                imgs[0].save(str(ico_path), format="ICO",
-                             sizes=sizes, append_images=imgs[1:])
-                ok("App icon (.ico) created")
-            except Exception as e:
-                warn(f"Could not create .ico: {e}")
-
-    # Create .lnk shortcut with icon via PowerShell
     try:
-        ico_str = str(ico_path).replace("\\", "\\\\")
-        bat_str = str(bat).replace("\\", "\\\\")
-        lnk_str = str(lnk_path).replace("\\", "\\\\")
         ps_cmd = (
             f'$ws = New-Object -ComObject WScript.Shell; '
             f'$s = $ws.CreateShortcut("{lnk_str}"); '
             f'$s.TargetPath = "{bat_str}"; '
-            f'$s.WorkingDirectory = "{str(APP_DIR).replace(chr(92), chr(92)+chr(92))}"; '
+            f'$s.WorkingDirectory = "{app_str}"; '
             f'$s.IconLocation = "{ico_str},0"; '
-            f'$s.Description = "Launch RPS Robot"; '
+            f'$s.Description = "RPS Robot - Gesture Recognition Game"; '
+            f'$s.WindowStyle = 1; '
             f'$s.Save()'
         )
         subprocess.run(["powershell", "-Command", ps_cmd], capture_output=True)
-        ok(f"Desktop shortcut with icon: {lnk_path.name}")
+        ok(f"Desktop icon created: 'RPS Robot'")
     except Exception as e:
-        warn(f"Could not create icon shortcut: {e}")
+        warn(f"Could not create Desktop icon: {e}")
 
     # Data folder shortcut
     data_lnk = desktop / "RPS Robot Data.lnk"
