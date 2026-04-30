@@ -7,10 +7,10 @@ How it works:
   1. On app launch, a background thread silently asks the GitHub API:
      "What is the latest commit on the main branch?"
   2. We compare that to the current local commit hash (git rev-parse HEAD).
-  3. If they differ → show an update banner in the app.
-  4. User presses U → run `git pull` → restart the app automatically.
+  3. If they differ -> show an update banner in the app.
+  4. User presses U -> run `git pull` -> restart the app automatically.
 
-No extra dependencies needed — uses only Python stdlib.
+No extra dependencies needed  -  uses only Python stdlib.
 Repo: https://github.com/Zacccyyy/RPSRobot
 """
 
@@ -119,7 +119,7 @@ def _fetch_remote_sha():
             data = json.loads(resp.read().decode("utf-8"))
             return data.get("sha")
     except urllib.error.URLError:
-        return None   # no internet — silent fail
+        return None   # no internet  -  silent fail
     except Exception:
         return None
 
@@ -133,7 +133,7 @@ def check_for_updates():
     """
     if not is_git_repo():
         _set(status="error",
-             error_msg="Not a git repo — re-install via git clone to enable updates.")
+             error_msg="Not a git repo  -  re-install via git clone to enable updates.")
         return
 
     _set(status="checking", last_checked=time.time())
@@ -160,7 +160,7 @@ def check_for_updates():
 def check_in_background():
     """
     Spawn a daemon thread to check for updates without blocking the app.
-    Safe to call at startup — will not slow down launch.
+    Safe to call at startup  -  will not slow down launch.
     """
     t = threading.Thread(target=check_for_updates, daemon=True, name="UpdateChecker")
     t.start()
@@ -185,7 +185,7 @@ def apply_update():
         _set(status="up_to_date", update_applied=True)
         return True, out or "Up to date."
     else:
-        msg = err or out or "git pull failed — check your internet connection."
+        msg = err or out or "git pull failed  -  check your internet connection."
         _set(status="error", error_msg=msg)
         return False, msg
 
@@ -228,7 +228,7 @@ def status_label() -> str:
     if s["status"] == "update_available":
         local  = (s["local_sha"]  or "?")[:7]
         remote = (s["remote_sha"] or "?")[:7]
-        return f"Update available  ({local} → {remote})  Press U to update"
+        return f"Update available  ({local} -> {remote})  Press U to update"
     if s["status"] == "checking":
         return "Checking for updates..."
     if s["status"] == "error":
