@@ -11,7 +11,7 @@ from ui_base import *
 
 def draw_menu_screen(frame, menu_items, selected_index, config,
                      show_help=False, voice_mode_active=False, in_submenu=False,
-                     update_label=""):
+                     update_label="", calibration_warning=False):
     layout = _menu_layout(frame)
     w, h = layout["w"], layout["h"]
     x1, y1, x2, y2 = layout["panel"]
@@ -21,6 +21,21 @@ def draw_menu_screen(frame, menu_items, selected_index, config,
 
     top_right = "UP/DOWN Navigate | Enter Select | N Feedback | ESC Back | Q Quit"
     draw_top_bar(frame, "RPS ROBOT", top_right)
+
+    # Calibration warning banner — shown above menu when no model exists
+    if calibration_warning:
+        import time as _t, math as _m
+        pulse  = 0.65 + 0.35 * abs(_m.sin(_t.monotonic() * _m.pi * 1.0))
+        bc     = tuple(min(255, int(c * pulse)) for c in COL_YELLOW)
+        ban_y1 = y1 - _ix(h * 0.115)
+        ban_y2 = y1 - _ix(h * 0.063)
+        draw_panel(frame, _ix(w*0.03), ban_y1, _ix(w*0.97), ban_y2,
+                   fill=(18, 14, 0), alpha=0.92, border=bc, border_thickness=2)
+        draw_centered_text_in_rect(frame,
+            "Gestures not calibrated - recognition may be inaccurate. "
+            "Go to Settings > Recalibrate Gestures to fix this.",
+            (_ix(w*0.04), ban_y1, _ix(w*0.96), ban_y2),
+            base_scale=0.30, color=bc, thickness=1, outline=2)
 
     # Update banner — pulsing yellow strip above the menu panel
     if update_label:
@@ -2495,7 +2510,7 @@ def draw_calibration_view(frame, cal_state, hand_state=None):
                border=(4,6,16), border_thickness=0)
 
     draw_top_bar(frame, "GESTURE CALIBRATION",
-                 "First-time setup  -  takes about 1 minute")
+                 "Recommended for best accuracy  |  ESC to skip")
 
     # ── INTRO ────────────────────────────────────────────────────────────
     if phase == "INTRO":
@@ -2528,10 +2543,10 @@ def draw_calibration_view(frame, cal_state, hand_state=None):
 
         pulse = 0.6 + 0.4 * abs(_math.sin(t * _math.pi * 1.2))
         pc = tuple(min(255, int(c * pulse)) for c in COL_GREEN)
-        draw_centered_text_in_rect(frame, "Press SPACE or ENTER to begin",
+        draw_centered_text_in_rect(frame, "Press SPACE or ENTER to begin  |  ESC to skip for now",
             (0, _ix(h*0.80), w, _ix(h*0.90)),
-            base_scale=0.48, color=pc, thickness=2, outline=3)
-        draw_bottom_bar(frame, "SPACE / ENTER  -  begin calibration")
+            base_scale=0.42, color=pc, thickness=2, outline=3)
+        draw_bottom_bar(frame, "SPACE / ENTER  -  begin  |  ESC  -  skip for now")
 
     # ── COLLECTING ───────────────────────────────────────────────────────
     elif phase == "COLLECTING":

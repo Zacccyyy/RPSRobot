@@ -555,11 +555,11 @@ def build_app_state():
         "app_screen": (
             "CONSENT"     if needs_consent_prompt(config)
             else "LOGIN"  if not config.get("player_name", "").strip()
-            else "CALIBRATION" if not model_exists()
             else "MENU"
         ),
         "_consent_selected":  0,   # 0=Accept, 1=Decline
         "_calibration_ctrl":  None,
+        "_needs_calibration":  not model_exists(),
         "menu_index": 0,
         "settings_index": 0,
         "features_index": 0,
@@ -3390,6 +3390,7 @@ def run():
                     voice_mode_active=app_state.get("voice_mode_active", False),
                     in_submenu=False,
                     update_label=auto_updater.status_label(),
+                    calibration_warning=app_state.get("_needs_calibration", False),
                 )
                 if _nav_enabled:
                     draw_gesture_nav_overlay(frame, app_state["gesture_nav"].get_cursor_info())
@@ -4070,9 +4071,13 @@ def run():
             # ── CALIBRATION screen ───────────────────────────────────────────
             elif app_state["app_screen"] == "CALIBRATION":
                 ctrl = app_state.get("_calibration_ctrl")
-                if ctrl:
+                if key == KEY_ESC:
+                    # User chose to skip - go to menu, keep warning flag
+                    open_menu(app_state)
+                elif ctrl:
                     result = ctrl.handle_key(key)
                     if result == "done":
+                        app_state["_needs_calibration"] = False
                         open_menu(app_state)
 
             # ── CONSENT screen ────────────────────────────────────────────────
