@@ -9,6 +9,7 @@ from feedback_store import save_feedback
 from privacy_notice import (has_consent, has_declined, needs_consent_prompt,
                              set_consent, consent_summary)
 from sentry_reporter import send_crash_report as sentry_crash, send_feedback as sentry_feedback
+from calibration_state import CalibrationController, model_exists
 
 from gesture_state import GestureStateTracker
 from rps_game_state import RPSGameController
@@ -65,6 +66,7 @@ from ui_renderer import (
     draw_hardware_test_view,
     draw_notes_screen,
     draw_consent_screen,
+    draw_calibration_view,
 )
 
 from config_store import (
@@ -207,6 +209,12 @@ SETTINGS_SCHEMA = [
         "label": "Switch Player",
         "type": "action",
         "desc": "Return to the login screen to change the active player.",
+    },
+    {
+        "key": "__recalibrate__",
+        "label": "Recalibrate Gestures",
+        "type": "action",
+        "desc": "Re-run the gesture calibration to improve recognition accuracy. Replaces the existing model.",
     },
     {
         "key": "__privacy__",
@@ -542,11 +550,13 @@ def build_app_state():
 
     app_state = {
         "app_screen": (
-            "CONSENT" if needs_consent_prompt(config)
-            else "LOGIN" if not config.get("player_name", "").strip()
+            "CONSENT"     if needs_consent_prompt(config)
+            else "LOGIN"  if not config.get("player_name", "").strip()
+            else "CALIBRATION" if not model_exists()
             else "MENU"
         ),
-        "_consent_selected": 0,   # 0=Accept, 1=Decline
+        "_consent_selected":  0,   # 0=Accept, 1=Decline
+        "_calibration_ctrl":  None,
         "menu_index": 0,
         "settings_index": 0,
         "features_index": 0,
@@ -2419,6 +2429,9 @@ def activate_settings_item(app_state):
         store = app_state["fingerprint_store"]
         app_state["_hand_diag_controller"] = HandDiagController(store=store)
         app_state["app_screen"] = "HAND_DIAG"
+    elif item["key"] == "__recalibrate__":
+        app_state["_calibration_ctrl"] = CalibrationController()
+        app_state["app_screen"] = "CALIBRATION"
     elif item["key"] == "__privacy__":
         # Default to Accept highlighted unless they previously declined
         app_state["_consent_selected"] = 1 if has_declined(app_state["config"]) else 0
@@ -3608,6 +3621,21 @@ def run():
                 draw_consent_screen(frame,
                     selected=app_state.get("_consent_selected", 0))
 
+            elif app_state["app_screen"] == "CALIBRATION":
+                ctrl = app_state.get("_calibration_ctrl")
+                if ctrl is None:
+                    ctrl = CalibrationController()
+                    app_state["_calibration_ctrl"] = ctrl
+                frame, hand_state, _ = process_hand_frame(
+                    frame=frame, hands=hands,
+                    target_hand=app_state["target_hand"],
+                    display_mode="Game",
+                    handedness_threshold=app_state["config"]["handedness_threshold"],
+                    hand_orientation=app_state["config"]["hand_orientation"],
+                )
+                cal_state = ctrl.update(hand_state=hand_state)
+                draw_calibration_view(frame, cal_state, hand_state=hand_state)
+
             # --- Emotion landmark debug overlay (Diagnostic mode only) ---
             if app_state.get("emotion_debug") and app_state.get("display_mode") == "Diagnostic":
                 debug_info = app_state["emotion_tracker"].get_debug_overlay(
@@ -3916,6 +3944,14 @@ def run():
                 elif app_state["_login_mode"] == "fingerprint":
                     if key == KEY_ESC:
                         app_state["_login_mode"] = "type"
+
+            # ── CALIBRATION screen ───────────────────────────────────────────
+            elif app_state["app_screen"] == "CALIBRATION":
+                ctrl = app_state.get("_calibration_ctrl")
+                if ctrl:
+                    result = ctrl.handle_key(key)
+                    if result == "done":
+                        open_menu(app_state)
 
             # ── CONSENT screen ────────────────────────────────────────────────
             elif app_state["app_screen"] == "CONSENT":

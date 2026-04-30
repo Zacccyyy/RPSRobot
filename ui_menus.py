@@ -2461,3 +2461,209 @@ def draw_consent_screen(frame, selected=0):
 
     draw_bottom_bar(frame,
         "LEFT / RIGHT  -  choose  |  ENTER  -  confirm  |  TAB  -  toggle")
+
+
+# ============================================================
+# GESTURE CALIBRATION SCREEN
+# ============================================================
+
+def draw_calibration_view(frame, cal_state, hand_state=None):
+    """
+    Guided gesture calibration screen for new players.
+    Walks through Rock, Paper, Scissors collection then auto-trains.
+    """
+    import math as _math
+    import time as _time
+
+    w, h = frame.shape[1], frame.shape[0]
+    t    = _time.monotonic()
+
+    phase         = cal_state.get("phase",          "INTRO")
+    gesture       = cal_state.get("gesture",        "Rock")
+    gesture_idx   = cal_state.get("gesture_idx",    0)
+    gesture_count = cal_state.get("gesture_count",  3)
+    samples_this  = cal_state.get("samples_this",   0)
+    samples_need  = cal_state.get("samples_needed", 15)
+    counts        = cal_state.get("counts",         {})
+    instruction   = cal_state.get("instruction",    "")
+    status_msg    = cal_state.get("status_msg",     "")
+    hand_visible  = cal_state.get("hand_visible",   False)
+    accuracy      = cal_state.get("training_result",None)
+
+    # Dark overlay
+    draw_panel(frame, 0, 0, w-1, h-1, fill=(4,6,16), alpha=0.75,
+               border=(4,6,16), border_thickness=0)
+
+    draw_top_bar(frame, "GESTURE CALIBRATION",
+                 "First-time setup  -  takes about 1 minute")
+
+    # ── INTRO ────────────────────────────────────────────────────────────
+    if phase == "INTRO":
+        draw_centered_text_in_rect(frame, "QUICK SETUP REQUIRED",
+            (0, _ix(h*0.10), w, _ix(h*0.20)),
+            base_scale=0.65, color=COL_CYAN, thickness=2, outline=4)
+
+        px1, px2 = _ix(w*0.08), _ix(w*0.92)
+        py1, py2 = _ix(h*0.22), _ix(h*0.76)
+        draw_panel(frame, px1, py1, px2, py2,
+                   fill=(6,10,24), alpha=0.92,
+                   border=(50,70,100), border_thickness=1)
+
+        lines = [
+            (0.08, "Your device needs to learn what your hand gestures look like.",
+                   COL_TEXT_ACCENT, 0.36),
+            (0.18, "This takes about 1 minute and only happens once.", COL_TEXT_DIM, 0.32),
+            (0.30, "You will be asked to show:", COL_TEXT_ACCENT, 0.36),
+            (0.40, "  Rock  -  15 samples", (100, 200, 120), 0.34),
+            (0.48, "  Paper  -  15 samples", (100, 200, 120), 0.34),
+            (0.56, "  Scissors  -  15 samples", (100, 200, 120), 0.34),
+            (0.68, "Press SPACE each time to capture a frame.", COL_TEXT_ACCENT, 0.34),
+            (0.78, "Make sure your hand is clearly visible.", COL_TEXT_DIM, 0.30),
+        ]
+        ph = py2 - py1
+        for frac, text, col, scale in lines:
+            ty = py1 + int(ph * frac)
+            draw_outlined_text(frame, text, px1 + _ix(w*0.03), ty,
+                               scale, col, thickness=1, outline=2)
+
+        pulse = 0.6 + 0.4 * abs(_math.sin(t * _math.pi * 1.2))
+        pc = tuple(min(255, int(c * pulse)) for c in COL_GREEN)
+        draw_centered_text_in_rect(frame, "Press SPACE or ENTER to begin",
+            (0, _ix(h*0.80), w, _ix(h*0.90)),
+            base_scale=0.48, color=pc, thickness=2, outline=3)
+        draw_bottom_bar(frame, "SPACE / ENTER  -  begin calibration")
+
+    # ── COLLECTING ───────────────────────────────────────────────────────
+    elif phase == "COLLECTING":
+        # Header with gesture name
+        g_col = {"Rock": COL_CYAN, "Paper": COL_GREEN,
+                 "Scissors": COL_MAGENTA}.get(gesture, COL_TEXT_ACCENT)
+        draw_centered_text_in_rect(frame, f"Show:  {gesture.upper()}",
+            (0, _ix(h*0.08), w, _ix(h*0.18)),
+            base_scale=0.75, color=g_col, thickness=3, outline=5)
+
+        # Instruction
+        draw_centered_text_in_rect(frame, instruction,
+            (0, _ix(h*0.20), w, _ix(h*0.28)),
+            base_scale=0.36, color=COL_TEXT_ACCENT, thickness=1, outline=2)
+
+        # Progress bar for this gesture
+        bx1 = _ix(w*0.10)
+        bx2 = _ix(w*0.90)
+        by  = _ix(h*0.32)
+        bh  = _ix(h*0.040)
+        cv2.rectangle(frame, (bx1, by), (bx2, by+bh), (20,25,40), -1)
+        pct = min(1.0, samples_this / max(samples_need, 1))
+        fx  = bx1 + int((bx2-bx1) * pct)
+        if fx > bx1:
+            cv2.rectangle(frame, (bx1, by), (fx, by+bh), g_col, -1)
+        cv2.rectangle(frame, (bx1, by), (bx2, by+bh), (50,65,90), 1)
+        draw_centered_text_in_rect(frame,
+            f"{samples_this} / {samples_need} samples",
+            (bx1, by, bx2, by+bh),
+            base_scale=0.32, color=(10,10,10) if pct > 0.3 else COL_TEXT_DIM,
+            thickness=1, outline=1)
+
+        # Gesture progress dots (Rock / Paper / Scissors)
+        dot_y = _ix(h * 0.41)
+        dot_spacing = w // (gesture_count + 1)
+        gesture_names = ["Rock", "Paper", "Scissors"]
+        for i, g in enumerate(gesture_names):
+            dx = (i + 1) * dot_spacing
+            done = i < gesture_idx
+            current = i == gesture_idx
+            c_counts = counts.get(g, 0)
+            if done:
+                col = COL_GREEN
+                cv2.circle(frame, (dx, dot_y), _ix(h*0.022), col, -1)
+            elif current:
+                pulse2 = 0.7 + 0.3 * abs(_math.sin(t * _math.pi * 2.0))
+                col = tuple(min(255, int(c * pulse2)) for c in g_col)
+                cv2.circle(frame, (dx, dot_y), _ix(h*0.022), col, 2)
+            else:
+                col = (40, 50, 70)
+                cv2.circle(frame, (dx, dot_y), _ix(h*0.018), col, 1)
+            draw_centered_text_in_rect(frame, g,
+                (dx - _ix(w*0.07), dot_y + _ix(h*0.03),
+                 dx + _ix(w*0.07), dot_y + _ix(h*0.065)),
+                base_scale=0.30,
+                color=COL_GREEN if done else (col if current else (40,50,70)),
+                thickness=1, outline=1)
+
+        # Hand visibility indicator
+        hv_y = _ix(h * 0.52)
+        if hand_visible:
+            hv_col, hv_msg = (80,200,80), "Hand detected  -  press SPACE to capture"
+        else:
+            hv_col, hv_msg = (200,120,50), "No hand detected  -  hold your hand up"
+        draw_centered_text_in_rect(frame, hv_msg,
+            (0, hv_y, w, hv_y + _ix(h*0.06)),
+            base_scale=0.38, color=hv_col, thickness=1, outline=2)
+
+        # Status message
+        if status_msg:
+            draw_centered_text_in_rect(frame, status_msg,
+                (0, _ix(h*0.60), w, _ix(h*0.68)),
+                base_scale=0.36, color=COL_YELLOW, thickness=1, outline=2)
+
+        # Capture button hint
+        pulse3 = 0.6 + 0.4 * abs(_math.sin(t * _math.pi * 1.5))
+        pc2 = tuple(min(255, int(c * pulse3)) for c in g_col)
+        draw_centered_text_in_rect(frame,
+            "SPACE  -  capture this frame",
+            (0, _ix(h*0.74), w, _ix(h*0.82)),
+            base_scale=0.46, color=pc2, thickness=2, outline=3)
+
+        draw_bottom_bar(frame,
+            f"Capturing: {gesture}  |  SPACE capture  |  {samples_this}/{samples_need} done")
+
+    # ── TRAINING ─────────────────────────────────────────────────────────
+    elif phase == "TRAINING":
+        draw_centered_text_in_rect(frame, "TRAINING MODEL...",
+            (0, _ix(h*0.35), w, _ix(h*0.50)),
+            base_scale=0.70, color=COL_YELLOW, thickness=2, outline=4)
+        draw_centered_text_in_rect(frame,
+            "Please wait  -  this takes a few seconds",
+            (0, _ix(h*0.52), w, _ix(h*0.60)),
+            base_scale=0.36, color=COL_TEXT_DIM, thickness=1, outline=2)
+
+    # ── DONE ─────────────────────────────────────────────────────────────
+    elif phase == "DONE":
+        pulse4 = 0.85 + 0.15 * abs(_math.sin(t * _math.pi * 1.5))
+        gc = tuple(min(255, int(c * pulse4)) for c in COL_GREEN)
+        draw_centered_text_in_rect(frame, "CALIBRATION COMPLETE",
+            (0, _ix(h*0.18), w, _ix(h*0.30)),
+            base_scale=0.70, color=gc, thickness=3, outline=5)
+        if accuracy is not None:
+            draw_centered_text_in_rect(frame,
+                f"Model accuracy: {accuracy:.0%}",
+                (0, _ix(h*0.32), w, _ix(h*0.42)),
+                base_scale=0.50, color=gc, thickness=2, outline=3)
+        draw_centered_text_in_rect(frame,
+            "Your gestures have been learned.",
+            (0, _ix(h*0.44), w, _ix(h*0.52)),
+            base_scale=0.36, color=COL_TEXT_ACCENT, thickness=1, outline=2)
+        draw_centered_text_in_rect(frame,
+            "You can recalibrate any time from Settings.",
+            (0, _ix(h*0.53), w, _ix(h*0.60)),
+            base_scale=0.30, color=COL_TEXT_DIM, thickness=1, outline=1)
+        pc5 = tuple(min(255, int(c * pulse4)) for c in COL_GREEN)
+        draw_centered_text_in_rect(frame, "Press SPACE or ENTER to start playing",
+            (0, _ix(h*0.68), w, _ix(h*0.78)),
+            base_scale=0.48, color=pc5, thickness=2, outline=3)
+        draw_bottom_bar(frame, "SPACE / ENTER  -  start playing")
+
+    # ── FAILED ───────────────────────────────────────────────────────────
+    elif phase == "FAILED":
+        draw_centered_text_in_rect(frame, "TRAINING FAILED",
+            (0, _ix(h*0.25), w, _ix(h*0.38)),
+            base_scale=0.70, color=(220,80,80), thickness=3, outline=5)
+        draw_centered_text_in_rect(frame,
+            "Not enough samples were collected.",
+            (0, _ix(h*0.40), w, _ix(h*0.48)),
+            base_scale=0.36, color=(180,120,120), thickness=1, outline=2)
+        draw_centered_text_in_rect(frame,
+            "Press ENTER to try again.",
+            (0, _ix(h*0.56), w, _ix(h*0.64)),
+            base_scale=0.44, color=COL_TEXT_DIM, thickness=1, outline=2)
+        draw_bottom_bar(frame, "ENTER  -  try again")
