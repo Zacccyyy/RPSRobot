@@ -43,7 +43,7 @@ VOSK_URL    = f"https://alphacephei.com/vosk/models/{VOSK_MODEL}.zip"
 PACKAGES = [
     ("NumPy",             "numpy>=1.26.4,<2.0"),
     ("OpenCV",            "opencv-python>=4.8.0"),
-    ("MediaPipe",         "mediapipe>=0.10.9"),
+    ("MediaPipe",         "mediapipe>=0.10.9,<=0.10.21"),
     ("scikit-learn",      "scikit-learn>=1.3.0"),
     ("openpyxl",          "openpyxl>=3.1.0"),
     ("Pillow",            "Pillow>=10.0.0"),
@@ -124,25 +124,29 @@ def get_desktop():
     return pathlib.Path.home() / "Desktop"
 
 def get_data_dir():
-    return get_desktop() / "CapStone"
+    # macOS: ~/Desktop/CapStone (existing users keep their data location)
+    # Windows/Linux: ~/CapStone  (keeps Desktop clean)
+    import sys as _sys
+    if _sys.platform == "darwin":
+        return pathlib.Path.home() / "Desktop" / "CapStone"
+    return pathlib.Path.home() / "CapStone"
 
 
 # ── Banner ────────────────────────────────────────────────────────────────────
 
 def print_banner():
     print()
-    if IS_WIN:
-        # Windows CMD safe - no box drawing characters
-        print("  RPS ROBOT INSTALLER")
-        print("  ====================")
-    else:
-        print(_c("1;36", "  ######  ######   #####    ######   #####   ######   #####  ########"))
-        print(_c("1;36", "  ##  ##  ##  ##  ##   ##   ##  ##  ##   ##  ##  ##  ##   ##    ##   "))
-        print(_c("1;36", "  ######  ######  #######   ######  ##   ##  ######  ##   ##    ##   "))
-        print(_c("1;36", "  ##  ##  ##      ##   ##   ##  ##  ##   ##  ##  ##  ##   ##    ##   "))
-        print(_c("1;36", "  ##  ##  ##      ##   ##   ##  ##   #####   ######   #####     ##   "))
+    # The box-drawing chars in the banner are fine on Windows - they render
+    # correctly in modern Windows Terminal and PowerShell (Windows 10+).
+    # Only the progress/status symbols like checkmarks caused issues.
+    print(_c("1;36", "  ██████╗ ██████╗ ███████╗    ██████╗  █████╗ ██████╗  █████╗ ████████╗"))
+    print(_c("1;36", "  ██╔══██╗██╔══██╗██╔════╝    ██╔══██╗██╔═══██╗██╔══██╗██╔═══██╗╚══██╔══╝"))
+    print(_c("1;36", "  ██████╔╝██████╔╝███████╗    ██████╔╝██║   ██║██████╔╝██║   ██║   ██║   "))
+    print(_c("1;36", "  ██╔══██╗██╔═══╝ ╚════██╗    ██╔══██╗██║   ██║██╔══██╗██║   ██║   ██║   "))
+    print(_c("1;36", "  ██║  ██║██║     ███████║    ██║  ██║╚██████╔╝██████╔╝╚██████╔╝   ██║   "))
+    print(_c("1;36", "  ╚═╝  ╚═╝╚═╝     ╚══════╝    ╚═╝  ╚═╝ ╚═════╝ ╚═════╝  ╚═════╝    ╚═╝   "))
     print()
-    print(f"  RPS Robot - Installer   |   TrickWing Toys")
+    print(f"  {bold('RPS Robot - Installer')}   |   TrickWing Toys")
     print(f"  Real-time gesture recognition + adaptive AI")
     print()
     line()

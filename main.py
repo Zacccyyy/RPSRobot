@@ -4044,7 +4044,11 @@ if __name__ == "__main__":
     except Exception as _exc:
         # ── Crash reporter ────────────────────────────────────────────────
         _ts        = _dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        _crash_dir = os.path.join(os.path.expanduser("~"), "Desktop", "CapStone")
+        try:
+            from capstone_paths import CAPSTONE_DIR
+            _crash_dir = str(CAPSTONE_DIR)
+        except Exception:
+            _crash_dir = os.path.join(os.path.expanduser("~"), "Desktop", "CapStone")
         os.makedirs(_crash_dir, exist_ok=True)
         _crash_path = os.path.join(_crash_dir, f"crash_{_ts}.txt")
 

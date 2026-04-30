@@ -6,8 +6,15 @@ from finger_counter import count_hand_fingers
 from gesture_mapper import classify_rps_gesture
 from front_on_classifier import classify_front_on
 
-mp_hands = mp.solutions.hands
-mp_drawing = mp.solutions.drawing_utils
+# MediaPipe 0.10.x compatibility
+# Some versions expose mp.solutions, others require direct import
+try:
+    mp_hands   = mp.solutions.hands
+    mp_drawing = mp.solutions.drawing_utils
+except AttributeError:
+    # Newer MediaPipe versions - import solutions directly
+    from mediapipe.python.solutions import hands as mp_hands
+    from mediapipe.python.solutions import drawing_utils as mp_drawing
 
 
 # ── Kalman filter for wrist Y smoothing ───────────────────────────────────────

@@ -65,7 +65,11 @@ from pathlib import Path
 
 import numpy as np
 
-FINGERPRINT_DIR = Path.home() / "Desktop" / "CapStone" / "fingerprints"
+try:
+    from capstone_paths import CAPSTONE_DIR
+    FINGERPRINT_DIR = CAPSTONE_DIR / "fingerprints"
+except ImportError:
+    FINGERPRINT_DIR = Path.home() / "Desktop" / "CapStone" / "fingerprints"
 
 # Minimum samples before we attempt verification (distance-based)
 MIN_SAMPLES_DISTANCE  = 10   # need enough for a stable centroid
