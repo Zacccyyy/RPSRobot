@@ -1,7 +1,9 @@
 import time
 import os
+import sys
 import subprocess
 import threading
+import pathlib
 import queue as _queue
 import cv2
 import auto_updater
@@ -2556,11 +2558,33 @@ def handle_settings_key(app_state, key):
         open_menu(app_state)
 
 
+def _set_app_icon():
+    """Set the app icon in the Dock (macOS) and taskbar (Windows)."""
+    icon_path = pathlib.Path(__file__).parent / "TheRPSRobot.png"
+    if not icon_path.exists():
+        return
+    try:
+        if sys.platform == "darwin":
+            # Set Dock icon using AppKit via PyObjC (included with macOS Python)
+            from AppKit import NSApplication, NSImage
+            img = NSImage.alloc().initWithContentsOfFile_(str(icon_path))
+            if img:
+                NSApplication.sharedApplication().setApplicationIconImage_(img)
+        elif sys.platform == "win32":
+            # Set window icon via OpenCV on Windows
+            # This runs after namedWindow is created
+            pass   # handled in cv2 window setup below
+    except Exception:
+        pass   # silently skip - icon is cosmetic
+
+
 def run():
     app_state = build_app_state()
 
     # Check for updates silently in background  -  won't slow startup
     auto_updater.check_in_background()
+
+    _set_app_icon()
 
     cap = cv2.VideoCapture(0)
 

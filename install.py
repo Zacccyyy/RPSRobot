@@ -506,6 +506,69 @@ def _create_mac_launcher(desktop, data_dir):
     """))
     launcher.chmod(0o755)
     ok(f"Launcher created: {launcher}")
+
+    # Set icon on the .command file using fileicon or sips+iconutil
+    icon_png  = APP_DIR / "TheRPSRobot.png"
+    icon_icns = APP_DIR / "TheRPSRobot.icns"
+
+    # Build .icns from the PNG using iconutil (built into macOS)
+    if icon_png.exists() and not icon_icns.exists():
+        try:
+            iconset = APP_DIR / "TheRPSRobot.iconset"
+            iconset.mkdir(exist_ok=True)
+            sizes = {
+                "icon_16x16.png": 16, "icon_16x16@2x.png": 32,
+                "icon_32x32.png": 32, "icon_32x32@2x.png": 64,
+                "icon_128x128.png": 128, "icon_128x128@2x.png": 256,
+                "icon_256x256.png": 256, "icon_256x256@2x.png": 512,
+                "icon_512x512.png": 512, "icon_512x512@2x.png": 1024,
+            }
+            from PIL import Image
+            src = Image.open(icon_png).convert("RGBA")
+            for fname, sz in sizes.items():
+                src.resize((sz, sz), Image.LANCZOS).save(iconset / fname)
+            subprocess.run(["iconutil", "-c", "icns", str(iconset),
+                            "-o", str(icon_icns)],
+                           capture_output=True)
+            import shutil as _sh
+            _sh.rmtree(iconset, ignore_errors=True)
+            ok("App icon (.icns) created")
+        except Exception as e:
+            warn(f"Could not create .icns: {e}")
+
+    # Apply icon to the launcher file using fileicon (if installed)
+    # or fallback to Finder's SetFile/osascript approach
+    if icon_icns.exists():
+        try:
+            # Try fileicon (brew install fileicon)
+            if command_exists("fileicon"):
+                subprocess.run(["fileicon", "set", str(launcher), str(icon_icns)],
+                               capture_output=True)
+                ok("Launcher icon set")
+            else:
+                # Use osascript to set icon via Finder
+                script = (
+                    f'use framework "Foundation"\n'
+                    f'use framework "AppKit"\n'
+                    f'set iconPath to POSIX file "{icon_icns}"\n'
+                    f'set targetPath to POSIX file "{launcher}"\n'
+                    f'set theImage to current application\'s NSImage\'s alloc\'s '
+                    f'initWithContentsOfFile:(iconPath\'s POSIX path)\n'
+                    f'current application\'s NSWorkspace\'s sharedWorkspace\'s '
+                    f'setIcon:theImage forFile:(targetPath\'s POSIX path) options:0\n'
+                )
+                subprocess.run(["osascript", "-l", "JavaScript", "-e",
+                    f'''
+                    var workspace = $.NSWorkspace.sharedWorkspace;
+                    var icon = $.NSImage.alloc.initWithContentsOfFile("{icon_icns}");
+                    workspace.setIconForFileOptions(icon, "{launcher}", 0);
+                    '''],
+                    capture_output=True)
+                ok("Launcher icon set")
+        except Exception:
+            pass
+
+    # Data folder symlink
     symlink = desktop / "RPS Robot Data"
     if not symlink.exists():
         try:
@@ -516,9 +579,10 @@ def _create_mac_launcher(desktop, data_dir):
 
 
 def _create_windows_launcher(desktop, data_dir):
-    launcher = desktop / "Launch RPS Robot.bat"
+    # Create the .bat file
+    bat = desktop / "Launch RPS Robot.bat"
     try:
-        launcher.write_text(textwrap.dedent(f"""\
+        bat.write_text(textwrap.dedent(f"""\
             @echo off
             cd /d "{APP_DIR}"
             call "{VENV_DIR}\\Scripts\\activate.bat"
@@ -533,22 +597,61 @@ def _create_windows_launcher(desktop, data_dir):
                 pause
             )
         """))
-        ok(f"Launcher created: {launcher}")
+        ok(f"Launcher created: {bat}")
     except Exception as e:
-        warn(f"Could not create Desktop launcher: {e}")
+        warn(f"Could not create launcher: {e}")
         warn(f"Launch manually: cd {APP_DIR} && .venv\\Scripts\\python.exe main.py")
 
-    # Data folder shortcut via PowerShell
-    shortcut = desktop / "RPS Robot Data.lnk"
-    if not shortcut.exists():
+    # Create a proper .lnk shortcut with icon embedded
+    # .lnk is what Windows shows on Desktop with custom icons
+    ico_path = APP_DIR / "TheRPSRobot.ico"
+    lnk_path = desktop / "RPS Robot.lnk"
+
+    # Convert PNG to ICO if needed
+    if not ico_path.exists():
+        png_path = APP_DIR / "TheRPSRobot.png"
+        if png_path.exists():
+            try:
+                from PIL import Image
+                src = Image.open(png_path).convert("RGBA")
+                sizes = [(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)]
+                imgs  = [src.resize(s, Image.LANCZOS) for s in sizes]
+                imgs[0].save(str(ico_path), format="ICO",
+                             sizes=sizes, append_images=imgs[1:])
+                ok("App icon (.ico) created")
+            except Exception as e:
+                warn(f"Could not create .ico: {e}")
+
+    # Create .lnk shortcut with icon via PowerShell
+    try:
+        ico_str = str(ico_path).replace("\\", "\\\\")
+        bat_str = str(bat).replace("\\", "\\\\")
+        lnk_str = str(lnk_path).replace("\\", "\\\\")
+        ps_cmd = (
+            f'$ws = New-Object -ComObject WScript.Shell; '
+            f'$s = $ws.CreateShortcut("{lnk_str}"); '
+            f'$s.TargetPath = "{bat_str}"; '
+            f'$s.WorkingDirectory = "{str(APP_DIR).replace(chr(92), chr(92)+chr(92))}"; '
+            f'$s.IconLocation = "{ico_str},0"; '
+            f'$s.Description = "Launch RPS Robot"; '
+            f'$s.Save()'
+        )
+        subprocess.run(["powershell", "-Command", ps_cmd], capture_output=True)
+        ok(f"Desktop shortcut with icon: {lnk_path.name}")
+    except Exception as e:
+        warn(f"Could not create icon shortcut: {e}")
+
+    # Data folder shortcut
+    data_lnk = desktop / "RPS Robot Data.lnk"
+    if not data_lnk.exists():
         try:
-            ps_cmd = (
+            ps_cmd2 = (
                 f'$ws = New-Object -ComObject WScript.Shell; '
-                f'$s = $ws.CreateShortcut("{shortcut}"); '
+                f'$s = $ws.CreateShortcut("{data_lnk}"); '
                 f'$s.TargetPath = "{data_dir}"; '
                 f'$s.Save()'
             )
-            subprocess.run(["powershell", "-Command", ps_cmd], capture_output=True)
+            subprocess.run(["powershell", "-Command", ps_cmd2], capture_output=True)
             ok("Data folder shortcut on Desktop")
         except Exception:
             pass
