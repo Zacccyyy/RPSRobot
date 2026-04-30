@@ -32,6 +32,24 @@ except ImportError:
 
 # How many samples needed per gesture
 SAMPLES_PER_GESTURE = 20
+
+# Minimum gap between captures (same as LandmarkCollector)
+# Ensures each sample is meaningfully different
+MIN_CAPTURE_GAP = 0.4
+
+# Variation hints shown in rotation to encourage different hand positions
+VARIATION_HINTS = [
+    "Slightly tilt your hand left",
+    "Slightly tilt your hand right", 
+    "Move a little closer to camera",
+    "Move a little further away",
+    "Rotate wrist slightly clockwise",
+    "Rotate wrist slightly anti-clockwise",
+    "Spread fingers a bit wider",
+    "Hold as naturally as possible",
+    "Try a slightly different angle",
+    "Keep fingers relaxed",
+]
 GESTURES            = ["Rock", "Paper", "Scissors"]
 
 # Instructions shown for each gesture
@@ -66,6 +84,8 @@ class CalibrationController:
         self._counts        = {g: 0 for g in GESTURES}  # samples captured this session
         self._last_landmarks = None
         self._countdown_start = 0.0
+        self._last_capture    = 0.0   # enforces MIN_CAPTURE_GAP
+        self._variation_idx   = 0
         self._training_result = None    # accuracy float or None
         self._status_msg    = ""
 
@@ -118,6 +138,12 @@ class CalibrationController:
         """Capture the current frame as a sample for the current gesture."""
         if self._last_landmarks is None:
             self._status_msg = "No hand detected - hold your hand up clearly"
+            return
+
+        now = time.monotonic()
+        if now - self._last_capture < MIN_CAPTURE_GAP:
+            remaining = MIN_CAPTURE_GAP - (now - self._last_capture)
+            self._status_msg = f"Hold still... ({remaining:.1f}s)"
             return
 
         gesture = self.current_gesture
@@ -182,6 +208,7 @@ class CalibrationController:
             "counts":           dict(self._counts),
             "instruction":      GESTURE_INSTRUCTIONS.get(gesture, ""),
             "status_msg":       self._status_msg,
+            "variation_hint":   VARIATION_HINTS[self._variation_idx],
             "hand_visible":     self._last_landmarks is not None,
             "training_result":  self._training_result,
         }

@@ -24,6 +24,7 @@ Model path: ~/Desktop/CapStone/front_on_gesture_model.pkl
 """
 
 import math
+from front_on_features import extract_features as _extract_features
 from pathlib import Path
 
 # Lazy-loaded model cache.
@@ -174,11 +175,7 @@ def _load_model_once():
 
     _model_checked = True
 
-    try:
-        from capstone_paths import CAPSTONE_DIR
-        model_path = CAPSTONE_DIR / "front_on_gesture_model.pkl"
-    except ImportError:
-        model_path = Path.home() / "Desktop" / "CapStone" / "front_on_gesture_model.pkl"
+    model_path = Path.home() / "Desktop" / "CapStone" / "front_on_gesture_model.pkl"
 
     if not model_path.exists():
         print("[FrontOn] No trained model found. Use Diagnostic mode to collect data.")

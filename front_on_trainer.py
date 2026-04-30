@@ -16,6 +16,8 @@ import os
 import csv
 import pickle
 import numpy as np
+# Feature dimension must match front_on_features.FEATURE_DIM
+FEATURE_DIM = 20
 from pathlib import Path
 
 
@@ -53,7 +55,7 @@ def load_data():
             label = LABEL_TO_INT[row[0]]
             features = [float(v) for v in row[1:]]
 
-            if len(features) != 42:
+            if len(features) != 20:
                 continue
 
             X_rows.append(features)

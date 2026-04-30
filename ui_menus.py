@@ -2502,6 +2502,7 @@ def draw_calibration_view(frame, cal_state, hand_state=None):
     counts        = cal_state.get("counts",         {})
     instruction   = cal_state.get("instruction",    "")
     status_msg    = cal_state.get("status_msg",     "")
+    variation     = cal_state.get("variation_hint", "")
     hand_visible  = cal_state.get("hand_visible",   False)
     accuracy      = cal_state.get("training_result",None)
 
@@ -2624,6 +2625,12 @@ def draw_calibration_view(frame, cal_state, hand_state=None):
         # Capture button hint
         pulse3 = 0.6 + 0.4 * abs(_math.sin(t * _math.pi * 1.5))
         pc2 = tuple(min(255, int(c * pulse3)) for c in g_col)
+        # Variation hint - tells user how to vary their pose
+        if variation and samples_this > 0:
+            draw_centered_text_in_rect(frame, f"Next: {variation}",
+                (0, _ix(h*0.67), w, _ix(h*0.73)),
+                base_scale=0.30, color=(120,160,120), thickness=1, outline=1)
+
         draw_centered_text_in_rect(frame,
             "SPACE  -  capture this frame",
             (0, _ix(h*0.74), w, _ix(h*0.82)),
