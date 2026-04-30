@@ -168,6 +168,35 @@ def check_system():
 
 # ── Step 2: Git ───────────────────────────────────────────────────────────────
 
+def _find_git_windows():
+    """
+    Find git.exe on Windows after a fresh install.
+    winget installs Git to a predictable location that isn't on PATH yet
+    until the terminal is restarted. We check common install paths directly.
+    """
+    common_paths = [
+        r"C:\Program Files\Git\cmd\git.exe",
+        r"C:\Program Files (x86)\Git\cmd\git.exe",
+        pathlib.Path.home() / "AppData" / "Local" / "Programs" / "Git" / "cmd" / "git.exe",
+    ]
+    for p in common_paths:
+        if pathlib.Path(p).exists():
+            return str(p)
+    # Also try refreshing PATH from registry
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                            r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment") as key:
+            path_val, _ = winreg.QueryValueEx(key, "Path")
+            for part in path_val.split(";"):
+                candidate = pathlib.Path(part.strip()) / "git.exe"
+                if candidate.exists():
+                    return str(candidate)
+    except Exception:
+        pass
+    return None
+
+
 def ensure_git():
     step("Step 2 — Git version control")
 
@@ -188,14 +217,24 @@ def ensure_git():
         ok("Git installed via Homebrew")
 
     elif IS_WIN:
-        # Try winget first (available on Windows 10 1709+)
         if command_exists("winget"):
             info("Installing Git via winget...")
             run(["winget", "install", "--id", "Git.Git",
                  "-e", "--source", "winget",
                  "--accept-package-agreements",
                  "--accept-source-agreements"])
-            ok("Git installed via winget")
+
+            # winget installs Git but the current session PATH isn't updated yet.
+            # Find git.exe directly and add it to os.environ["PATH"] for this session.
+            git_exe = _find_git_windows()
+            if git_exe:
+                git_dir = str(pathlib.Path(git_exe).parent)
+                os.environ["PATH"] = git_dir + os.pathsep + os.environ.get("PATH", "")
+                ok(f"Git installed and located at {git_exe}")
+            else:
+                warn("Git installed but could not locate git.exe automatically.")
+                warn("Please close this window, open a new Command Prompt, and re-run install.py")
+                sys.exit(0)
         else:
             fail("Git not found and winget is not available.")
             fail("Please install Git manually from: https://git-scm.com/download/win")
