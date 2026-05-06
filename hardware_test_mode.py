@@ -2,7 +2,7 @@
 Hardware Integration Test Mode
 ===============================
 Diagnostic screen for testing the ESP32 connection.
-Supports both BLE (ble_bridge.BLEBridge) and USB serial (serial_bridge.SerialBridge).
+Supports BOTH BLE and USB Serial - press B to switch between them at runtime.
 
 Access: press D during gameplay -> press H
 
@@ -15,43 +15,79 @@ Key map:
     [ / ]       cycle through available devices/ports
     Enter       connect to selected device/port
     X           disconnect
-    F5          re-scan for devices
+    B           toggle between BLE and USB Serial mode
 
     ESC         exit hardware test, return to Diagnostic gameplay
 """
 
 KEY_ENTER = {10, 13}
 KEY_ESC   = 27
-KEY_F5    = 0xF5   # mapped in main.py as needed
 
 
 class HardwareTestController:
     """
     Manages state for the hardware test overlay.
-    Works with both BLEBridge and SerialBridge via duck typing.
+    Supports runtime switching between BLE and Serial bridges via B key.
     """
 
-    def __init__(self, bridge):
-        self.bridge = bridge
+    def __init__(self, bridge, ble_available=True, serial_available=True):
+        self.bridge           = bridge
+        self.ble_available    = ble_available
+        self.serial_available = serial_available
+        self._mode            = "BLE" if hasattr(bridge, "_async_scan") else "SERIAL"
 
-        self.available_ports    = []
+        self.available_ports     = []
         self.selected_port_index = 0
-        self.status_message     = "Press [ ] to select device, Enter to connect"
-        self._is_scanning       = False
+        self.status_message      = "Press [ ] to select device, Enter to connect  |  B = switch BLE/Serial"
+        self._is_scanning        = False
 
         self.refresh_ports()
+
+    # ── Bridge switching ──────────────────────────────────────────────
+
+    def switch_to_ble(self):
+        if not self.ble_available:
+            self.status_message = "BLE not available - run: pip install bleak"
+            return
+        try:
+            from ble_bridge import BLEBridge
+            self.bridge.disconnect()
+            self.bridge  = BLEBridge()
+            self._mode   = "BLE"
+            self.available_ports     = []
+            self.selected_port_index = 0
+            self.status_message = "Switched to BLE - scanning for devices..."
+            self.refresh_ports()
+        except Exception as e:
+            self.status_message = f"BLE switch failed: {e}"
+
+    def switch_to_serial(self):
+        if not self.serial_available:
+            self.status_message = "Serial not available - run: pip install pyserial"
+            return
+        try:
+            from serial_bridge import SerialBridge
+            self.bridge.disconnect()
+            self.bridge  = SerialBridge()
+            self._mode   = "SERIAL"
+            self.available_ports     = []
+            self.selected_port_index = 0
+            self.status_message = "Switched to USB Serial - scanning for ports..."
+            self.refresh_ports()
+        except Exception as e:
+            self.status_message = f"Serial switch failed: {e}"
 
     # ── Port/device discovery ─────────────────────────────────────────
 
     def refresh_ports(self):
-        """Scan for available devices/ports."""
-        self._is_scanning = True
-        self.status_message = "Scanning..."
+        self._is_scanning    = True
+        self.status_message  = "Scanning..."
         self.available_ports = self.bridge.list_ports()
-        self._is_scanning = False
+        self._is_scanning    = False
 
         if not self.available_ports:
-            self.status_message = "No devices found. Press F5 to rescan."
+            mode_hint = "BLE devices" if self._mode == "BLE" else "serial ports"
+            self.status_message = f"No {mode_hint} found. Press [ ] to rescan."
             return
 
         if self.selected_port_index >= len(self.available_ports):
@@ -68,10 +104,6 @@ class HardwareTestController:
     # ── Key handling ──────────────────────────────────────────────────
 
     def handle_key(self, key):
-        """
-        Process a key press.
-        Returns "exit" if ESC pressed, otherwise None.
-        """
         if key == KEY_ESC:
             return "exit"
 
@@ -83,8 +115,11 @@ class HardwareTestController:
             self._try_connect()
         elif key in (ord("x"), ord("X")):
             self._disconnect()
-        elif key == KEY_F5 or key == ord("r") and not self.bridge.is_connected:
-            self.refresh_ports()
+        elif key in (ord("b"), ord("B")):
+            if self._mode == "BLE":
+                self.switch_to_serial()
+            else:
+                self.switch_to_ble()
         else:
             command = self._key_to_command(key)
             if command:
@@ -95,31 +130,28 @@ class HardwareTestController:
     # ── Per-frame update ──────────────────────────────────────────────
 
     def update(self):
-        """Call once per frame to drain the read buffer."""
         self.bridge.read_response()
 
     # ── UI data ───────────────────────────────────────────────────────
 
     def get_display_state(self):
-        """Returns everything the UI renderer needs."""
         summary = self.bridge.get_status_summary()
-
-        # Detect bridge type
-        is_ble = hasattr(self.bridge, "_async_scan")
-
         return {
-            "is_ble":               is_ble,
-            "bleak_installed":      summary.get("bleak_installed", True),
-            "pyserial_installed":   summary.get("pyserial_installed", True),
-            "connected":            summary["connected"],
-            "port":                 summary["port"],
-            "last_tx":              summary["last_tx"],
-            "last_rx":              summary["last_rx"],
-            "available_ports":      self.available_ports,
-            "selected_port":        self.selected_port,
-            "selected_port_index":  self.selected_port_index,
-            "status_message":       self.status_message,
-            "is_scanning":          self._is_scanning,
+            "mode":                self._mode,
+            "is_ble":              self._mode == "BLE",
+            "ble_available":       self.ble_available,
+            "serial_available":    self.serial_available,
+            "bleak_installed":     self.ble_available,
+            "pyserial_installed":  self.serial_available,
+            "connected":           summary["connected"],
+            "port":                summary["port"],
+            "last_tx":             summary["last_tx"],
+            "last_rx":             summary["last_rx"],
+            "available_ports":     self.available_ports,
+            "selected_port":       self.selected_port,
+            "selected_port_index": self.selected_port_index,
+            "status_message":      self.status_message,
+            "is_scanning":         self._is_scanning,
         }
 
     # ── Internal helpers ──────────────────────────────────────────────
@@ -144,11 +176,7 @@ class HardwareTestController:
         if entry is None:
             return
 
-        # BLE entries look like "RPS Robot | AA:BB:CC:DD:EE:FF"
-        # Serial entries are just "/dev/cu.usbserial-0001"
-        is_ble = hasattr(self.bridge, "_async_scan")
-
-        if is_ble and " | " in entry:
+        if self._mode == "BLE" and " | " in entry:
             name, address = entry.split(" | ", 1)
             self.status_message = f"Connecting to {name}..."
             ok = self.bridge.connect(address, device_name=name)
@@ -156,10 +184,7 @@ class HardwareTestController:
             self.status_message = f"Connecting to {entry}..."
             ok = self.bridge.connect(entry)
 
-        if ok:
-            self.status_message = f"Connected: {entry}"
-        else:
-            self.status_message = f"FAILED to connect to {entry}"
+        self.status_message = f"Connected: {entry}" if ok else f"FAILED: {entry}"
 
     def _disconnect(self):
         self.bridge.disconnect()
@@ -170,10 +195,7 @@ class HardwareTestController:
             self.status_message = "Not connected - press Enter to connect first"
             return
         ok = self.bridge.send_command(action)
-        if ok:
-            self.status_message = f"Sent: CMD|{action}"
-        else:
-            self.status_message = f"Send failed for {action}"
+        self.status_message = f"Sent: CMD|{action}" if ok else f"Send failed: {action}"
 
     @staticmethod
     def _key_to_command(key):

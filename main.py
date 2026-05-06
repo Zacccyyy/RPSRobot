@@ -4030,22 +4030,37 @@ def run():
                         _io_worker.submit(_run_report_updater_bg)
 
                     elif key == ord("h") or key == ord("H"):
-                        # Launch dedicated Hardware Test screen
-                        # Try BLE first (works on all platforms, required for mobile)
-                        # Fall back to serial if bleak not installed
+                        # Launch Hardware Test screen
+                        # Both BLE and Serial are available - user can switch
+                        # between them inside the hardware test screen with B key
+                        from hardware_test_mode import HardwareTestController
                         try:
                             from ble_bridge import BLEBridge
-                            from hardware_test_mode import HardwareTestController
-                            app_state["hardware_test"] = HardwareTestController(BLEBridge())
-                            app_state["app_screen"] = "HARDWARE_TEST"
+                            _ble_available = True
                         except ImportError:
-                            try:
-                                from serial_bridge import SerialBridge
-                                from hardware_test_mode import HardwareTestController
-                                app_state["hardware_test"] = HardwareTestController(SerialBridge())
-                                app_state["app_screen"] = "HARDWARE_TEST"
-                            except ImportError:
-                                app_state["collector_message"] = "Install bleak for BLE: pip install bleak"
+                            _ble_available = False
+                        try:
+                            from serial_bridge import SerialBridge
+                            _serial_available = True
+                        except ImportError:
+                            _serial_available = False
+
+                        if _ble_available:
+                            bridge = BLEBridge()
+                        elif _serial_available:
+                            bridge = SerialBridge()
+                        else:
+                            app_state["collector_message"] = "Install bleak (BLE) or pyserial (USB)"
+                            bridge = None
+
+                        if bridge is not None:
+                            ctrl = HardwareTestController(
+                                bridge,
+                                ble_available=_ble_available,
+                                serial_available=_serial_available,
+                            )
+                            app_state["hardware_test"] = ctrl
+                            app_state["app_screen"] = "HARDWARE_TEST"
 
             # ── LOGIN screen ───────────────────────────────────────────────
             elif app_state["app_screen"] == "LOGIN":
