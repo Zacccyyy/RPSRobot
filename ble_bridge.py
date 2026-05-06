@@ -157,13 +157,25 @@ class BLEBridge:
             return []
 
     async def _async_scan(self, timeout):
-        devices = await BleakScanner.discover(timeout=timeout)
+        # Scan with return_adv=True so we can check service UUIDs
+        # macOS hides device names until after first connection,
+        # so we identify the ESP32 by its Nordic UART Service UUID instead
+        NUS_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+        discovered = await BleakScanner.discover(
+            timeout=timeout, return_adv=True)
         result = []
-        for d in devices:
-            name = d.name or "Unknown"
-            result.append({"name": name, "address": d.address})
-        # Sort: RPS Robot first
-        result.sort(key=lambda x: (0 if ESP32_DEVICE_NAME in x["name"] else 1, x["name"]))
+        for addr, (device, adv) in discovered.items():
+            name    = device.name or ""
+            uuids   = [str(u).lower() for u in adv.service_uuids]
+            is_esp  = NUS_UUID in uuids or ESP32_DEVICE_NAME in name
+            display = "RPS Robot (ESP32)" if is_esp else (name or "Unknown")
+            result.append({
+                "name":    display,
+                "address": device.address,
+                "is_esp":  is_esp,
+            })
+        # Sort: ESP32 first, then alphabetically
+        result.sort(key=lambda x: (0 if x["is_esp"] else 1, x["name"]))
         return result
 
     # ── Connection ────────────────────────────────────────────────────
