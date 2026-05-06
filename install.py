@@ -52,6 +52,7 @@ PACKAGES = [
     ("Anthropic (AI)",    "anthropic>=0.25.0"),
     ("urllib3",           "urllib3>=2.0.0"),
     ("Sentry",            "sentry-sdk>=2.0.0"),
+    ("Bleak (BLE)",       "bleak>=0.21.0"),
 ]
 
 # ── Platform ──────────────────────────────────────────────────────────────────
@@ -621,17 +622,34 @@ def _create_windows_launcher(desktop, data_dir):
     if png_path.exists():
         try:
             from PIL import Image
+            import struct, io as _io
             src = Image.open(png_path).convert("RGBA")
-            # Windows ICO max is 256x256 for the format
-            # but we include all sizes for crisp rendering at every size
-            ico_sizes = [(16,16),(24,24),(32,32),(48,48),(64,64),(96,96),(128,128),(256,256)]
-            ico_imgs  = [src.resize(s, Image.LANCZOS) for s in ico_sizes]
-            ico_imgs[0].save(
-                str(ico_path), format="ICO",
-                sizes=ico_sizes,
-                append_images=ico_imgs[1:]
-            )
-            ok("App icon (.ico) created at full quality")
+            # Build ICO manually - PIL's append_images is buggy and
+            # produces single-size 1KB files. Binary approach gets 140KB
+            # multi-size ICO with crisp rendering at all Windows icon sizes.
+            ico_px = [16, 24, 32, 48, 64, 128, 256]
+            frames = []
+            for sz in ico_px:
+                buf = _io.BytesIO()
+                src.resize((sz, sz), Image.LANCZOS).save(buf, format="PNG", optimize=True)
+                frames.append((sz, buf.getvalue()))
+            n = len(frames)
+            hdr_size = 6 + n * 16
+            offset = hdr_size
+            entries = []
+            for sz, data in frames:
+                w = sz if sz < 256 else 0
+                entries.append((w, len(data), offset))
+                offset += len(data)
+            out = _io.BytesIO()
+            out.write(struct.pack("<HHH", 0, 1, n))
+            for (w, size, off) in entries:
+                out.write(struct.pack("<BBBBHHII", w, w, 0, 0, 1, 32, size, off))
+            for _, data in frames:
+                out.write(data)
+            with open(str(ico_path), "wb") as f:
+                f.write(out.getvalue())
+            ok(f"App icon (.ico) created ({len(out.getvalue())//1024}KB, {len(frames)} sizes)")
         except Exception as e:
             warn(f"Could not create .ico: {e}")
 
@@ -672,6 +690,18 @@ def _create_windows_launcher(desktop, data_dir):
             ok("Data folder shortcut on Desktop")
         except Exception:
             pass
+
+    # Refresh Windows icon cache so new icon shows immediately
+    try:
+        subprocess.run([
+            "powershell", "-Command",
+            "ie4uinit.exe -show; "
+            "Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue; "
+            "Start-Sleep 1; "
+            "Start-Process explorer"
+        ], capture_output=True, timeout=10)
+    except Exception:
+        pass
 
 
 def _create_linux_launcher(desktop):

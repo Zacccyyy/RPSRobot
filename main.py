@@ -4031,13 +4031,21 @@ def run():
 
                     elif key == ord("h") or key == ord("H"):
                         # Launch dedicated Hardware Test screen
+                        # Try BLE first (works on all platforms, required for mobile)
+                        # Fall back to serial if bleak not installed
                         try:
-                            from serial_bridge import SerialBridge
+                            from ble_bridge import BLEBridge
                             from hardware_test_mode import HardwareTestController
-                            app_state["hardware_test"] = HardwareTestController(SerialBridge())
+                            app_state["hardware_test"] = HardwareTestController(BLEBridge())
                             app_state["app_screen"] = "HARDWARE_TEST"
                         except ImportError:
-                            app_state["collector_message"] = "Hardware test requires pyserial - pip install pyserial"
+                            try:
+                                from serial_bridge import SerialBridge
+                                from hardware_test_mode import HardwareTestController
+                                app_state["hardware_test"] = HardwareTestController(SerialBridge())
+                                app_state["app_screen"] = "HARDWARE_TEST"
+                            except ImportError:
+                                app_state["collector_message"] = "Install bleak for BLE: pip install bleak"
 
             # ── LOGIN screen ───────────────────────────────────────────────
             elif app_state["app_screen"] == "LOGIN":

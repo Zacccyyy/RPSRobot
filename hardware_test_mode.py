@@ -1,61 +1,63 @@
 """
 Hardware Integration Test Mode
+===============================
+Diagnostic screen for testing the ESP32 connection.
+Supports both BLE (ble_bridge.BLEBridge) and USB serial (serial_bridge.SerialBridge).
 
-Diagnostic-only screen for manually testing the ESP32 serial connection.
-Not exposed in the main menu — only accessible via the 'H' key while
-already in Diagnostic display mode during gameplay.
+Access: press D during gameplay -> press H
 
-Key map (while in hardware test mode):
-    r  = send ROCK
-    p  = send PAPER
-    s  = send SCISSORS
-    o  = send OPEN  (reset / open hand)
-    c  = send CLOSE (close fist)
-    t  = send PING  (connection test)
+Key map:
+    R / P / S   send ROCK / PAPER / SCISSORS
+    O           send OPEN  (reset/open hand)
+    C           send CLOSE (close fist)
+    T           send PING  (connection test)
 
-    [ / ]  = cycle through available serial ports
-    Enter  = connect to selected port
-    x      = disconnect
+    [ / ]       cycle through available devices/ports
+    Enter       connect to selected device/port
+    X           disconnect
+    F5          re-scan for devices
 
-    Esc    = exit hardware test mode, return to Diagnostic gameplay
+    ESC         exit hardware test, return to Diagnostic gameplay
 """
 
-
 KEY_ENTER = {10, 13}
-KEY_ESC = 27
+KEY_ESC   = 27
+KEY_F5    = 0xF5   # mapped in main.py as needed
 
 
 class HardwareTestController:
     """
-    Manages the state needed by the hardware test overlay.
-
-    Owns no serial connection itself — it delegates to a SerialBridge
-    instance that is passed in.
+    Manages state for the hardware test overlay.
+    Works with both BLEBridge and SerialBridge via duck typing.
     """
 
-    def __init__(self, serial_bridge):
-        self.bridge = serial_bridge
+    def __init__(self, bridge):
+        self.bridge = bridge
 
-        # Port selection state
-        self.available_ports = []
+        self.available_ports    = []
         self.selected_port_index = 0
-
-        # Feedback for the UI
-        self.status_message = "Press [ ] to select port, Enter to connect"
+        self.status_message     = "Press [ ] to select device, Enter to connect"
+        self._is_scanning       = False
 
         self.refresh_ports()
 
+    # ── Port/device discovery ─────────────────────────────────────────
+
     def refresh_ports(self):
-        """Re-scan available serial ports."""
+        """Scan for available devices/ports."""
+        self._is_scanning = True
+        self.status_message = "Scanning..."
         self.available_ports = self.bridge.list_ports()
+        self._is_scanning = False
 
         if not self.available_ports:
-            self.selected_port_index = 0
+            self.status_message = "No devices found. Press F5 to rescan."
             return
 
-        # Keep current index in bounds after a refresh
         if self.selected_port_index >= len(self.available_ports):
             self.selected_port_index = len(self.available_ports) - 1
+
+        self.status_message = f"Found {len(self.available_ports)} device(s). Select with [ ]"
 
     @property
     def selected_port(self):
@@ -63,91 +65,70 @@ class HardwareTestController:
             return None
         return self.available_ports[self.selected_port_index]
 
-    # ------------------------------------------------------------------
-    # Key handling  (called from main.py)
-    # ------------------------------------------------------------------
+    # ── Key handling ──────────────────────────────────────────────────
 
     def handle_key(self, key):
         """
-        Process a key press while in hardware test mode.
-
-        Returns:
-            "exit"  — user pressed Esc, caller should leave HW test mode
-            None    — handled normally, stay in HW test mode
+        Process a key press.
+        Returns "exit" if ESC pressed, otherwise None.
         """
         if key == KEY_ESC:
             return "exit"
 
-        # --- Port cycling ---
         if key == ord("["):
             self._cycle_port(-1)
-            return None
-
-        if key == ord("]"):
+        elif key == ord("]"):
             self._cycle_port(1)
-            return None
-
-        # --- Connect / Disconnect ---
-        if key in KEY_ENTER:
+        elif key in KEY_ENTER:
             self._try_connect()
-            return None
-
-        if key == ord("x") or key == ord("X"):
+        elif key in (ord("x"), ord("X")):
             self._disconnect()
-            return None
-
-        # --- Manual commands ---
-        command = self._key_to_command(key)
-        if command is not None:
-            self._send(command)
-            return None
+        elif key == KEY_F5 or key == ord("r") and not self.bridge.is_connected:
+            self.refresh_ports()
+        else:
+            command = self._key_to_command(key)
+            if command:
+                self._send(command)
 
         return None
 
-    # ------------------------------------------------------------------
-    # Per-frame update  (called from main.py each loop iteration)
-    # ------------------------------------------------------------------
+    # ── Per-frame update ──────────────────────────────────────────────
 
     def update(self):
-        """
-        Call once per frame so the bridge can drain its read buffer.
-        """
+        """Call once per frame to drain the read buffer."""
         self.bridge.read_response()
 
-    # ------------------------------------------------------------------
-    # UI data
-    # ------------------------------------------------------------------
+    # ── UI data ───────────────────────────────────────────────────────
 
     def get_display_state(self):
-        """
-        Returns everything the UI renderer needs to draw the
-        hardware test screen.
-        """
+        """Returns everything the UI renderer needs."""
         summary = self.bridge.get_status_summary()
 
+        # Detect bridge type
+        is_ble = hasattr(self.bridge, "_async_scan")
+
         return {
-            "pyserial_installed": summary["pyserial_installed"],
-            "connected": summary["connected"],
-            "port": summary["port"],
-            "last_tx": summary["last_tx"],
-            "last_rx": summary["last_rx"],
-            "available_ports": self.available_ports,
-            "selected_port": self.selected_port,
-            "selected_port_index": self.selected_port_index,
-            "status_message": self.status_message,
+            "is_ble":               is_ble,
+            "bleak_installed":      summary.get("bleak_installed", True),
+            "pyserial_installed":   summary.get("pyserial_installed", True),
+            "connected":            summary["connected"],
+            "port":                 summary["port"],
+            "last_tx":              summary["last_tx"],
+            "last_rx":              summary["last_rx"],
+            "available_ports":      self.available_ports,
+            "selected_port":        self.selected_port,
+            "selected_port_index":  self.selected_port_index,
+            "status_message":       self.status_message,
+            "is_scanning":          self._is_scanning,
         }
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
+    # ── Internal helpers ──────────────────────────────────────────────
 
     def _cycle_port(self, direction):
         self.refresh_ports()
-
         if not self.available_ports:
-            self.status_message = "No serial ports found"
+            self.status_message = "No devices found"
             return
-
         self.selected_port_index = (
             (self.selected_port_index + direction) % len(self.available_ports)
         )
@@ -155,18 +136,30 @@ class HardwareTestController:
 
     def _try_connect(self):
         self.refresh_ports()
-
         if not self.available_ports:
-            self.status_message = "No serial ports available"
+            self.status_message = "No devices available"
             return
 
-        port = self.selected_port
-        ok = self.bridge.connect(port)
+        entry = self.selected_port
+        if entry is None:
+            return
+
+        # BLE entries look like "RPS Robot | AA:BB:CC:DD:EE:FF"
+        # Serial entries are just "/dev/cu.usbserial-0001"
+        is_ble = hasattr(self.bridge, "_async_scan")
+
+        if is_ble and " | " in entry:
+            name, address = entry.split(" | ", 1)
+            self.status_message = f"Connecting to {name}..."
+            ok = self.bridge.connect(address, device_name=name)
+        else:
+            self.status_message = f"Connecting to {entry}..."
+            ok = self.bridge.connect(entry)
 
         if ok:
-            self.status_message = f"Connected to {port}"
+            self.status_message = f"Connected: {entry}"
         else:
-            self.status_message = f"FAILED to connect to {port}"
+            self.status_message = f"FAILED to connect to {entry}"
 
     def _disconnect(self):
         self.bridge.disconnect()
@@ -174,11 +167,9 @@ class HardwareTestController:
 
     def _send(self, action):
         if not self.bridge.is_connected:
-            self.status_message = "Not connected — press Enter to connect first"
+            self.status_message = "Not connected - press Enter to connect first"
             return
-
         ok = self.bridge.send_command(action)
-
         if ok:
             self.status_message = f"Sent: CMD|{action}"
         else:
@@ -186,19 +177,12 @@ class HardwareTestController:
 
     @staticmethod
     def _key_to_command(key):
-        """Map a key press to a command string, or None."""
         mapping = {
-            ord("r"): "ROCK",
-            ord("R"): "ROCK",
-            ord("p"): "PAPER",
-            ord("P"): "PAPER",
-            ord("s"): "SCISSORS",
-            ord("S"): "SCISSORS",
-            ord("o"): "OPEN",
-            ord("O"): "OPEN",
-            ord("c"): "CLOSE",
-            ord("C"): "CLOSE",
-            ord("t"): "PING",
-            ord("T"): "PING",
+            ord("r"): "ROCK",     ord("R"): "ROCK",
+            ord("p"): "PAPER",    ord("P"): "PAPER",
+            ord("s"): "SCISSORS", ord("S"): "SCISSORS",
+            ord("o"): "OPEN",     ord("O"): "OPEN",
+            ord("c"): "CLOSE",    ord("C"): "CLOSE",
+            ord("t"): "PING",     ord("T"): "PING",
         }
         return mapping.get(key)
