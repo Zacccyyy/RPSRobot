@@ -1854,6 +1854,9 @@ def _run_gesture_nav(app_state, hand_state, now, item_count, set_index_fn,
             result = handle_voice_nav(app_state, "select")
         elif ev["type"] == "adjust" and adjust_fn is not None:
             adjust_fn(ev["direction"])
+        elif ev["type"] == "swipe_left":
+            # Wave left = back on any screen
+            result = handle_voice_nav(app_state, "back")
     return result
 
 
@@ -3275,8 +3278,65 @@ def run():
                         color=(200, 220, 255),
                         thickness=1, outline=2)
 
-                # ── Voice status badge (non-RPS game modes) ─────────────────
-                # RPS modes have voice UI built into draw_game_mode_view.
+                # ── Gesture nav in game screen ───────────────────────────────
+                # Tracks hand position and shows cursor overlay.
+                # Wave left triggers ESC (back to menu/category).
+                if app_state["config"].get("gesture_nav_enabled"):
+                    _gnav = app_state["gesture_nav"]
+                    for _ev in _gnav.update(
+                        hand_state=hand_state,
+                        now=time.monotonic(),
+                        item_count=1,
+                    ):
+                        if _ev.get("type") == "swipe_left":
+                            # Wave left = back
+                            if app_state.get("_came_from_category"):
+                                app_state["app_screen"] = "GAME_CATEGORY"
+                                app_state["in_game_category"] = True
+                                reset_all_modes(app_state)
+                            else:
+                                open_menu(app_state)
+                    draw_gesture_nav_overlay(
+                        frame, _gnav.get_cursor_info())
+
+                # ── Hand recognition data overlay ────────────────────────────
+                # Shows landmark confidence, detected gesture, ML score.
+                # Always visible in Diagnostic mode; compact badge otherwise.
+                if hand_state and hand_state.get("_landmarks"):
+                    _hw, _hh = frame.shape[1], frame.shape[0]
+                    _gesture  = hand_state.get("gesture", "")
+                    _conf     = hand_state.get("confidence", 0.0)
+                    _ml_conf  = hand_state.get("ml_confidence", 0.0)
+                    _method   = hand_state.get("method", "")
+                    if app_state["display_mode"] == "Diagnostic":
+                        # Full diagnostic strip at top-right
+                        _lines = [
+                            f"Gesture: {_gesture}",
+                            f"Conf: {_conf:.0%}",
+                            f"ML: {_ml_conf:.0%}",
+                            f"Method: {_method}",
+                        ]
+                        for _li, _lt in enumerate(_lines):
+                            cv2.putText(frame, _lt,
+                                (_hw - 200, 60 + _li * 22),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.42,
+                                (0, 0, 0), 3, cv2.LINE_AA)
+                            cv2.putText(frame, _lt,
+                                (_hw - 200, 60 + _li * 22),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.42,
+                                (100, 220, 180), 1, cv2.LINE_AA)
+                    else:
+                        # Compact single-line badge bottom-left
+                        _badge = f"{_gesture} {_conf:.0%}" if _gesture else ""
+                        if _badge:
+                            cv2.putText(frame, _badge,
+                                (12, _hh - 50),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.40,
+                                (0, 0, 0), 3, cv2.LINE_AA)
+                            cv2.putText(frame, _badge,
+                                (12, _hh - 50),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.40,
+                                (100, 220, 180), 1, cv2.LINE_AA)
                 # Non-RPS modes get a compact badge: mic status + mode hint.
                 # Positioned below the top bar (9% - 18% height, right-aligned)
                 # except Squid Game which has a full-width banner at 0 - 13%,

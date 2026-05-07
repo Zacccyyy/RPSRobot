@@ -27,6 +27,11 @@ ITEM_STABLE    = 0.35
 SMOOTHING      = 0.60
 CONFIRM_FRAMES = 5
 
+# Swipe detection - wave hand left quickly to trigger back/ESC
+SWIPE_LEFT_THRESHOLD  = 0.25   # must move this far left (normalised X)
+SWIPE_TIME_WINDOW     = 0.6    # within this many seconds
+SWIPE_COOLDOWN        = 1.5    # don't fire again this soon
+
 # Button hit zones — must match draw_settings_screen in ui_renderer.py.
 # Computed from: x2=0.935, btn_w=0.055, btn_gap=0.010, x2_offset=0.018
 _BTN_W    = 0.055
@@ -68,6 +73,10 @@ class GestureNavController:
         self._content_bot   = 0.83
         # Whether this screen supports +/− (set per-call)
         self._adjust_items  = set()
+        # Swipe left detection
+        self._swipe_x_start   = None
+        self._swipe_t_start   = None
+        self._swipe_last_fire = 0.0
 
     # ------------------------------------------------------------------ #
 
@@ -108,6 +117,29 @@ class GestureNavController:
             else:
                 self._smooth_x = SMOOTHING * raw_x + (1 - SMOOTHING) * self._smooth_x
                 self._smooth_y = SMOOTHING * raw_y + (1 - SMOOTHING) * self._smooth_y
+
+        # ── Swipe-left detection (wave hand left quickly = back) ────────────
+        if raw_x is not None and hand_present:
+            if self._swipe_x_start is None:
+                self._swipe_x_start = raw_x
+                self._swipe_t_start = now
+            else:
+                elapsed  = now - self._swipe_t_start
+                distance = self._swipe_x_start - raw_x   # positive = moved left
+                if elapsed <= SWIPE_TIME_WINDOW:
+                    if (distance >= SWIPE_LEFT_THRESHOLD and
+                            now - self._swipe_last_fire >= SWIPE_COOLDOWN):
+                        events.append({"type": "swipe_left"})
+                        self._swipe_last_fire = now
+                        self._swipe_x_start   = None
+                        self._swipe_t_start   = None
+                else:
+                    # Window expired - reset tracking
+                    self._swipe_x_start = raw_x
+                    self._swipe_t_start = now
+        else:
+            self._swipe_x_start = None
+            self._swipe_t_start = None
 
         if not self._active:
             if hand_present:
@@ -189,6 +221,9 @@ class GestureNavController:
         self._smooth_x      = None
         self._smooth_y      = None
         self._adjust_items  = set()
+        self._swipe_x_start   = None
+        self._swipe_t_start   = None
+        self._swipe_last_fire = 0.0
 
     def is_active(self):     return self._active
     def is_warming_up(self): return self._warming_up and not self._active
