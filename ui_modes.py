@@ -1707,7 +1707,7 @@ def draw_gesture_rehab_view(frame, game_state):
 
 
 def draw_arcade_snake_view(frame, game_state, tracker_state=None):
-    """Gesture Snake — Rock=straight, Scissors=left, Paper=right."""
+    """Gesture Snake  -  Rock=straight, Scissors=left, Paper=right."""
     w, h = frame.shape[1], frame.shape[0]
     t    = time.monotonic()
 
@@ -1759,7 +1759,7 @@ def draw_arcade_snake_view(frame, game_state, tracker_state=None):
                     lbx1 + _ix(w * 0.04), ey + _ix(h * 0.022),
                     0.32, col, thickness=1, outline=1)
         else:
-            draw_centered_text(frame, "No scores yet — be the first!",
+            draw_centered_text(frame, "No scores yet  -  be the first!",
                                cy + _ix(h * 0.02), 0.38, COL_TEXT_DIM,
                                thickness=1, outline=1)
 
@@ -2968,7 +2968,7 @@ def draw_hand_enroll_view(frame, game_state, hand_state=None):
 def draw_hand_login_view(frame, game_state, hand_state=None):
     """
     Simple hand scan login screen.
-    Hold your hand up — it scans once and identifies you immediately.
+    Hold your hand up  -  it scans once and identifies you immediately.
     No rounds, no silhouette movement, no data collection UX.
     """
     import math as _math

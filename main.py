@@ -4178,6 +4178,8 @@ def run():
                     accepted = (sel == 0)
                     set_consent(app_state["config"], accepted)
                     save_config(app_state["config"])
+                    # Update calibration warning now that we know consent state
+                    app_state["_needs_calibration"] = not model_exists()
                     if not app_state["config"].get("player_name", "").strip():
                         app_state["app_screen"] = "LOGIN"
                     else:
