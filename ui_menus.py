@@ -16,9 +16,6 @@ def draw_menu_screen(frame, menu_items, selected_index, config,
     w, h = layout["w"], layout["h"]
     x1, y1, x2, y2 = layout["panel"]
 
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_BG_DARK, alpha=0.75,
-               border=COL_BG_DARK, border_thickness=0)
-
     top_right = "UP/DOWN Navigate | Enter Select | N Feedback | ESC Back | Q Quit"
     draw_top_bar(frame, "RPS ROBOT", top_right)
 
@@ -51,7 +48,7 @@ def draw_menu_screen(frame, menu_items, selected_index, config,
             base_scale=0.36, color=bc, thickness=1, outline=2)
 
     draw_panel(frame, x1, y1, x2, y2, fill=COL_BG_PANEL, alpha=0.92,
-               border=COL_CYAN, border_thickness=2)
+               border=COL_ACCENT, border_thickness=1)
 
     if in_submenu:
         draw_centered_text(frame, "GAME MODES", y1 + _ix((y2 - y1) * 0.09),
@@ -83,10 +80,9 @@ def draw_menu_screen(frame, menu_items, selected_index, config,
         bar_h = max(_ix(h * 0.018), item_gap // 2 - 2)
 
         if selected:
-            draw_panel(frame, x1 + _ix(w * 0.04), cy - bar_h, x2 - _ix(w * 0.04), cy + bar_h,
-                       fill=(20, 40, 60), alpha=0.70, border=COL_CYAN, border_thickness=1)
+            draw_selected_row(frame, x1 + _ix(w * 0.04), cy - bar_h, x2 - _ix(w * 0.04), cy + bar_h)
 
-        color  = COL_CYAN if selected else COL_TEXT_DIM
+        color  = COL_ACCENT if selected else COL_TEXT_DIM
         prefix = "> " if selected else "  "
         draw_centered_text_in_rect(frame, f"{prefix}{label}",
             (x1 + _ix(w * 0.06), cy - bar_h, x2 - _ix(w * 0.06), cy + bar_h),
@@ -122,11 +118,9 @@ def draw_simulation_screen(frame, sim_state):
     w, h = layout["w"], layout["h"]
     x1, y1, x2, y2 = layout["panel"]
 
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_BG_DARK, alpha=0.75,
-               border=COL_BG_DARK, border_thickness=0)
     draw_top_bar(frame, "SIMULATION", "Running...  ESC to go back when done")
     draw_panel(frame, x1, y1, x2, y2, fill=COL_BG_PANEL, alpha=0.94,
-               border=COL_YELLOW, border_thickness=2)
+               border=COL_ACCENT, border_thickness=1)
 
     status   = sim_state.get("status", "running")
     progress = sim_state.get("progress", 0.0)
@@ -363,9 +357,6 @@ def draw_settings_screen(frame, settings_schema, selected_index, config,
     x_zone      = cursor_info.get("x_zone", "center")  if nav_active else "center"
     adjust_pct  = cursor_info.get("adjust_pct", 0.0)   if nav_active else 0.0
 
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_BG_DARK, alpha=0.75,
-               border=COL_BG_DARK, border_thickness=0)
-
     if text_edit:
         hint = "Type name | ENTER confirm | ESC cancel"
     elif nav_active:
@@ -375,7 +366,7 @@ def draw_settings_screen(frame, settings_schema, selected_index, config,
     draw_top_bar(frame, "SETTINGS", hint)
 
     draw_panel(frame, x1, y1, x2, y2, fill=COL_BG_PANEL, alpha=0.94,
-               border=COL_CYAN, border_thickness=2)
+               border=COL_ACCENT, border_thickness=1)
 
     draw_centered_text(frame, "GAME SETTINGS", y1 + _ix((y2 - y1) * 0.07),
                        0.80, COL_TEXT, thickness=3, outline=4)
@@ -410,10 +401,9 @@ def draw_settings_screen(frame, settings_schema, selected_index, config,
         if selected:
             bar_y1 = y - bar_half_h
             bar_y2 = y + bar_half_h
-            draw_panel(frame, x1 + _ix(w * 0.015), bar_y1, x2 - _ix(w * 0.015), bar_y2,
-                       fill=(20, 40, 60), alpha=0.60, border=COL_CYAN, border_thickness=1)
+            draw_selected_row(frame, x1 + _ix(w * 0.015), bar_y1, x2 - _ix(w * 0.015), bar_y2)
 
-        label_color = COL_CYAN if selected else COL_TEXT_DIM
+        label_color = COL_ACCENT if selected else COL_TEXT_DIM
         prefix = "> " if selected else "  "
 
         draw_outlined_text(frame, f"{prefix}{item['label']}", x1 + _ix(w * 0.025), y,
@@ -509,7 +499,7 @@ def draw_settings_screen(frame, settings_schema, selected_index, config,
 
     if desc_text:
         draw_panel(frame, x1 + _ix(w * 0.015), desc_y1, x2 - _ix(w * 0.015), desc_y2,
-                   fill=(8, 20, 35), alpha=0.90, border=COL_CYAN, border_thickness=1)
+                   fill=(8, 20, 35), alpha=0.90, border=COL_BORDER_HAIR, border_thickness=1)
 
         max_chars = max(30, int((x2 - x1) / (_ix(w * 0.012) + 1)))
         words, lines, current = desc_text.split(), [], ""
@@ -565,15 +555,12 @@ def draw_features_screen(frame, features_schema, selected_index, config,
     x_zone     = cursor_info.get("x_zone", "center") if nav_active else "center"
     adjust_pct = cursor_info.get("adjust_pct", 0.0)  if nav_active else 0.0
 
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_BG_DARK, alpha=0.75,
-               border=COL_BG_DARK, border_thickness=0)
-
     hint = "UP/DOWN Select | ENTER Toggle | BACK" if not nav_active else \
            "Move left [-]  |  center = select  |  [+] move right"
     draw_top_bar(frame, "FEATURES", hint)
 
     draw_panel(frame, x1, y1, x2, y2, fill=COL_BG_PANEL, alpha=0.94,
-               border=COL_YELLOW, border_thickness=2)
+               border=COL_ACCENT, border_thickness=1)
 
     draw_centered_text(frame, "OPTIONAL FEATURES", y1 + _ix((y2 - y1) * 0.07),
                        0.80, COL_YELLOW, thickness=3, outline=4)
@@ -594,11 +581,10 @@ def draw_features_screen(frame, features_schema, selected_index, config,
         is_choice = item.get("type") == "choice"
 
         if selected:
-            draw_panel(frame, x1 + _ix(w * 0.015), y - bar_half,
-                       x2 - _ix(w * 0.015), y + bar_half,
-                       fill=(20, 40, 10), alpha=0.60, border=COL_YELLOW, border_thickness=1)
+            draw_selected_row(frame, x1 + _ix(w * 0.015), y - bar_half,
+                              x2 - _ix(w * 0.015), y + bar_half)
 
-        label_color = COL_YELLOW if selected else COL_TEXT_DIM
+        label_color = COL_ACCENT if selected else COL_TEXT_DIM
         prefix      = "> " if selected else "  "
         draw_outlined_text(frame, f"{prefix}{item['label']}", x1 + _ix(w * 0.025), y,
                            0.48, label_color, thickness=1, outline=2)
@@ -666,7 +652,7 @@ def draw_features_screen(frame, features_schema, selected_index, config,
 
     if desc_text:
         draw_panel(frame, x1 + _ix(w * 0.015), desc_y1, x2 - _ix(w * 0.015), desc_y2,
-                   fill=(8, 20, 8), alpha=0.90, border=COL_YELLOW, border_thickness=1)
+                   fill=(8, 20, 8), alpha=0.90, border=COL_BORDER_HAIR, border_thickness=1)
         max_chars = max(30, int((x2 - x1) / (_ix(w * 0.012) + 1)))
         words, lines, cur = desc_text.split(), [], ""
         for word in words:
@@ -706,9 +692,6 @@ def draw_game_category_screen(frame, categories, category_index, mode_index,
     px1, py1, px2, py2 = layout["panel"]
     ph, pw = py2 - py1, px2 - px1
 
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_BG_DARK, alpha=0.75,
-               border=COL_BG_DARK, border_thickness=0)
-
     hint = ("W/S Navigate  |  Enter Open  |  ESC Back" if not in_mode_list
             else "W/S Select Mode  |  Enter Start  |  ESC Back")
     draw_top_bar(frame, "GAME MODES", hint)
@@ -717,7 +700,7 @@ def draw_game_category_screen(frame, categories, category_index, mode_index,
     lx1 = px1
     lx2 = px1 + _ix(pw * 0.42)
     draw_panel(frame, lx1, py1, lx2, py2, fill=COL_BG_PANEL, alpha=0.94,
-               border=COL_CYAN, border_thickness=2)
+               border=COL_ACCENT, border_thickness=1)
 
     draw_centered_text_in_rect(frame, "CATEGORIES",
         (lx1, py1, lx2, py1 + _ix(ph * 0.10)),
@@ -740,12 +723,10 @@ def draw_game_category_screen(frame, categories, category_index, mode_index,
             continue
         cy      = cat_area_top + vis_idx * item_h + item_h // 2
         sel_cat = (i == category_index)
-        fill    = (12, 30, 40) if sel_cat else COL_BG_PANEL
-        border  = COL_CYAN if sel_cat else (30, 50, 60)
-        draw_panel(frame, lx1 + _ix(w * 0.008), cy - bar_half,
-                   lx2 - _ix(w * 0.008), cy + bar_half,
-                   fill=fill, alpha=0.80, border=border, border_thickness=2 if sel_cat else 1)
-        col    = COL_CYAN if sel_cat else COL_TEXT_DIM
+        if sel_cat:
+            draw_selected_row(frame, lx1 + _ix(w * 0.008), cy - bar_half,
+                              lx2 - _ix(w * 0.008), cy + bar_half)
+        col    = COL_ACCENT if sel_cat else COL_TEXT_DIM
         prefix = "> " if sel_cat else "  "
         draw_centered_text_in_rect(frame, f"{prefix}{cat['label']}",
             (lx1 + _ix(w * 0.012), cy - bar_half, lx2 - _ix(w * 0.012), cy + bar_half),
@@ -766,7 +747,7 @@ def draw_game_category_screen(frame, categories, category_index, mode_index,
     rx2 = px2
     rpw = rx2 - rx1
     draw_panel(frame, rx1, py1, rx2, py2, fill=(8, 8, 22), alpha=0.94,
-               border=COL_MAGENTA, border_thickness=2)
+               border=COL_BORDER_HAIR, border_thickness=1)
 
     sel_cat = categories[category_index]
     pad_x   = _ix(rpw * 0.07)
@@ -864,13 +845,10 @@ def draw_game_category_screen(frame, categories, category_index, mode_index,
                 continue
             my    = m_area + vis_j * m_gap + m_gap // 2
             sel_m = (j == mode_index)
-            fill  = (20, 8, 30) if sel_m else (8, 8, 22)
-            border = COL_MAGENTA if sel_m else (40, 20, 50)
-            draw_panel(frame, rx1 + _ix(w * 0.008), my - m_half,
-                       rx2 - _ix(w * 0.008), my + m_half,
-                       fill=fill, alpha=0.85, border=border,
-                       border_thickness=2 if sel_m else 1)
-            col    = COL_MAGENTA if sel_m else COL_TEXT
+            if sel_m:
+                draw_selected_row(frame, rx1 + _ix(w * 0.008), my - m_half,
+                                  rx2 - _ix(w * 0.008), my + m_half)
+            col    = COL_ACCENT if sel_m else COL_TEXT
             prefix = "> " if sel_m else "  "
             draw_centered_text_in_rect(frame, f"{prefix}{ml}",
                 (rx1 + _ix(w * 0.012), my - m_half, rx2 - _ix(w * 0.012), my + m_half),
@@ -935,11 +913,9 @@ def draw_simulations_hub_screen(frame, selected_index=0, sim_state=None):
         },
     ]
 
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_BG_DARK, alpha=0.75,
-               border=COL_BG_DARK, border_thickness=0)
     draw_top_bar(frame, "SIMULATIONS", "W/S Select  |  Enter Run  |  ESC Back")
     draw_panel(frame, px1, py1, px2, py2, fill=COL_BG_PANEL, alpha=0.94,
-               border=COL_YELLOW, border_thickness=2)
+               border=COL_ACCENT, border_thickness=1)
 
     # Title and subtitle — bounded to the outer panel
     draw_centered_text_in_rect(frame, "SIMULATION LAB",
@@ -961,11 +937,9 @@ def draw_simulations_hub_screen(frame, selected_index=0, sim_state=None):
         bar_y    = py1 + _ix(ph * 0.24) + i * _ix(ph * 0.18)
         bar_half = _ix(ph * 0.07)
         sel      = (i == selected_index)
-        fill     = (16, 30, 12) if sel else COL_BG_PANEL
-        border   = entry["color"] if sel else (40, 50, 40)
-        draw_panel(frame, lx1, bar_y - bar_half, lx2, bar_y + bar_half,
-                   fill=fill, alpha=0.88, border=border, border_thickness=2 if sel else 1)
-        col    = entry["color"] if sel else COL_TEXT_DIM
+        if sel:
+            draw_selected_row(frame, lx1, bar_y - bar_half, lx2, bar_y + bar_half)
+        col    = COL_ACCENT if sel else COL_TEXT_DIM
         prefix = "> " if sel else "  "
         draw_centered_text_in_rect(frame, f"{prefix}{entry['label']}",
             (lx1, bar_y - bar_half, lx2, bar_y + bar_half),
@@ -980,7 +954,7 @@ def draw_simulations_hub_screen(frame, selected_index=0, sim_state=None):
     rh  = ry2 - ry1
     sel_entry = SIM_ENTRIES[selected_index]
     draw_panel(frame, rx1, ry1, rx2, ry2, fill=(8, 16, 8), alpha=0.92,
-               border=sel_entry["color"], border_thickness=2)
+               border=COL_BORDER_HAIR, border_thickness=1)
 
     # Label header — within right panel
     draw_centered_text_in_rect(frame, sel_entry["label"],
@@ -1040,15 +1014,12 @@ def draw_clone_setup_screen(frame, clone_state):
     w, h = layout["w"], layout["h"]
     x1, y1, x2, y2 = layout["panel"]
 
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_BG_DARK, alpha=0.75,
-               border=COL_BG_DARK, border_thickness=0)
-
     step = clone_state.get("step", "enter_name")
 
     if step == "enter_name":
         draw_top_bar(frame, "CLONE MODE", "Type name | Enter confirm | ESC Back")
         draw_panel(frame, x1, y1, x2, y2, fill=COL_BG_PANEL, alpha=0.94,
-                   border=COL_MAGENTA, border_thickness=2)
+                   border=COL_ACCENT, border_thickness=1)
 
         draw_centered_text(frame, "CLONE MODE", y1 + _ix((y2 - y1) * 0.09),
                            0.90, COL_MAGENTA, thickness=3, outline=4)
@@ -1078,7 +1049,7 @@ def draw_clone_setup_screen(frame, clone_state):
     elif step == "select_opponent":
         draw_top_bar(frame, "SELECT OPPONENT", "UP/DOWN Move | SELECT | BACK")
         draw_panel(frame, x1, y1, x2, y2, fill=COL_BG_PANEL, alpha=0.94,
-                   border=COL_MAGENTA, border_thickness=2)
+                   border=COL_ACCENT, border_thickness=1)
 
         player_name = clone_state.get("player_name", "")
         draw_centered_text(frame, f"Playing as: {player_name}", y1 + _ix((y2 - y1) * 0.07),
@@ -1100,10 +1071,9 @@ def draw_clone_setup_screen(frame, clone_state):
             if selected:
                 bar_y1 = cy - _ix(h * 0.020)
                 bar_y2 = cy + _ix(h * 0.020)
-                draw_panel(frame, x1 + _ix(w * 0.04), bar_y1, x2 - _ix(w * 0.04), bar_y2,
-                           fill=(30, 15, 40), alpha=0.70, border=COL_MAGENTA, border_thickness=1)
+                draw_selected_row(frame, x1 + _ix(w * 0.04), bar_y1, x2 - _ix(w * 0.04), bar_y2)
 
-            color = COL_MAGENTA if selected else COL_TEXT_DIM
+            color = COL_ACCENT if selected else COL_TEXT_DIM
             prefix = "> " if selected else "  "
             label = f"{prefix}{name} ({count} rounds)"
             draw_centered_text_in_rect(frame, label,
@@ -1128,7 +1098,7 @@ def draw_clone_setup_screen(frame, clone_state):
     elif step == "no_profiles":
         draw_top_bar(frame, "CLONE MODE", "Enter/ESC to go back")
         draw_panel(frame, x1, y1, x2, y2, fill=COL_BG_PANEL, alpha=0.94,
-                   border=COL_MAGENTA, border_thickness=2)
+                   border=COL_ACCENT, border_thickness=1)
 
         draw_centered_text(frame, "NO CLONES AVAILABLE YET",
                            y1 + _ix((y2 - y1) * 0.14), 0.72, COL_ORANGE, thickness=2, outline=3)
@@ -1173,15 +1143,12 @@ def draw_player_stats_screen(frame, stats_state):
     w, h = layout["w"], layout["h"]
     x1, y1, x2, y2 = layout["panel"]
 
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_BG_DARK, alpha=0.75,
-               border=COL_BG_DARK, border_thickness=0)
-
     step = stats_state.get("step", "select")
 
     if step == "select":
         draw_top_bar(frame, "PLAYER STATS", "UP/DOWN Move | SELECT | BACK")
         draw_panel(frame, x1, y1, x2, y2, fill=COL_BG_PANEL, alpha=0.94,
-                   border=COL_YELLOW, border_thickness=2)
+                   border=COL_ACCENT, border_thickness=1)
 
         draw_centered_text(frame, "SELECT PLAYER", y1 + _ix((y2 - y1) * 0.10),
                            0.80, COL_YELLOW, thickness=3, outline=4)
@@ -1198,10 +1165,9 @@ def draw_player_stats_screen(frame, stats_state):
             if selected:
                 bar_y1 = cy - _ix(h * 0.020)
                 bar_y2 = cy + _ix(h * 0.020)
-                draw_panel(frame, x1 + _ix(w * 0.04), bar_y1, x2 - _ix(w * 0.04), bar_y2,
-                           fill=(40, 35, 10), alpha=0.70, border=COL_YELLOW, border_thickness=1)
+                draw_selected_row(frame, x1 + _ix(w * 0.04), bar_y1, x2 - _ix(w * 0.04), bar_y2)
 
-            color = COL_YELLOW if selected else COL_TEXT_DIM
+            color = COL_ACCENT if selected else COL_TEXT_DIM
             prefix = "> " if selected else "  "
             label = f"{prefix}{name} ({count} rounds)"
             draw_centered_text_in_rect(frame, label,
@@ -1223,7 +1189,7 @@ def draw_player_stats_screen(frame, stats_state):
     draw_top_bar(frame, f"STATS: {player_name_for_header.upper()}",
                  "ESC Back | T Tab | A/D Filter | X Export")
     draw_panel(frame, x1, y1, x2, y2, fill=COL_BG_PANEL, alpha=0.94,
-               border=COL_YELLOW, border_thickness=2)
+               border=COL_ACCENT, border_thickness=1)
 
     pw, ph = x2 - x1, y2 - y1
 
@@ -1468,9 +1434,9 @@ def draw_tutorial_screen(frame, tut_state):
     # --- Instruction panel ---
     panel_y1 = _ix(h * 0.12)
     panel_y2 = _ix(h * 0.42)
-    border_col = (80, 255, 180) if voice_mode else COL_GREEN
+    border_col = COL_ACCENT
     draw_panel(frame, _ix(w * 0.08), panel_y1, _ix(w * 0.92), panel_y2,
-               fill=(8, 8, 18), alpha=0.88, border=border_col, border_thickness=2)
+               fill=(8, 8, 18), alpha=0.88, border=COL_ACCENT, border_thickness=1)
 
     draw_centered_text(frame, title, panel_y1 + _ix((panel_y2 - panel_y1) * 0.18),
                        0.70, border_col, thickness=2, outline=3)
@@ -1485,7 +1451,7 @@ def draw_tutorial_screen(frame, tut_state):
     status_y1 = _ix(h * 0.78)
     status_y2 = _ix(h * 0.93)
     draw_panel(frame, _ix(w * 0.08), status_y1, _ix(w * 0.92), status_y2,
-               fill=(8, 8, 18), alpha=0.88, border=COL_CYAN, border_thickness=1)
+               fill=(8, 8, 18), alpha=0.88, border=COL_BORDER_HAIR, border_thickness=1)
 
     if voice_mode:
         # Voice mode status panel - show listening indicator and word heard
@@ -1911,10 +1877,6 @@ def draw_login_screen(frame, login_text="", saved_name="", verified_players=None
 
     verified = verified_players or []
 
-    # Dark background
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=(4, 6, 14), alpha=0.92,
-               border=(4, 6, 14), border_thickness=0)
-
     draw_top_bar(frame, "WELCOME", "Type your name and press ENTER")
 
     # Main panel
@@ -2034,10 +1996,6 @@ def draw_hardware_test_view(frame, diag_state):
     sel_idx        = diag_state.get("selected_port_index", 0)
     status_msg     = diag_state.get("status_message",     "")
 
-    # Dark background
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=(4, 6, 16), alpha=0.82,
-               border=(30, 30, 50), border_thickness=0)
-
     draw_top_bar(frame, "HARDWARE TEST  -  ESP32 SERIAL",
                  "[ ] Select port  |  ENTER Connect  |  R/P/S Send  |  X Disconnect  |  ESC Back")
 
@@ -2067,8 +2025,8 @@ def draw_hardware_test_view(frame, diag_state):
     lx1, lx2 = pad, mid_x - pad
     draw_panel(frame, lx1, top_y, lx2, bot_y,
                fill=(6, 8, 20), alpha=0.90,
-               border=COL_CYAN if connected else (80, 80, 100),
-               border_thickness=2)
+               border=COL_ACCENT if connected else COL_BORDER_HAIR,
+               border_thickness=1)
 
     ly = top_y + _ix(h * 0.03)
     lh = _ix(h * 0.038)
@@ -2227,8 +2185,6 @@ def draw_notes_screen(frame, text_buffer, submitted=False, saved_path="", return
     w, h = frame.shape[1], frame.shape[0]
     t    = _time.monotonic()
 
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=(4, 6, 16), alpha=0.80,
-               border=(30, 30, 50), border_thickness=0)
     draw_top_bar(frame, "PLAYER FEEDBACK",
                  "Type your suggestion and press ENTER  |  ESC Cancel")
 
@@ -2267,7 +2223,7 @@ def draw_notes_screen(frame, text_buffer, submitted=False, saved_path="", return
     box_y2 = _ix(h * 0.72)
     draw_panel(frame, box_x1, box_y1, box_x2, box_y2,
                fill=(6, 10, 24), alpha=0.92,
-               border=COL_CYAN, border_thickness=2)
+               border=COL_BORDER_HAIR, border_thickness=1)
 
     # Word-wrap the text buffer
     max_chars_per_line = 72
@@ -2337,10 +2293,6 @@ def draw_consent_screen(frame, selected=0):
 
     w, h = frame.shape[1], frame.shape[0]
     t    = _time.monotonic()
-
-    # Full dark background
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=(4, 6, 16), alpha=0.90,
-               border=(4, 6, 16), border_thickness=0)
 
     draw_top_bar(frame, "RPS ROBOT", "Privacy Notice")
 
@@ -2505,10 +2457,6 @@ def draw_calibration_view(frame, cal_state, hand_state=None):
     variation     = cal_state.get("variation_hint", "")
     hand_visible  = cal_state.get("hand_visible",   False)
     accuracy      = cal_state.get("training_result",None)
-
-    # Dark overlay
-    draw_panel(frame, 0, 0, w-1, h-1, fill=(4,6,16), alpha=0.75,
-               border=(4,6,16), border_thickness=0)
 
     draw_top_bar(frame, "GESTURE CALIBRATION",
                  "Recommended for best accuracy  |  ESC to skip  |  U to update")
