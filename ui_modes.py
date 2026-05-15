@@ -14,11 +14,11 @@ def _draw_tp_hand_panel(frame, x1, y1, x2, y2, label, gesture, tracker_state=Non
     Draw a single player's panel in the two-player view.
     Shows label, detected gesture icon + text, and optional lock bar.
     """
-    col   = highlight_col or COL_CYAN
-    fill  = result_col or (10, 14, 24)
+    col   = highlight_col or COL_ACCENT
+    fill  = result_col or COL_PANEL_BG
 
-    draw_panel(frame, x1, y1, x2, y2, fill=fill, alpha=0.88,
-               border=col, border_thickness=2)
+    draw_panel(frame, x1, y1, x2, y2, fill=fill, alpha=COL_PANEL_ALPHA,
+               border=COL_ACCENT, border_thickness=1)
 
     ph = y2 - y1
     pw = x2 - x1
@@ -31,7 +31,7 @@ def _draw_tp_hand_panel(frame, x1, y1, x2, y2, label, gesture, tracker_state=Non
     # Gesture icon (large)
     icon_rect = (_ix(x1 + pw * 0.15), _ix(y1 + ph * 0.18),
                  _ix(x2 - pw * 0.15), _ix(y1 + ph * 0.70))
-    _draw_gesture_icon(frame, gesture, icon_rect)
+    draw_gesture_glyph(frame, gesture, icon_rect)
 
     # Gesture name
     g_col = get_gesture_color(gesture)
@@ -42,18 +42,13 @@ def _draw_tp_hand_panel(frame, x1, y1, x2, y2, label, gesture, tracker_state=Non
     # LOCK confidence bar (right edge of panel)
     if tracker_state:
         streak   = tracker_state.get("stable_streak", 0)
+        pct      = min(1.0, streak / 3)
         bar_w    = max(8, _ix(pw * 0.06))
-        bar_h    = _ix(ph * 0.50)
         bar_x    = x2 - bar_w - _ix(pw * 0.02)
         bar_top  = y1 + _ix(ph * 0.20)
-        bar_bot  = bar_top + bar_h
-        pct      = min(1.0, streak / 3)
-        cv2.rectangle(frame, (bar_x, bar_top), (bar_x + bar_w, bar_bot), (35, 35, 35), -1)
-        cv2.rectangle(frame, (bar_x, bar_top), (bar_x + bar_w, bar_bot), (80, 80, 80), 1)
-        if pct > 0:
-            fill_y = bar_bot - int(bar_h * pct)
-            fc = COL_GREEN if pct >= 1.0 else COL_YELLOW
-            cv2.rectangle(frame, (bar_x, fill_y), (bar_x + bar_w, bar_bot), fc, -1)
+        bar_bot  = y1 + _ix(ph * 0.70)
+        fc = COL_GREEN if pct >= 1.0 else COL_ACCENT
+        draw_progress_bar(frame, bar_x, bar_top, bar_x + bar_w, bar_bot, pct, color=fc)
 
 
 def draw_two_player_view(frame, game_state,
@@ -65,10 +60,6 @@ def draw_two_player_view(frame, game_state,
     """
     w, h = frame.shape[1], frame.shape[0]
     t    = time.monotonic()
-
-    # Draw a dark overlay
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_BG_DARK, alpha=0.40,
-               border=COL_BG_DARK, border_thickness=0)
 
     cur_state = game_state["state"]
     banner    = game_state.get("result_banner", "")
@@ -83,12 +74,12 @@ def draw_two_player_view(frame, game_state,
     def _res_col(won):
         if won:
             return _COL_CB_WIN if colourblind else COL_GREEN
-        return (10, 14, 24)
+        return COL_PANEL_BG
 
     p1_won = "PLAYER 1" in banner.upper() and "WIN" in banner.upper()
     p2_won = "PLAYER 2" in banner.upper() and "WIN" in banner.upper()
-    p1_res = _res_col(p1_won) if cur_state in ("ROUND_RESULT", "MATCH_RESULT") else (10, 14, 24)
-    p2_res = _res_col(p2_won) if cur_state in ("ROUND_RESULT", "MATCH_RESULT") else (10, 14, 24)
+    p1_res = _res_col(p1_won) if cur_state in ("ROUND_RESULT", "MATCH_RESULT") else COL_PANEL_BG
+    p2_res = _res_col(p2_won) if cur_state in ("ROUND_RESULT", "MATCH_RESULT") else COL_PANEL_BG
 
     # Draw player panels - show live tracker gesture during gameplay,
     # resolved gesture only during result screens
@@ -115,8 +106,8 @@ def draw_two_player_view(frame, game_state,
 
     # Centre column
     cx1, cx2 = p1_x2 + _ix(w * 0.01), p2_x1 - _ix(w * 0.01)
-    draw_panel(frame, cx1, pan_y1, cx2, pan_y2, fill=(6, 8, 18), alpha=0.88,
-               border=COL_YELLOW, border_thickness=2)
+    draw_panel(frame, cx1, pan_y1, cx2, pan_y2, fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA,
+               border=COL_ACCENT, border_thickness=1)
 
     cy_mid   = (pan_y1 + pan_y2) // 2
     cent_ph  = pan_y2 - pan_y1
@@ -151,16 +142,10 @@ def draw_two_player_view(frame, game_state,
     # Beat track (mini)
     if cur_state in ("COUNTDOWN", "WAITING_FOR_ROCK", "SHOOT_WINDOW"):
         beat = game_state.get("beat_count", 0)
-        dot_y = pan_y1 + _ix(cent_ph * 0.76)
-        dot_spacing = _ix((cx2 - cx1) * 0.20)
-        dot_start = cx1 + _ix((cx2 - cx1) * 0.10)
-        for bi in range(4):
-            bx = dot_start + bi * dot_spacing
-            active = bi < beat or (bi == 3 and cur_state == "SHOOT_WINDOW")
-            col = COL_RED if (bi == 3 and cur_state == "SHOOT_WINDOW") else \
-                  (COL_CYAN if active else (50, 50, 70))
-            cv2.circle(frame, (bx, dot_y), _ix(w * 0.012),
-                       col, -1 if active else 2)
+        bt_y1 = pan_y1 + _ix(cent_ph * 0.70)
+        bt_y2 = pan_y1 + _ix(cent_ph * 0.90)
+        draw_beat_track(frame, beat, state=cur_state,
+                        x1=cx1, y1=bt_y1, x2=cx2, y2=bt_y2)
 
     # Sub text
     draw_centered_text(frame, game_state.get("sub_text", ""),
@@ -185,9 +170,6 @@ def draw_pvpvai_view(frame, game_state,
     w, h = frame.shape[1], frame.shape[0]
     t    = time.monotonic()
 
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_BG_DARK, alpha=0.40,
-               border=COL_BG_DARK, border_thickness=0)
-
     cur_state = game_state["state"]
     banner    = game_state.get("result_banner", "")
     p1_pts    = game_state.get("p1_pts_this_round", 0)
@@ -204,12 +186,12 @@ def draw_pvpvai_view(frame, game_state,
     # Per-player result tint
     def _panel_fill(pts_this_round, score_key):
         if cur_state not in ("ROUND_RESULT", "MATCH_RESULT"):
-            return (10, 14, 24)
+            return COL_PANEL_BG
         if pts_this_round == 2:
             return _COL_CB_WIN if colourblind else (10, 55, 10)
         if pts_this_round == 1:
             return (10, 35, 10)
-        return (10, 14, 24)
+        return COL_PANEL_BG
 
     def _live_g(tracker_st, game_key):
         if cur_state not in ("ROUND_RESULT", "MATCH_RESULT") and tracker_st:
@@ -241,9 +223,9 @@ def draw_pvpvai_view(frame, game_state,
     # Centre AI panel
     cx1, cx2 = p1_x2 + _ix(w * 0.01), p2_x1 - _ix(w * 0.01)
     ai_fill = _panel_fill(ai_pts, "ai_score") if cur_state in ("ROUND_RESULT","MATCH_RESULT") \
-              else (6, 8, 18)
+              else COL_PANEL_BG
     draw_panel(frame, cx1, pan_y1, cx2, pan_y2,
-               fill=ai_fill, alpha=0.88, border=COL_RED, border_thickness=2)
+               fill=ai_fill, alpha=COL_PANEL_ALPHA, border=COL_ACCENT, border_thickness=1)
 
     draw_status_chip(frame, "AI", pan_y1 + _ix(cent_ph * 0.04), COL_RED)
 
@@ -254,7 +236,7 @@ def draw_pvpvai_view(frame, game_state,
         if ai_g in ("Rock", "Paper", "Scissors"):
             ai_icon = (_ix(cx1 + (cx2-cx1)*0.10), _ix(pan_y1 + cent_ph*0.14),
                        _ix(cx2 - (cx2-cx1)*0.10), _ix(pan_y1 + cent_ph*0.52))
-            _draw_gesture_icon(frame, ai_g, ai_icon)
+            draw_gesture_glyph(frame, ai_g, ai_icon)
             draw_centered_text_in_rect(frame, ai_g,
                 (cx1, pan_y1 + _ix(cent_ph*0.54), cx2, pan_y1 + _ix(cent_ph*0.65)),
                 base_scale=0.50, color=get_gesture_color(ai_g), thickness=2, outline=3)
@@ -284,34 +266,25 @@ def draw_pvpvai_view(frame, game_state,
                 base_scale=0.68, color=COL_CYAN, thickness=2, outline=3)
         # Beat dots
         beat = game_state.get("beat_count", 0)
-        dot_y = pan_y1 + _ix(cent_ph * 0.76)
-        dot_sp = _ix((cx2-cx1) * 0.20)
-        dot_x0 = cx1 + _ix((cx2-cx1) * 0.10)
-        for bi in range(4):
-            bx = dot_x0 + bi * dot_sp
-            active = bi < beat or (bi == 3 and cur_state == "SHOOT_WINDOW")
-            col = COL_RED if (bi == 3 and cur_state == "SHOOT_WINDOW") else \
-                  (COL_CYAN if active else (50, 50, 70))
-            cv2.circle(frame, (bx, dot_y), _ix(w * 0.012), col, -1 if active else 2)
+        bt_y1 = pan_y1 + _ix(cent_ph * 0.70)
+        bt_y2 = pan_y1 + _ix(cent_ph * 0.90)
+        draw_beat_track(frame, beat, state=cur_state,
+                        x1=cx1, y1=bt_y1, x2=cx2, y2=bt_y2)
         draw_centered_text(frame, game_state.get("sub_text", ""),
-                           pan_y1 + _ix(cent_ph * 0.90), 0.34, COL_TEXT_DIM,
+                           pan_y1 + _ix(cent_ph * 0.92), 0.34, COL_TEXT_DIM,
                            thickness=1, outline=2)
 
     # 3-score strip at bottom, with progress bar per player
     score_y = pan_y2 + _ix(h * 0.005)
     for label, score, col, sx in [
-        ("P1", game_state.get("p1_score", 0), COL_CYAN,    _ix(w * 0.08)),
-        ("AI", game_state.get("ai_score", 0), COL_RED,     _ix(w * 0.44)),
-        ("P2", game_state.get("p2_score", 0), COL_MAGENTA, _ix(w * 0.80)),
+        ("P1", game_state.get("p1_score", 0), COL_ACCENT, _ix(w * 0.08)),
+        ("AI", game_state.get("ai_score", 0), COL_RED,    _ix(w * 0.44)),
+        ("P2", game_state.get("p2_score", 0), COL_AMBER,  _ix(w * 0.80)),
     ]:
         bar_w = _ix(w * 0.14)
         bar_h = _ix(h * 0.018)
         pct   = min(1.0, score / max(win_target, 1))
-        cv2.rectangle(frame, (sx, score_y), (sx + bar_w, score_y + bar_h), (30,30,30), -1)
-        if pct > 0:
-            cv2.rectangle(frame, (sx, score_y),
-                          (sx + int(bar_w * pct), score_y + bar_h), col, -1)
-        cv2.rectangle(frame, (sx, score_y), (sx + bar_w, score_y + bar_h), (80,80,80), 1)
+        draw_progress_bar(frame, sx, score_y, sx + bar_w, score_y + bar_h, pct, color=col)
         draw_outlined_text(frame, f"{label}: {score}/{win_target}",
                            sx, score_y - 4, 0.34, col, thickness=1, outline=2)
 
@@ -332,8 +305,8 @@ def draw_personality_settings(frame, selected_name, descriptions):
     w, h = frame.shape[1], frame.shape[0]
     t    = time.monotonic()
 
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=(6, 8, 18), alpha=0.95,
-               border=COL_MAGENTA, border_thickness=2)
+    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA,
+               border=COL_BORDER_HAIR, border_thickness=1)
     draw_top_bar(frame, "AI PERSONALITIES", "W/S Select  |  Enter Confirm  |  ESC Back")
 
     # ── Per-personality metadata ──────────────────────────────────────────
@@ -439,7 +412,7 @@ def draw_personality_settings(frame, selected_name, descriptions):
     sel_meta = _META.get(selected_name, {})
     sel_col  = sel_meta.get("colour", COL_TEXT_ACCENT)
     draw_panel(frame, desc_x1, panel_y1, desc_x2, panel_y2,
-               fill=(8, 5, 20), alpha=0.94, border=sel_col, border_thickness=2)
+               fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA, border=COL_ACCENT, border_thickness=1)
 
     desc_w = desc_x2 - desc_x1
     py = panel_y1 + _ix(h * 0.015)
@@ -539,7 +512,7 @@ def _draw_reflex_target(frame, target, cx, cy, radius, flash=False):
     cv2.circle(frame, (cx, cy), radius - 4, (10, 12, 20), -1)
     icon_rect = (cx - radius + 10, cy - radius + 10,
                  cx + radius - 10, cy + radius - 10)
-    _draw_gesture_icon(frame, target or "Unknown", icon_rect)
+    draw_gesture_glyph(frame, target or "Unknown", icon_rect)
     if target:
         draw_centered_text(frame, target, cy + radius + _ix(0.04 * frame.shape[0]),
                            0.50, col, thickness=2, outline=3)
@@ -548,8 +521,6 @@ def _draw_reflex_target(frame, target, cx, cy, radius, flash=False):
 def draw_reflex_solo_view(frame, game_state):
     w, h = frame.shape[1], frame.shape[0]
     t    = time.monotonic()
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_BG_DARK, alpha=0.45,
-               border=COL_BG_DARK, border_thickness=0)
 
     cur_state  = game_state["state"]
     target     = game_state.get("target", "")
@@ -598,10 +569,8 @@ def draw_reflex_solo_view(frame, game_state):
         bar_x1 = _ix(w * 0.05); bar_x2 = _ix(w * 0.95)
         bar_y  = _ix(h * 0.08)
         bar_h2 = _ix(h * 0.014)
-        cv2.rectangle(frame, (bar_x1, bar_y), (bar_x2, bar_y + bar_h2), (30, 30, 30), -1)
-        col_t = COL_GREEN if pct > 0.5 else (COL_YELLOW if pct > 0.25 else COL_RED)
-        cv2.rectangle(frame, (bar_x1, bar_y),
-                      (bar_x1 + int((bar_x2 - bar_x1) * pct), bar_y + bar_h2), col_t, -1)
+        col_t = COL_GREEN if pct > 0.5 else (COL_AMBER if pct > 0.25 else COL_RED)
+        draw_progress_bar(frame, bar_x1, bar_y, bar_x2, bar_y + bar_h2, pct, color=col_t)
         draw_outlined_text(frame, f"{time_left:.1f}s",
                            bar_x1, bar_y - 4, 0.36, COL_TEXT_DIM, thickness=1, outline=1)
 
@@ -611,8 +580,6 @@ def draw_reflex_solo_view(frame, game_state):
 def draw_reflex_two_player_view(frame, game_state,
                                 p1_tracker_state=None, p2_tracker_state=None):
     w, h = frame.shape[1], frame.shape[0]
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_BG_DARK, alpha=0.45,
-               border=COL_BG_DARK, border_thickness=0)
 
     cur_state  = game_state["state"]
     target     = game_state.get("target", "")
@@ -660,22 +627,20 @@ def draw_reflex_two_player_view(frame, game_state,
         bar_x1, bar_x2 = _ix(w * 0.2), _ix(w * 0.8)
         bar_y = cy + radius + _ix(h * 0.08)
         bh    = _ix(h * 0.012)
-        cv2.rectangle(frame, (bar_x1, bar_y), (bar_x2, bar_y + bh), (30, 30, 30), -1)
-        fc = COL_GREEN if pct > 0.5 else (COL_YELLOW if pct > 0.2 else COL_RED)
-        cv2.rectangle(frame, (bar_x1, bar_y),
-                      (bar_x1 + int((bar_x2 - bar_x1) * pct), bar_y + bh), fc, -1)
+        fc = COL_GREEN if pct > 0.5 else (COL_AMBER if pct > 0.2 else COL_RED)
+        draw_progress_bar(frame, bar_x1, bar_y, bar_x2, bar_y + bh, pct, color=fc)
 
-    # Score bars
+    # Score bars (vertical — drawn manually as draw_progress_bar is horizontal)
     for sx, score, col, lbl in [
-        (_ix(w * 0.03), p1_score, COL_CYAN, "P1"),
-        (_ix(w * 0.80), p2_score, COL_MAGENTA, "P2"),
+        (_ix(w * 0.03), p1_score, COL_ACCENT, "P1"),
+        (_ix(w * 0.80), p2_score, COL_AMBER,  "P2"),
     ]:
         pct = min(1.0, score / max(win_target, 1))
         bw  = _ix(w * 0.14)
         bh2 = _ix(h * 0.60)
         by1 = int(h * 0.20)
-        cv2.rectangle(frame, (sx, by1), (sx + bw, by1 + bh2), (30, 30, 30), -1)
-        cv2.rectangle(frame, (sx, by1), (sx + bw, by1 + bh2), (60, 60, 60), 1)
+        cv2.rectangle(frame, (sx, by1), (sx + bw, by1 + bh2), (28, 28, 28), -1)
+        cv2.rectangle(frame, (sx, by1), (sx + bw, by1 + bh2), COL_BORDER_HAIR, 1)
         if pct > 0:
             fy = by1 + bh2 - int(bh2 * pct)
             cv2.rectangle(frame, (sx, fy), (sx + bw, by1 + bh2), col, -1)
@@ -694,8 +659,6 @@ def draw_bluff_mode_view(frame, game_state, tracker_state=None, hand_state=None,
                          flash_info=None):
     w, h = frame.shape[1], frame.shape[0]
     t    = time.monotonic()
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_BG_DARK, alpha=0.40,
-               border=COL_BG_DARK, border_thickness=0)
 
     cur_state    = game_state["state"]
     declared     = game_state.get("ai_declared_move", "?")
@@ -727,7 +690,7 @@ def draw_bluff_mode_view(frame, game_state, tracker_state=None, hand_state=None,
         bcol = COL_YELLOW
 
     draw_panel(frame, cx1, pan_y1, cx2, pan_y2,
-               fill=(6, 8, 20), alpha=0.90, border=bcol, border_thickness=2)
+               fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA, border=COL_ACCENT, border_thickness=1)
 
     # "AI DECLARES" label
     draw_status_chip(frame, "AI DECLARES", pan_y1 + _ix(ph * 0.04), COL_YELLOW)
@@ -739,7 +702,7 @@ def draw_bluff_mode_view(frame, game_state, tracker_state=None, hand_state=None,
                      pan_y1 + _ix(ph * 0.14),
                      cx2 - _ix(panel_w * 0.10),
                      pan_y1 + _ix(ph * 0.58))
-        _draw_gesture_icon(frame, declared, icon_rect)
+        draw_gesture_glyph(frame, declared, icon_rect)
         decl_col = get_gesture_color(declared)
         draw_centered_text_in_rect(frame, declared,
             (cx1, pan_y1 + _ix(ph * 0.60), cx2, pan_y1 + _ix(ph * 0.73)),
@@ -766,17 +729,13 @@ def draw_bluff_mode_view(frame, game_state, tracker_state=None, hand_state=None,
             base_scale=0.72 if cur_state != "COUNTDOWN" else 2.0,
             color=num_col, thickness=2, outline=4)
 
-    # Beat dots
+    # Beat track
     if cur_state in ("COUNTDOWN", "WAITING_FOR_ROCK", "SHOOT_WINDOW"):
-        dot_y    = pan_y2 + _ix(h * 0.03)
-        dot_sp   = _ix(w * 0.06)
-        dot_x0   = w // 2 - dot_sp * 2
-        for bi in range(4):
-            bx  = dot_x0 + bi * dot_sp
-            act = bi < beat_count or (bi == 3 and cur_state == "SHOOT_WINDOW")
-            col = COL_RED if (bi == 3 and cur_state == "SHOOT_WINDOW") else \
-                  (COL_CYAN if act else (50, 50, 70))
-            cv2.circle(frame, (bx, dot_y), _ix(w * 0.012), col, -1 if act else 2)
+        bt_x1 = cx1
+        bt_y1 = pan_y2 + _ix(h * 0.01)
+        bt_y2 = pan_y2 + _ix(h * 0.10)
+        draw_beat_track(frame, beat_count, state=cur_state,
+                        x1=bt_x1, y1=bt_y1, x2=cx2, y2=bt_y2)
 
     # -- Result banner full-width ------------------------------------------
     if cur_state in ("ROUND_RESULT", "MATCH_RESULT"):
@@ -848,8 +807,6 @@ def _draw_simon_sequence_bar(frame, sequence, step_index, show_step, showing_seq
 
 def draw_simon_says_solo_view(frame, game_state):
     w, h = frame.shape[1], frame.shape[0]
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_BG_DARK, alpha=0.50,
-               border=COL_BG_DARK, border_thickness=0)
 
     showing_seq  = game_state.get("showing_sequence", False)
     show_step    = game_state.get("show_step", 0)
@@ -886,7 +843,7 @@ def draw_simon_says_solo_view(frame, game_state):
         if cur_g:
             icon_rect = (_ix(w * 0.30), _ix(h * 0.18),
                          _ix(w * 0.70), _ix(h * 0.68))
-            _draw_gesture_icon(frame, cur_g, icon_rect)
+            draw_gesture_glyph(frame, cur_g, icon_rect)
             col = _GESTURE_COLORS.get(cur_g, COL_TEXT_ACCENT)
             draw_centered_text(frame, cur_g, _ix(h * 0.72), 0.68, col,
                                thickness=2, outline=3)
@@ -909,7 +866,7 @@ def draw_simon_says_solo_view(frame, game_state):
         if target:
             icon_rect = (_ix(w * 0.32), _ix(h * 0.18),
                          _ix(w * 0.68), _ix(h * 0.62))
-            _draw_gesture_icon(frame, target, icon_rect)
+            draw_gesture_glyph(frame, target, icon_rect)
             col = _GESTURE_COLORS.get(target, COL_TEXT_ACCENT)
             draw_centered_text(frame, target, _ix(h * 0.65), 0.68, col,
                                thickness=2, outline=3)
@@ -919,10 +876,8 @@ def draw_simon_says_solo_view(frame, game_state):
         bx1   = _ix(w * 0.20); bx2 = _ix(w * 0.80)
         by    = _ix(h * 0.74)
         bh    = _ix(h * 0.018)
-        cv2.rectangle(frame, (bx1, by), (bx2, by + bh), (30, 30, 30), -1)
-        tc = COL_GREEN if pct > 0.5 else (COL_YELLOW if pct > 0.25 else COL_RED)
-        cv2.rectangle(frame, (bx1, by),
-                      (bx1 + int((bx2 - bx1) * pct), by + bh), tc, -1)
+        tc = COL_GREEN if pct > 0.5 else (COL_AMBER if pct > 0.25 else COL_RED)
+        draw_progress_bar(frame, bx1, by, bx2, by + bh, pct, color=tc)
 
         if last_result == "wrong":
             draw_centered_text(frame, "WRONG!", _ix(h * 0.74),
@@ -935,8 +890,6 @@ def draw_simon_says_solo_view(frame, game_state):
 def draw_simon_says_two_player_view(frame, game_state,
                                     p1_tracker_state=None, p2_tracker_state=None):
     w, h = frame.shape[1], frame.shape[0]
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_BG_DARK, alpha=0.50,
-               border=COL_BG_DARK, border_thickness=0)
 
     showing_seq  = game_state.get("showing_sequence", False)
     show_step    = game_state.get("show_step", 0)
@@ -969,7 +922,7 @@ def draw_simon_says_two_player_view(frame, game_state,
         if cur_g:
             icon_rect = (_ix(w * 0.30), _ix(h * 0.18),
                          _ix(w * 0.70), _ix(h * 0.64))
-            _draw_gesture_icon(frame, cur_g, icon_rect)
+            draw_gesture_glyph(frame, cur_g, icon_rect)
             col = _GESTURE_COLORS.get(cur_g, COL_TEXT_ACCENT)
             draw_centered_text(frame, cur_g, _ix(h * 0.68), 0.60, col,
                                thickness=2, outline=3)
@@ -983,27 +936,23 @@ def draw_simon_says_two_player_view(frame, game_state,
         pct = time_left / 2.0
         bx1 = _ix(w * 0.25); bx2 = _ix(w * 0.75)
         by  = _ix(h * 0.68); bh = _ix(h * 0.018)
-        cv2.rectangle(frame, (bx1, by), (bx2, by + bh), (30, 30, 30), -1)
-        tc = COL_GREEN if pct > 0.5 else (COL_YELLOW if pct > 0.25 else COL_RED)
-        cv2.rectangle(frame, (bx1, by),
-                      (bx1 + int((bx2 - bx1) * pct), by + bh), tc, -1)
+        tc = COL_GREEN if pct > 0.5 else (COL_AMBER if pct > 0.25 else COL_RED)
+        draw_progress_bar(frame, bx1, by, bx2, by + bh, pct, color=tc)
     elif phase == "RECITE":
         draw_status_chip(frame, f"{active}  -  REPEAT STEP {step_index + 1}/{chain_len}",
                          _ix(h * 0.10), act_col)
         if target:
             icon_rect = (_ix(w * 0.33), _ix(h * 0.20),
                          _ix(w * 0.67), _ix(h * 0.62))
-            _draw_gesture_icon(frame, target, icon_rect)
+            draw_gesture_glyph(frame, target, icon_rect)
             col = _GESTURE_COLORS.get(target, COL_TEXT_ACCENT)
             draw_centered_text(frame, target, _ix(h * 0.66), 0.55, col,
                                thickness=2, outline=3)
         pct = time_left / 2.0
         bx1 = _ix(w * 0.25); bx2 = _ix(w * 0.75)
         by  = _ix(h * 0.76); bh = _ix(h * 0.018)
-        cv2.rectangle(frame, (bx1, by), (bx2, by + bh), (30, 30, 30), -1)
-        tc = COL_GREEN if pct > 0.5 else (COL_YELLOW if pct > 0.25 else COL_RED)
-        cv2.rectangle(frame, (bx1, by),
-                      (bx1 + int((bx2 - bx1) * pct), by + bh), tc, -1)
+        tc = COL_GREEN if pct > 0.5 else (COL_AMBER if pct > 0.25 else COL_RED)
+        draw_progress_bar(frame, bx1, by, bx2, by + bh, pct, color=tc)
 
     _draw_simon_sequence_bar(frame, chain, step_index, show_step, showing_seq, w, h)
     draw_bottom_bar(frame, "P1=Left hand  |  P2=Right hand  |  2s per gesture  |  Q Quit")
@@ -1384,8 +1333,6 @@ def draw_prediction_race_view(frame, game_state, tracker_state=None):
     """Prediction Race: AI shows its live prediction. Player wins by NOT throwing it."""
     w, h = frame.shape[1], frame.shape[0]
     t    = time.monotonic()
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_BG_DARK, alpha=0.45,
-               border=COL_BG_DARK, border_thickness=0)
 
     cur_state    = game_state.get("state", "WAITING_FOR_ROCK")
     beat_count   = game_state.get("beat_count", 0)
@@ -1446,19 +1393,19 @@ def draw_prediction_race_view(frame, game_state, tracker_state=None):
         pan_y1 = _ix(h * 0.18);   pan_y2 = _ix(h * 0.72)
         pred_col = get_gesture_color(prediction)
         draw_panel(frame, px1, pan_y1, px2, pan_y2,
-                   fill=(6, 6, 18), alpha=0.88, border=pred_col, border_thickness=2)
+                   fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA, border=COL_ACCENT, border_thickness=1)
         draw_status_chip(frame, "AI PREDICTS", pan_y1 + _ix(h * 0.02), COL_YELLOW)
 
         if cur_state == "ROUND_RESULT":
             half = (px2 - px1) // 2
-            _draw_gesture_icon(frame, prediction,
+            draw_gesture_glyph(frame, prediction,
                 (px1+_ix(8), pan_y1+_ix(h*0.12), px1+half-_ix(4), pan_y1+_ix(h*0.55)))
             draw_centered_text_in_rect(frame, prediction,
                 (px1, pan_y1+_ix(h*0.56), px1+half, pan_y1+_ix(h*0.67)),
                 base_scale=0.46, color=pred_col, thickness=2, outline=2)
             if player_gest and player_gest != "Unknown":
                 p_col = get_gesture_color(player_gest)
-                _draw_gesture_icon(frame, player_gest,
+                draw_gesture_glyph(frame, player_gest,
                     (px1+half+_ix(4), pan_y1+_ix(h*0.12), px2-_ix(8), pan_y1+_ix(h*0.55)))
                 draw_centered_text_in_rect(frame, player_gest,
                     (px1+half, pan_y1+_ix(h*0.56), px2, pan_y1+_ix(h*0.67)),
@@ -1478,7 +1425,7 @@ def draw_prediction_race_view(frame, game_state, tracker_state=None):
         else:
             pulse3 = 0.75 + 0.25 * abs(math.sin(t * math.pi * 2.0))
             pc3    = tuple(min(255, int(c * pulse3)) for c in pred_col)
-            _draw_gesture_icon(frame, prediction,
+            draw_gesture_glyph(frame, prediction,
                 (px1+_ix(pan_w*0.10), pan_y1+_ix(h*0.12),
                  px2-_ix(pan_w*0.10), pan_y1+_ix(h*0.58)))
             draw_centered_text_in_rect(frame, prediction,
@@ -1501,14 +1448,10 @@ def draw_prediction_race_view(frame, game_state, tracker_state=None):
                            cy+_ix(h*0.12), 0.34, COL_TEXT_ACCENT, thickness=1, outline=2)
 
     if cur_state in ("COUNTDOWN", "SHOOT_WINDOW"):
-        dot_y  = h - _ix(h * 0.12)
-        dot_sp = _ix(w * 0.06)
-        dot_x0 = w // 2 - dot_sp * 2
-        for bi in range(4):
-            bx  = dot_x0 + bi * dot_sp
-            act = bi < beat_count or (bi == 3 and cur_state == "SHOOT_WINDOW")
-            col = COL_RED if (bi == 3 and cur_state == "SHOOT_WINDOW") else                   (COL_CYAN if act else (50, 50, 70))
-            cv2.circle(frame, (bx, dot_y), _ix(w*0.012), col, -1 if act else 2)
+        bt_x1 = _ix(w * 0.25); bt_x2 = _ix(w * 0.75)
+        bt_y1 = h - _ix(h * 0.16); bt_y2 = h - _ix(h * 0.04)
+        draw_beat_track(frame, beat_count, state=cur_state,
+                        x1=bt_x1, y1=bt_y1, x2=bt_x2, y2=bt_y2)
 
 
 # ============================================================
@@ -1519,8 +1462,6 @@ def draw_gesture_rehab_view(frame, game_state):
     """Gesture Trainer: guided hold exercises with accuracy tracking."""
     w, h = frame.shape[1], frame.shape[0]
     t    = time.monotonic()
-    draw_panel(frame, 0, 0, w-1, h-1, fill=COL_BG_DARK, alpha=0.45,
-               border=COL_BG_DARK, border_thickness=0)
 
     cur_state   = game_state.get("state", "INTRO")
     target      = game_state.get("target", "")
@@ -1546,8 +1487,8 @@ def draw_gesture_rehab_view(frame, game_state):
         py1, py2 = _ix(h * 0.11), _ix(h * 0.91)
         pw2, ph2 = px2 - px1, py2 - py1
         draw_panel(frame, px1, py1, px2, py2,
-                   fill=(6, 10, 22), alpha=0.95,
-                   border=(60, 100, 120), border_thickness=2)
+                   fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA,
+                   border=COL_ACCENT, border_thickness=1)
 
         # Title - softer white, not neon yellow
         draw_centered_text_in_rect(frame, "GESTURE TRAINER",
@@ -1666,7 +1607,7 @@ def draw_gesture_rehab_view(frame, game_state):
         target_col = get_gesture_color(target)
         is_holding = (held == target)
         draw_status_chip(frame, "SHOW THIS GESTURE", _ix(h*0.13), COL_CYAN)
-        _draw_gesture_icon(frame, target,
+        draw_gesture_glyph(frame, target,
             (_ix(w*0.28), _ix(h*0.20), _ix(w*0.72), _ix(h*0.62)))
         draw_centered_text_in_rect(frame, target,
             (0, _ix(h*0.64), w, _ix(h*0.73)),
@@ -1674,11 +1615,8 @@ def draw_gesture_rehab_view(frame, game_state):
 
         bx1 = _ix(w*0.15); bx2 = _ix(w*0.85)
         by  = _ix(h*0.78);  bh2 = _ix(h*0.022)
-        cv2.rectangle(frame, (bx1, by), (bx2, by+bh2), (30,30,30), -1)
-        if dwell_pct > 0:
-            bar_col = COL_GREEN if is_holding else COL_YELLOW
-            cv2.rectangle(frame, (bx1, by), (bx1+int((bx2-bx1)*dwell_pct), by+bh2), bar_col, -1)
-        cv2.rectangle(frame, (bx1, by), (bx2, by+bh2), (80,80,100), 1)
+        bar_col = COL_GREEN if is_holding else COL_ACCENT
+        draw_progress_bar(frame, bx1, by, bx2, by+bh2, dwell_pct, color=bar_col)
 
         if is_holding and dwell_pct > 0:
             draw_centered_text(frame, "Hold it...", by+bh2+_ix(h*0.025), 0.40, COL_GREEN, thickness=1, outline=2)
@@ -1724,8 +1662,6 @@ def draw_arcade_snake_view(frame, game_state, tracker_state=None):
     last_gest     = game_state.get("last_gesture", "Unknown")
     cx, cy        = w // 2, h // 2
 
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_BG_DARK, alpha=0.55,
-               border=COL_BG_DARK, border_thickness=0)
     draw_top_bar(frame, "GESTURE SNAKE",
                  f"Score: {score}  |  Best: {high_score}  |  Q Quit")
     draw_bottom_bar(frame,
@@ -1745,8 +1681,8 @@ def draw_arcade_snake_view(frame, game_state, tracker_state=None):
             lbx1 = _ix(w * 0.30); lbx2 = _ix(w * 0.70)
             lby1 = cy - _ix(h * 0.08); lby2 = cy + _ix(h * 0.28)
             draw_panel(frame, lbx1, lby1, lbx2, lby2,
-                       fill=(6, 18, 8), alpha=0.88,
-                       border=COL_GREEN, border_thickness=2)
+                       fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA,
+                       border=COL_ACCENT, border_thickness=1)
             draw_centered_text_in_rect(frame, "HIGH SCORES",
                 (lbx1, lby1, lbx2, lby1 + _ix(h * 0.06)),
                 base_scale=0.44, color=COL_GREEN, thickness=2, outline=2)
@@ -1850,8 +1786,8 @@ def draw_arcade_snake_view(frame, game_state, tracker_state=None):
             lbx1 = _ix(w * 0.30); lbx2 = _ix(w * 0.70)
             lby1 = cy + _ix(h * 0.04); lby2 = cy + _ix(h * 0.38)
             draw_panel(frame, lbx1, lby1, lbx2, lby2,
-                       fill=(6, 18, 8), alpha=0.88,
-                       border=COL_GREEN, border_thickness=2)
+                       fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA,
+                       border=COL_ACCENT, border_thickness=1)
             draw_centered_text_in_rect(frame, "TOP SCORES",
                 (lbx1, lby1, lbx2, lby1 + _ix(h * 0.06)),
                 base_scale=0.40, color=COL_GREEN, thickness=2, outline=2)
@@ -1886,8 +1822,8 @@ def draw_rpsls_tutorial_screen(frame, step=0, hand_state=None):
     t    = time.monotonic()
     N_STEPS = 6
 
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=(4, 6, 16), alpha=0.70,
-               border=(4, 6, 16), border_thickness=0)
+    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA,
+               border=COL_BORDER_HAIR, border_thickness=1)
     draw_top_bar(frame, "RPSLS  HOW TO PLAY",
                  f"Step {step+1}/{N_STEPS}  |  W/D or Enter = Next  |  A/S = Back  |  ESC Quit")
 
@@ -2149,8 +2085,8 @@ def draw_rpsls_side_notice(frame, was_front_on=False, confirmed_gesture="Unknown
     w, h = frame.shape[1], frame.shape[0]
     t    = time.monotonic()
 
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=(4, 6, 16), alpha=0.72,
-               border=(30, 30, 50), border_thickness=0)
+    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA,
+               border=COL_BORDER_HAIR, border_thickness=1)
     draw_top_bar(frame, "ROCK PAPER SCISSORS LIZARD SPOCK",
                  "Hold each gesture to tick it off  |  Enter to start  |  ESC Back")
 
@@ -2206,7 +2142,7 @@ def draw_rpsls_side_notice(frame, was_front_on=False, confirmed_gesture="Unknown
 
         # Gesture icon
         icon_pad = _ix(card_w * 0.12)
-        _draw_gesture_icon(frame, gest,
+        draw_gesture_glyph(frame, gest,
             (cx1 + icon_pad, card_y + _ix(card_h * 0.08),
              cx2 - icon_pad, card_y + _ix(card_h * 0.60)))
 
@@ -2222,18 +2158,15 @@ def draw_rpsls_side_notice(frame, was_front_on=False, confirmed_gesture="Unknown
         bar_x2 = cx2 - _ix(card_w * 0.08)
         bar_h2 = _ix(h * 0.018)
         if is_ticked:
-            cv2.rectangle(frame, (bar_x1, bar_y), (bar_x2, bar_y + bar_h2), col, -1)
+            draw_progress_bar(frame, bar_x1, bar_y, bar_x2, bar_y + bar_h2, 1.0, color=col)
             draw_centered_text_in_rect(frame, "DONE",
                 (cx1, bar_y - _ix(2), cx2, bar_y + bar_h2 + _ix(2)),
                 base_scale=0.32, color=(0, 0, 0), thickness=1, outline=0)
         elif is_current and dwell_pct > 0:
-            cv2.rectangle(frame, (bar_x1, bar_y), (bar_x2, bar_y + bar_h2), (30, 30, 40), -1)
-            fill_x = bar_x1 + int((bar_x2 - bar_x1) * dwell_pct)
-            cv2.rectangle(frame, (bar_x1, bar_y), (fill_x, bar_y + bar_h2), col, -1)
-            cv2.rectangle(frame, (bar_x1, bar_y), (bar_x2, bar_y + bar_h2), col, 1)
+            draw_progress_bar(frame, bar_x1, bar_y, bar_x2, bar_y + bar_h2, dwell_pct, color=col)
         else:
             cv2.rectangle(frame, (bar_x1, bar_y), (bar_x2, bar_y + bar_h2), (30, 30, 40), -1)
-            cv2.rectangle(frame, (bar_x1, bar_y), (bar_x2, bar_y + bar_h2), (50, 50, 60), 1)
+            cv2.rectangle(frame, (bar_x1, bar_y), (bar_x2, bar_y + bar_h2), COL_BORDER_HAIR, 1)
 
     # Progress text
     n_done = len(ticked)
@@ -2260,9 +2193,6 @@ def draw_rpsls_view(frame, game_state, tracker_state=None, hand_state=None):
     """
     w, h = frame.shape[1], frame.shape[0]
     t    = time.monotonic()
-
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_BG_DARK, alpha=0.42,
-               border=COL_BG_DARK, border_thickness=0)
 
     cur_state  = game_state["state"]
     p_gest     = game_state.get("player_gesture", "Unknown")
@@ -2310,8 +2240,8 @@ def draw_rpsls_view(frame, game_state, tracker_state=None, hand_state=None):
         if outcome == "win":   p_fill = (8, 45, 8)
         elif outcome == "lose": p_fill = (40, 8, 8)
 
-    draw_panel(frame, cx1, py1, cx2, py2, fill=p_fill, alpha=0.88,
-               border=p_col, border_thickness=2)
+    draw_panel(frame, cx1, py1, cx2, py2, fill=p_fill, alpha=COL_PANEL_ALPHA,
+               border=COL_ACCENT, border_thickness=1)
     draw_centered_text_in_rect(frame, "YOU",
         (cx1, py1 + _ix(ph*0.01), cx2, py1 + _ix(ph*0.12)),
         base_scale=0.50, color=p_col, thickness=2, outline=3)
@@ -2321,15 +2251,13 @@ def draw_rpsls_view(frame, game_state, tracker_state=None, hand_state=None):
 
     # LOCK bar
     streak = tracker_state.get("stable_streak", 0) if tracker_state else 0
+    pct_lock = min(1.0, streak / 3)
     bar_x  = cx2 - _ix(pan_w*0.08)
     bar_y1 = py1 + _ix(ph*0.14)
     bar_y2 = bar_y1 + _ix(ph*0.40)
     bar_w2 = _ix(pan_w*0.06)
-    cv2.rectangle(frame, (bar_x, bar_y1), (bar_x+bar_w2, bar_y2), (30,30,30), -1)
-    if streak > 0:
-        fy = bar_y2 - int((bar_y2-bar_y1) * min(1.0, streak/3))
-        fc = COL_GREEN if streak >= 3 else COL_YELLOW
-        cv2.rectangle(frame, (bar_x, fy), (bar_x+bar_w2, bar_y2), fc, -1)
+    fc_lock = COL_GREEN if streak >= 3 else COL_ACCENT
+    draw_progress_bar(frame, bar_x, bar_y1, bar_x+bar_w2, bar_y2, pct_lock, color=fc_lock)
 
     # -- AI panel ----------------------------------------------------------
     show_ai = (cur_state in ("ROUND_RESULT", "MATCH_RESULT") and
@@ -2340,8 +2268,8 @@ def draw_rpsls_view(frame, game_state, tracker_state=None, hand_state=None):
         outcome = game_state.get("last_round_result", "")
         if outcome == "lose":  ai_fill = (8, 45, 8)
         elif outcome == "win": ai_fill = (40, 8, 8)
-    draw_panel(frame, ax1, py1, ax2, py2, fill=ai_fill, alpha=0.88,
-               border=COL_RED, border_thickness=2)
+    draw_panel(frame, ax1, py1, ax2, py2, fill=ai_fill, alpha=COL_PANEL_ALPHA,
+               border=COL_BORDER_HAIR, border_thickness=1)
     draw_centered_text_in_rect(frame, "AI",
         (ax1, py1 + _ix(ph*0.01), ax2, py1 + _ix(ph*0.12)),
         base_scale=0.50, color=COL_RED, thickness=2, outline=3)
@@ -2355,8 +2283,8 @@ def draw_rpsls_view(frame, game_state, tracker_state=None, hand_state=None):
             base_scale=1.4, color=(60,60,80), thickness=2, outline=3)
 
     # -- Centre panel ------------------------------------------------------
-    draw_panel(frame, mid1, py1, mid2, py2, fill=(6,8,18), alpha=0.88,
-               border=COL_YELLOW, border_thickness=2)
+    draw_panel(frame, mid1, py1, mid2, py2, fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA,
+               border=COL_ACCENT, border_thickness=1)
 
     draw_status_chip(frame, cur_state.replace("_"," "),
                      py1 + _ix(ph*0.04), COL_YELLOW)
@@ -2390,17 +2318,12 @@ def draw_rpsls_view(frame, game_state, tracker_state=None, hand_state=None):
             (mid1, py1+_ix(ph*0.30), mid2, py1+_ix(ph*0.62)),
             base_scale=0.50, color=COL_CYAN, thickness=2, outline=3)
 
-    # Beat dots
+    # Beat track
     if cur_state in ("COUNTDOWN", "WAITING_FOR_ROCK", "SHOOT_WINDOW"):
-        dot_y   = py1 + _ix(ph*0.80)
-        dot_sp  = _ix(mid_w * 0.19)
-        dot_x0  = mid1 + _ix(mid_w*0.09)
-        for bi in range(4):
-            bx  = dot_x0 + bi * dot_sp
-            act = bi < beat_count or (bi == 3 and cur_state == "SHOOT_WINDOW")
-            col = COL_RED if (bi == 3 and cur_state == "SHOOT_WINDOW") else \
-                  (COL_CYAN if act else (50,50,70))
-            cv2.circle(frame, (bx, dot_y), _ix(w*0.011), col, -1 if act else 2)
+        bt_y1 = py1 + _ix(ph*0.72)
+        bt_y2 = py1 + _ix(ph*0.90)
+        draw_beat_track(frame, beat_count, state=cur_state,
+                        x1=mid1, y1=bt_y1, x2=mid2, y2=bt_y2)
 
     # Score + progress dots
     draw_centered_text(frame, score_text,
@@ -2719,9 +2642,8 @@ def draw_hand_enroll_view(frame, game_state, hand_state=None):
     sil_cy_n      = game_state.get("sil_cy_norm",        0.54)
     sil_sf        = game_state.get("sil_scale_factor",   1.00)
 
-    # Dark overlay
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=(4, 6, 16), alpha=0.70,
-               border=(30, 30, 50), border_thickness=0)
+    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA,
+               border=COL_BORDER_HAIR, border_thickness=1)
     draw_top_bar(frame, "HAND SCAN - ENROLLMENT",
                  f"Enrolling: {fp_name}  |  ESC Cancel")
 
@@ -2883,7 +2805,7 @@ def draw_hand_enroll_view(frame, game_state, hand_state=None):
     pan_y1 = _ix(h * 0.82)
     pan_y2 = _ix(h * 0.95)
     draw_panel(frame, pan_x1, pan_y1, pan_x2, pan_y2,
-               fill=(6, 8, 18), alpha=0.88, border=COL_CYAN, border_thickness=1)
+               fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA, border=COL_ACCENT, border_thickness=1)
 
     bar_x1 = pan_x1 + _ix(w * 0.02)
     bar_x2 = pan_x2 - _ix(w * 0.02)
@@ -2912,11 +2834,7 @@ def draw_hand_enroll_view(frame, game_state, hand_state=None):
         label   = f"Stability  -  {fp_round}/{fp_rounds_tgt} rounds done  -  hold still to scan"
         l_col   = COL_TEXT_ACCENT
 
-    cv2.rectangle(frame, (bar_x1, bar_y - bar_h), (bar_x2, bar_y), (25, 30, 45), -1)
-    fill_x = bar_x1 + int(bar_w * pct)
-    if fill_x > bar_x1:
-        cv2.rectangle(frame, (bar_x1, bar_y - bar_h), (fill_x, bar_y), bar_col, -1)
-    cv2.rectangle(frame, (bar_x1, bar_y - bar_h), (bar_x2, bar_y), (50, 65, 90), 1)
+    draw_progress_bar(frame, bar_x1, bar_y - bar_h, bar_x2, bar_y, pct, color=bar_col)
     draw_centered_text_in_rect(frame, label,
         (pan_x1, pan_y1, pan_x2, mid_y),
         base_scale=0.34, color=l_col, thickness=1, outline=1)
@@ -2988,8 +2906,8 @@ def draw_hand_login_view(frame, game_state, hand_state=None):
     hand_visible = game_state.get("hand_visible",       False)
     hand_open    = game_state.get("hand_open",          False)
 
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=(4, 6, 16), alpha=0.65,
-               border=(30, 30, 50), border_thickness=0)
+    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA,
+               border=COL_BORDER_HAIR, border_thickness=1)
     draw_top_bar(frame, "HAND SCAN - LOGIN",
                  "Hold up your open hand  |  ESC Back")
 
@@ -3158,9 +3076,8 @@ def draw_hand_diag_view(frame, diag_state, hand_state=None):
     buf_pct         = diag_state.get("buf_pct",         0.0)
     clf_mode        = diag_state.get("clf_mode",        "none")
 
-    # Dark overlay
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=(4, 6, 16), alpha=0.65,
-               border=(30, 30, 50), border_thickness=0)
+    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA,
+               border=COL_BORDER_HAIR, border_thickness=1)
 
     enrolled_str = ", ".join(enrolled_names) if enrolled_names else "none"
     draw_top_bar(frame, "HAND SCAN - DIAGNOSTIC",
@@ -3184,7 +3101,7 @@ def draw_hand_diag_view(frame, diag_state, hand_state=None):
     id_pan_y1 = _ix(h * 0.10)
     id_pan_y2 = _ix(h * 0.42)
     draw_panel(frame, id_pan_x1, id_pan_y1, id_pan_x2, id_pan_y2,
-               fill=(6, 8, 20), alpha=0.90, border=COL_CYAN, border_thickness=2)
+               fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA, border=COL_ACCENT, border_thickness=1)
 
     if not hand_visible or quality_reason:
         # No usable hand data
@@ -3203,11 +3120,7 @@ def draw_hand_diag_view(frame, diag_state, hand_state=None):
         bx2 = id_pan_x2 - _ix(w*0.06)
         bh  = _ix(h * 0.015)
         by  = id_pan_y2 - _ix(h * 0.04)
-        cv2.rectangle(frame, (bx1, by - bh), (bx2, by), (25, 30, 45), -1)
-        fx = bx1 + int((bx2 - bx1) * buf_pct)
-        if fx > bx1:
-            cv2.rectangle(frame, (bx1, by - bh), (fx, by), COL_CYAN, -1)
-        cv2.rectangle(frame, (bx1, by - bh), (bx2, by), (50, 65, 90), 1)
+        draw_progress_bar(frame, bx1, by - bh, bx2, by, buf_pct, color=COL_ACCENT)
 
     elif pred_name is None:
         # Distance check failed — not a known person
@@ -3231,16 +3144,12 @@ def draw_hand_diag_view(frame, diag_state, hand_state=None):
             base_scale=1.10, color=name_col, thickness=3, outline=5)
 
         # Confidence bar
-        conf_col = COL_GREEN if pred_conf > 0.70 else (COL_YELLOW if pred_conf > 0.40 else (200, 80, 60))
+        conf_col = COL_GREEN if pred_conf > 0.70 else (COL_AMBER if pred_conf > 0.40 else COL_RED)
         bx1 = id_pan_x1 + _ix(w*0.06)
         bx2 = id_pan_x2 - _ix(w*0.06)
         bh  = _ix(h * 0.025)
         by  = id_pan_y2 - _ix(h * 0.05)
-        cv2.rectangle(frame, (bx1, by - bh), (bx2, by), (25, 30, 45), -1)
-        fx = bx1 + int((bx2 - bx1) * pred_conf)
-        if fx > bx1:
-            cv2.rectangle(frame, (bx1, by - bh), (fx, by), conf_col, -1)
-        cv2.rectangle(frame, (bx1, by - bh), (bx2, by), (50, 65, 90), 1)
+        draw_progress_bar(frame, bx1, by - bh, bx2, by, pred_conf, color=conf_col)
         draw_centered_text_in_rect(frame, f"Confidence: {pred_conf:.0%}",
             (id_pan_x1, id_pan_y1 + _ix((id_pan_y2-id_pan_y1)*0.60),
              id_pan_x2, id_pan_y1 + _ix((id_pan_y2-id_pan_y1)*0.78)),
@@ -3250,7 +3159,7 @@ def draw_hand_diag_view(frame, diag_state, hand_state=None):
     info_y1 = _ix(h * 0.44)
     info_y2 = _ix(h * 0.52)
     draw_panel(frame, _ix(w*0.08), info_y1, _ix(w*0.92), info_y2,
-               fill=(6, 8, 20), alpha=0.85, border=(40, 60, 80), border_thickness=1)
+               fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA, border=COL_BORDER_HAIR, border_thickness=1)
 
     hand_label = hand_side if hand_side != "Unknown" else "detecting..."
     info_txt = (f"Hand: {hand_label}   |   "
@@ -3267,7 +3176,7 @@ def draw_hand_diag_view(frame, diag_state, hand_state=None):
         feat_pan_y1 = _ix(h * 0.54)
         feat_pan_y2 = _ix(h * 0.93)
         draw_panel(frame, feat_pan_x1, feat_pan_y1, feat_pan_x2, feat_pan_y2,
-                   fill=(4, 6, 16), alpha=0.88, border=(40, 60, 80), border_thickness=1)
+                   fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA, border=COL_BORDER_HAIR, border_thickness=1)
 
         draw_centered_text_in_rect(frame, "FEATURE Z-SCORES  (how many std-devs from your enrolled profile)",
             (feat_pan_x1, feat_pan_y1, feat_pan_x2, feat_pan_y1 + _ix(h*0.04)),
