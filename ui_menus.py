@@ -17,18 +17,31 @@ def draw_menu_screen(frame, menu_items, selected_index, config,
     top_right = "UP/DOWN Navigate | Enter Select | N Feedback | ESC Back | Q Quit"
     draw_top_bar(frame, "RPS ROBOT", top_right)
 
-    # Wordmark block -- centred y 14-28%
-    wm_cy = _ix(h * 0.21)
+    # --- Wordmark block (y 14-28%) ---
     if in_submenu:
-        draw_centered_text(frame, "GAME MODES", wm_cy,
+        draw_centered_text(frame, "GAME MODES", _ix(h * 0.21),
                            SCALE_HEADING, COL_TEXT_PRIMARY, thickness=1, outline=2)
-        draw_centered_text(frame, "Select a mode to play", wm_cy + _ix(h * 0.055),
+        draw_centered_text(frame, "Select a mode to play", _ix(h * 0.26),
                            SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
     else:
-        draw_centered_text(frame, "Rock  Paper  Scissors", wm_cy - _ix(h * 0.045),
-                           SCALE_CAPTION, COL_TEXT_SECONDARY, thickness=1, outline=2)
-        draw_centered_text(frame, "RPS  ROBOT", wm_cy,
-                           SCALE_DISPLAY_L, COL_TEXT_PRIMARY, thickness=2, outline=3)
+        # Kicker -- accent, caption scale
+        draw_centered_text(frame, "ROCK  *  PAPER  *  SCISSORS",
+                           _ix(h * 0.19), SCALE_CAPTION, COL_ACCENT,
+                           thickness=1, outline=2)
+        # Title -- display weight (FONT_HERSHEY_DUPLEX)
+        font_disp = cv2.FONT_HERSHEY_DUPLEX
+        (tw, _), _ = cv2.getTextSize("RPS ROBOT", font_disp, SCALE_DISPLAY_L, 2)
+        tx = (w - tw) // 2
+        cv2.putText(frame, "RPS ROBOT", (tx, _ix(h * 0.26)),
+                    font_disp, SCALE_DISPLAY_L, (0, 0, 0), 4, cv2.LINE_AA)
+        cv2.putText(frame, "RPS ROBOT", (tx, _ix(h * 0.26)),
+                    font_disp, SCALE_DISPLAY_L, COL_TEXT_PRIMARY, 2, cv2.LINE_AA)
+
+    # Subtitle -- dim caption, y 32%, sits between wordmark and panel
+    subtitle = (f"{config.get('default_play_mode', 'FairPlay')}  |  "
+                f"{config.get('default_display_mode', 'Game')}")
+    draw_centered_text(frame, subtitle, _ix(h * 0.32),
+                       SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
 
     # Calibration warning banner
     if calibration_warning:
@@ -59,17 +72,9 @@ def draw_menu_screen(frame, menu_items, selected_index, config,
     draw_panel(frame, px1, py1, px2, py2,
                fill=COL_PANEL_BG, alpha=0.92, border=COL_BORDER_HAIR, border_thickness=1)
 
-    # Config hint row at panel top
-    subtitle = f"{config['default_play_mode']}  |  {config['default_display_mode']}"
-    header_h = _ix((py2 - py1) * 0.12)
-    draw_centered_text_in_rect(frame, subtitle,
-        (px1, py1, px2, py1 + header_h),
-        base_scale=SCALE_MICRO, color=COL_TEXT_DIM, thickness=1, outline=2)
-    cv2.line(frame, (px1, py1 + header_h), (px2, py1 + header_h), COL_BORDER_HAIR, 1)
-
-    # Menu rows
+    # Menu rows fill the full panel
     n_items = len(menu_items)
-    item_area_y1 = py1 + header_h + 1
+    item_area_y1 = py1 + 1
     item_area_y2 = py2 - 1
     row_h = _ix((item_area_y2 - item_area_y1) / max(n_items, 1))
 

@@ -176,9 +176,11 @@ def get_gesture_color(gesture):
 # CORE DRAWING PRIMITIVES
 # ============================================================
 
-def draw_panel(frame, x1, y1, x2, y2,
-               fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA,
-               border=COL_BORDER_HAIR, border_thickness=1):
+def draw_panel(frame, x1, y1, x2, y2, fill=None, alpha=None,
+               border=None, border_thickness=1):
+    if fill  is None: fill  = COL_PANEL_BG
+    if alpha is None: alpha = COL_PANEL_ALPHA
+    if border is None: border = COL_BORDER_HAIR
     h, w = frame.shape[:2]
     x1i = max(0, int(x1));  y1i = max(0, int(y1))
     x2i = min(w - 1, int(x2)); y2i = min(h - 1, int(y2))
@@ -437,42 +439,45 @@ def draw_row(frame, x1, y1, x2, y2, label, selected=False,
 # BARS
 # ============================================================
 
-def draw_top_bar(frame, left_text, right_text):
-    w, h   = _frame_size(frame)
-    bar_h  = _ix(h * TOP_BAR_PCT)
+def draw_top_bar(frame, left_label, right_hints=''):
+    """Top bar: y=0, height 6%. Hairline below."""
+    w, h  = _frame_size(frame)
+    bar_h = _ix(h * 0.06)
 
-    draw_panel(frame, 0, 0, w - 1, bar_h,
-               fill=COL_PANEL_BG, alpha=0.72,
-               border=COL_PANEL_BG, border_thickness=0)
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (0, 0), (w, bar_h), COL_PANEL_BG, -1)
+    cv2.addWeighted(overlay, 0.72, frame, 0.28, 0, frame)
+
     cv2.line(frame, (0, bar_h - 1), (w, bar_h - 1), COL_BORDER_HAIR, 1)
 
-    left_scale = get_fit_scale(left_text, _ix(w * 0.44),
-                               base_scale=SCALE_BODY, thickness=2, min_scale=0.36)
-    draw_outlined_text(frame, left_text, _ix(w * 0.018), _ix(bar_h * 0.70),
-                       left_scale, COL_ACCENT, thickness=2, outline=3)
+    text_y = _ix(bar_h * 0.68)
 
-    right_scale = get_fit_scale(right_text, _ix(w * 0.52),
-                                base_scale=SCALE_MICRO, thickness=1, min_scale=0.26)
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    (text_w, _), _ = cv2.getTextSize(right_text, font, right_scale, 1)
-    draw_outlined_text(frame, right_text, w - text_w - _ix(w * 0.018),
-                       _ix(bar_h * 0.70), right_scale, COL_TEXT_SECONDARY,
-                       thickness=1, outline=2)
+    draw_outlined_text(frame, left_label, _ix(w * 0.02), text_y,
+                       SCALE_BODY, COL_ACCENT, thickness=2, outline=2)
 
-def draw_bottom_bar(frame, text):
+    if right_hints:
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        (tw, _), _ = cv2.getTextSize(right_hints, font, SCALE_MICRO, 1)
+        rx = w - tw - _ix(w * 0.02)
+        draw_outlined_text(frame, right_hints, rx, text_y,
+                           SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
+
+def draw_bottom_bar(frame, hints=''):
+    """Bottom bar: y=94%, height 6%. Hairline above."""
     w, h  = _frame_size(frame)
-    bar_h = _ix(h * BOTTOM_BAR_PCT)
+    bar_h = _ix(h * 0.06)
     y1    = h - bar_h
 
-    draw_panel(frame, 0, y1, w - 1, h - 1,
-               fill=COL_PANEL_BG, alpha=0.72,
-               border=COL_PANEL_BG, border_thickness=0)
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (0, y1), (w, h), COL_PANEL_BG, -1)
+    cv2.addWeighted(overlay, 0.72, frame, 0.28, 0, frame)
+
     cv2.line(frame, (0, y1), (w, y1), COL_BORDER_HAIR, 1)
 
-    scale = get_fit_scale(text, _ix(w * 0.96), base_scale=SCALE_MICRO,
-                          thickness=1, min_scale=0.26)
-    draw_outlined_text(frame, text, _ix(w * 0.018), y1 + _ix(bar_h * 0.70),
-                       scale, COL_TEXT_DIM, thickness=1, outline=2)
+    if hints:
+        text_y = y1 + _ix(bar_h * 0.68)
+        draw_outlined_text(frame, hints, _ix(w * 0.02), text_y,
+                           SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
 
 # ============================================================
 # STATUS CHIP

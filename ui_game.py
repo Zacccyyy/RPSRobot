@@ -8,49 +8,107 @@ import time
 from ui_base import *
 
 # ============================================================
-# GAME HEADER (single top bar, spec §03)
+# HELPER: STATE PILL (spec §03 panel header)
 # ============================================================
 
-def draw_game_header(frame, game_state, voice_mode_active=False, sound_on=True):
-    w, h  = _frame_size(frame)
-    bar_h = _ix(h * TOP_BAR_PCT)
+def _draw_state_pill(frame, label, color, cx, cy):
+    """Bordered pill centred at (cx, cy). Used inside the primary content panel."""
+    w = frame.shape[1]
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    (tw, th), _ = cv2.getTextSize(label, font, SCALE_CAPTION, 1)
+    pad_x = _ix(w * 0.014)
+    pad_y = 4
+    x1 = cx - tw // 2 - pad_x
+    y1 = cy - th - pad_y
+    x2 = cx + tw // 2 + pad_x
+    y2 = cy + pad_y
+    draw_panel(frame, x1, y1, x2, y2,
+               fill=COL_PANEL_BG, alpha=0.90, border=color, border_thickness=1)
+    draw_centered_text_in_rect(frame, label, (x1, y1, x2, y2),
+                               base_scale=SCALE_CAPTION, color=color,
+                               thickness=1, outline=2)
 
-    draw_panel(frame, 0, 0, w - 1, bar_h,
-               fill=COL_PANEL_BG, alpha=0.72,
-               border=COL_PANEL_BG, border_thickness=0)
-    cv2.line(frame, (0, bar_h - 1), (w, bar_h - 1), COL_BORDER_HAIR, 1)
+# ============================================================
+# HELPER: RESULT GRID (spec §03 result state)
+# ============================================================
 
-    text_y  = _ix(bar_h * 0.72)
-    left_x  = _ix(w * 0.018)
+def _draw_result_grid(frame, player_gesture, ai_gesture, result_banner,
+                      px1, py1, px2, py2, opp_label="ROBOT"):
+    """3-column result grid: player glyph, result chip, robot glyph."""
+    pw = px2 - px1
+    ph = py2 - py1
+    glyph_y = py1 + _ix(ph * 0.60)
+    glyph_r = min(_ix(pw * 0.08), 50)
 
-    # "RPS ROBOT" in accent
-    draw_outlined_text(frame, "RPS ROBOT", left_x, text_y,
-                       SCALE_BODY, COL_ACCENT, thickness=2, outline=3)
-    (app_w, _), _ = cv2.getTextSize("RPS ROBOT", cv2.FONT_HERSHEY_SIMPLEX, SCALE_BODY, 2)
+    pgx = px1 + _ix(pw * 0.20)
+    draw_gesture_glyph(frame, player_gesture,
+                       (pgx - glyph_r, glyph_y - glyph_r,
+                        pgx + glyph_r, glyph_y + glyph_r),
+                       color=COL_ACCENT)
+    draw_centered_text_in_rect(frame, "YOU",
+        (pgx - _ix(pw * 0.12), py1 + _ix(ph * 0.24),
+         pgx + _ix(pw * 0.12), py1 + _ix(ph * 0.38)),
+        base_scale=SCALE_CAPTION, color=COL_TEXT_DIM,
+        thickness=1, outline=2)
+    draw_centered_text_in_rect(frame, player_gesture.upper(),
+        (pgx - _ix(pw * 0.12), glyph_y + glyph_r,
+         pgx + _ix(pw * 0.12), glyph_y + glyph_r + _ix(ph * 0.14)),
+        base_scale=SCALE_CAPTION, color=COL_TEXT_SECONDARY,
+        thickness=1, outline=2)
 
-    # Mode label in secondary (e.g. FAIR PLAY / CHALLENGE)
-    mode_raw  = game_state.get("play_mode_label", "")
-    mode_text = mode_raw.upper() if mode_raw else ""
-    if mode_text:
-        sep_x = left_x + app_w + _ix(w * 0.014)
-        ms = get_fit_scale(mode_text, _ix(w * 0.30), base_scale=SCALE_BODY,
-                           thickness=1, min_scale=0.32)
-        draw_outlined_text(frame, mode_text, sep_x, text_y,
-                           ms, COL_TEXT_SECONDARY, thickness=1, outline=2)
+    # Result chip -- centre column
+    rcx = (px1 + px2) // 2
+    rcy = glyph_y
+    b_up = result_banner.upper()
+    if 'WIN' in b_up:
+        rc = COL_GREEN
+    elif 'LOSS' in b_up or 'LOSE' in b_up:
+        rc = COL_RED
+    else:
+        rc = COL_TEXT_SECONDARY
+    draw_centered_text_in_rect(frame, b_up,
+        (rcx - _ix(pw * 0.12), rcy - _ix(ph * 0.06),
+         rcx + _ix(pw * 0.12), rcy + _ix(ph * 0.06)),
+        base_scale=SCALE_BODY, color=rc, thickness=1, outline=2)
 
-    # Right: sound pill + mode shortcuts
-    right_parts = []
-    if sound_on:
-        right_parts.append("SOUND ON")
-    if voice_mode_active:
-        right_parts.append("VOICE")
-    right_parts.append("1 Cheat  2 Fair  3 Challenge")
-    right_text = "   ".join(right_parts)
-    rs = get_fit_scale(right_text, _ix(w * 0.50),
-                       base_scale=SCALE_MICRO, thickness=1, min_scale=0.24)
-    (rt_w, _), _ = cv2.getTextSize(right_text, cv2.FONT_HERSHEY_SIMPLEX, rs, 1)
-    draw_outlined_text(frame, right_text, w - rt_w - _ix(w * 0.018), text_y,
-                       rs, COL_TEXT_SECONDARY, thickness=1, outline=2)
+    rgx = px1 + _ix(pw * 0.80)
+    draw_gesture_glyph(frame, ai_gesture,
+                       (rgx - glyph_r, glyph_y - glyph_r,
+                        rgx + glyph_r, glyph_y + glyph_r),
+                       color=COL_TEXT_SECONDARY)
+    draw_centered_text_in_rect(frame, opp_label.upper(),
+        (rgx - _ix(pw * 0.12), py1 + _ix(ph * 0.24),
+         rgx + _ix(pw * 0.12), py1 + _ix(ph * 0.38)),
+        base_scale=SCALE_CAPTION, color=COL_TEXT_DIM,
+        thickness=1, outline=2)
+    draw_centered_text_in_rect(frame, ai_gesture.upper(),
+        (rgx - _ix(pw * 0.12), glyph_y + glyph_r,
+         rgx + _ix(pw * 0.12), glyph_y + glyph_r + _ix(ph * 0.14)),
+        base_scale=SCALE_CAPTION, color=COL_TEXT_SECONDARY,
+        thickness=1, outline=2)
+
+# ============================================================
+# HELPER: STREAK ROW (challenge mode)
+# ============================================================
+
+def _draw_streak_row(frame, px1, py1, px2, py2, streak, high_streak, total_pips=9):
+    """9-pip streak indicator at panel y 65%. Used by challenge mode."""
+    row_y  = py1 + _ix((py2 - py1) * 0.65)
+    pip_r  = 7
+    gap    = 14
+    total_w = total_pips * (pip_r * 2) + (total_pips - 1) * gap
+    start_x = (px1 + px2) // 2 - total_w // 2 + pip_r
+
+    for i in range(total_pips):
+        bx = start_x + i * (pip_r * 2 + gap)
+        if i < streak:
+            cv2.circle(frame, (bx, row_y), pip_r, COL_ACCENT, -1)
+        else:
+            cv2.circle(frame, (bx, row_y), pip_r, COL_TEXT_DIM, 1)
+
+    streak_str = f"STREAK {streak}  *  HIGH {high_streak}"
+    draw_centered_text(frame, streak_str, row_y + 22,
+                       SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
 
 # ============================================================
 # GESTURE INDICATOR ROW (spec §03 y 9-17%)
@@ -102,21 +160,21 @@ def draw_gesture_row(frame, detected_gesture="", gestures=None):
 # ============================================================
 
 def draw_game_status_strip(frame, game_state):
-    layout = _game_layout(frame)
-    x1, y1, x2, y2 = layout["status_strip"]
+    """Score bar (y 18-22%) -- no panel border, centred dim text."""
+    w, h = _frame_size(frame)
+    score_y = _ix(h * 0.21)
 
-    if game_state["play_mode_label"] in ("Fair Play", "Challenge") \
-            or game_state["play_mode_label"].startswith("vs "):
-        text = f"{game_state['round_text']}   {game_state['score_text']}"
-    else:
+    mode = game_state.get("play_mode_label", "")
+    if mode.lower() in ("cheat", "cheat mode"):
         text = "Cheat mode counters your throw after SHOOT"
+    else:
+        r_txt = game_state.get("round_text", "")
+        s_txt = game_state.get("score_text", "")
+        sep   = "  *  "
+        text  = f"{r_txt}{sep}{s_txt}" if r_txt and s_txt else (r_txt or s_txt)
 
-    draw_panel(frame, x1, y1, x2, y2,
-               fill=COL_PANEL_BG, alpha=0.82,
-               border=COL_BORDER_HAIR, border_thickness=1)
-    draw_centered_text_in_rect(frame, text, (x1 + 8, y1 + 2, x2 - 8, y2 - 2),
-                               base_scale=SCALE_BODY, color=COL_TEXT_PRIMARY,
-                               thickness=1, outline=2)
+    draw_centered_text(frame, text, score_y,
+                       SCALE_BODY, COL_TEXT_SECONDARY, thickness=1, outline=2)
 
 # ============================================================
 # DIAGNOSTIC PANELS (dev-only)
@@ -222,15 +280,6 @@ def draw_diagnostic_game_panel(frame, game_state):
         (x1 + 20, y1 + _ix(h * 0.18), x2 - 20, y2 - 8),
         base_scale=SCALE_BODY, color=COL_TEXT_DIM, thickness=1, outline=2)
 
-# ============================================================
-# ARCADE HEADER -- kept for call-site compat, now draws score title
-# ============================================================
-
-def draw_arcade_header(frame):
-    """Draws the gesture label row above the score bar. Tracker state not available
-    here so dots are all inactive; draw_game_mode_view passes tracker state for
-    the live version via draw_gesture_row."""
-    draw_gesture_row(frame, detected_gesture="")
 
 # ============================================================
 # PRIMARY CONTENT PANEL (spec §03 hero area)
@@ -264,7 +313,7 @@ def draw_arcade_hero(frame, game_state, voice_mode_active=False):
     if state == "ROUND_INTRO":
         draw_status_chip(frame, game_state.get("round_text", "ROUND"), chip_y, COL_ACCENT)
         draw_centered_text(frame, main_text, y1 + _ix(ph * 0.52),
-                           SCALE_DISPLAY_L, COL_TEXT_PRIMARY, thickness=2, outline=4)
+                           SCALE_DISPLAY_L, COL_TEXT_PRIMARY, thickness=2, outline=3)
         draw_centered_text(frame, sub_text, y1 + _ix(ph * 0.82),
                            SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
 
@@ -273,7 +322,7 @@ def draw_arcade_hero(frame, game_state, voice_mode_active=False):
             draw_status_chip(frame, "VOICE MODE", chip_y, COL_GREEN)
             draw_centered_text(frame, 'Say READY',
                                y1 + _ix(ph * 0.46),
-                               SCALE_DISPLAY_L, COL_GREEN, thickness=2, outline=4)
+                               SCALE_DISPLAY_L, COL_GREEN, thickness=2, outline=3)
             draw_centered_text(frame, "to start the countdown",
                                y1 + _ix(ph * 0.76),
                                SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
@@ -281,10 +330,10 @@ def draw_arcade_hero(frame, game_state, voice_mode_active=False):
             draw_status_chip(frame, "READY", chip_y, COL_TEXT_SECONDARY)
             draw_centered_text(frame, "MAKE A FIST",
                                y1 + _ix(ph * 0.46),
-                               SCALE_DISPLAY_XL, COL_TEXT_PRIMARY, thickness=2, outline=4)
+                               SCALE_DISPLAY_XL, COL_TEXT_PRIMARY, thickness=2, outline=3)
             draw_centered_text(frame, "TO START",
                                y1 + _ix(ph * 0.68),
-                               SCALE_DISPLAY_XL, COL_TEXT_PRIMARY, thickness=2, outline=4)
+                               SCALE_DISPLAY_XL, COL_TEXT_PRIMARY, thickness=2, outline=3)
             if sub_text:
                 draw_centered_text(frame, sub_text, y1 + _ix(ph * 0.90),
                                    SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
@@ -298,14 +347,14 @@ def draw_arcade_hero(frame, game_state, voice_mode_active=False):
             draw_status_chip(frame, chip_label, chip_y, chip_col)
             draw_centered_text(frame, f"Say  {next_word}",
                                y1 + _ix(ph * 0.46),
-                               SCALE_DISPLAY_L, COL_ACCENT, thickness=2, outline=5)
+                               SCALE_DISPLAY_L, COL_ACCENT, thickness=2, outline=3)
         else:
             draw_status_chip(frame, f"BEAT {beat_count} OF 4", chip_y, COL_ACCENT)
             draw_centered_text_in_rect(frame, "SHOOT",
                 (x1 + _ix(pw * 0.06), y1 + _ix(ph * 0.28),
                  x2 - _ix(pw * 0.06), y1 + _ix(ph * 0.72)),
                 base_scale=SCALE_DISPLAY_XL,
-                color=COL_TEXT_PRIMARY, thickness=2, outline=4)
+                color=COL_TEXT_PRIMARY, thickness=2, outline=3)
             if sub_text:
                 draw_centered_text(frame, sub_text, y1 + _ix(ph * 0.88),
                                    SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
@@ -315,7 +364,7 @@ def draw_arcade_hero(frame, game_state, voice_mode_active=False):
         if voice_mode_active:
             draw_centered_text(frame, "SAY YOUR THROW",
                                y1 + _ix(ph * 0.40),
-                               SCALE_DISPLAY_L, COL_RED, thickness=2, outline=4)
+                               SCALE_DISPLAY_L, COL_RED, thickness=2, outline=3)
             throws  = ["ROCK", "PAPER", "SCISSORS"]
             col_w   = pw // 3
             row_y   = y1 + _ix(ph * 0.74)
@@ -329,7 +378,7 @@ def draw_arcade_hero(frame, game_state, voice_mode_active=False):
                 (x1 + _ix(pw * 0.06), y1 + _ix(ph * 0.28),
                  x2 - _ix(pw * 0.06), y1 + _ix(ph * 0.72)),
                 base_scale=SCALE_DISPLAY_XL,
-                color=COL_RED, thickness=2, outline=4)
+                color=COL_RED, thickness=2, outline=3)
             draw_centered_text(frame, f"{time_left:.2f}s", y1 + _ix(ph * 0.78),
                                SCALE_BODY, COL_TEXT_SECONDARY, thickness=1, outline=2)
             if sub_text:
@@ -503,7 +552,7 @@ def draw_session_summary(frame, summary):
     draw_panel(frame, x1, y1, x2, y2,
                fill=COL_PANEL_BG, alpha=0.92, border=header_col, border_thickness=1)
     draw_centered_text(frame, header_txt, y1 + _ix((y2 - y1) * 0.10),
-                       SCALE_DISPLAY_L, header_col, thickness=2, outline=4)
+                       SCALE_DISPLAY_L, header_col, thickness=2, outline=3)
     draw_centered_text(frame, f"{ps}  -  {rs}",
                        y1 + _ix((y2 - y1) * 0.24), SCALE_HEADING,
                        COL_TEXT_PRIMARY, thickness=2, outline=3)
@@ -580,13 +629,15 @@ def draw_game_mode_view(frame, game_state, emotion_state=None, voice_mode_active
                         flash_info=None, show_help=False, sound_on=True,
                         colourblind=False, show_session_summary=False):
 
-    draw_game_header(frame, game_state,
-                     voice_mode_active=voice_mode_active, sound_on=sound_on)
-
+    mode_raw   = game_state.get("play_mode_label", "")
+    left_label = f"RPS ROBOT  {mode_raw.upper()}" if mode_raw else "RPS ROBOT"
     if voice_mode_active:
-        bottom_hint = "Say READY > ONE > TWO > THREE > ROCK/PAPER/SCISSORS  |  BACK = menu  |  ? Help"
+        right_hints = "VOICE ON  *  Say READY to start  *  BACK = menu"
+        bottom_hint = "Say READY > ONE > TWO > THREE > ROCK/PAPER/SCISSORS  *  BACK = menu  *  ? Help"
     else:
-        bottom_hint = "ESC Back  |  M Diagnostic  |  S Sound  |  C Commentary  |  ? Help  |  Q Quit"
+        right_hints = "ESC Back  M Mode  S Sound  ? Help  Q Quit"
+        bottom_hint = "ESC Back  *  M Diagnostic  *  S Sound  *  C Commentary  *  ? Help  *  Q Quit"
+    draw_top_bar(frame, left_label, right_hints)
     draw_bottom_bar(frame, bottom_hint)
 
     # Gesture indicator row -- show detected gesture if available
