@@ -11,8 +11,27 @@ from ui_base import *
 # HELPER: STATE PILL (spec §03 panel header)
 # ============================================================
 
-def _draw_state_pill(frame, label, color, cx, cy):
-    """Bordered pill centred at (cx, cy). Used inside the primary content panel."""
+def _draw_state_pill(frame, state_str, cx, cy):
+    """
+    Bordered pill centred at (cx, cy).
+    Maps any game-state / banner string to a short label + colour.
+    """
+    gs = (state_str or "").upper()
+    if 'WIN' in gs or 'SURVIVE' in gs:
+        label, color = 'WIN',   COL_GREEN
+    elif 'LOSS' in gs or 'LOSE' in gs:
+        label, color = 'LOSS',  COL_RED
+    elif 'DRAW' in gs:
+        label, color = 'DRAW',  COL_TEXT_PRIMARY
+    elif 'SHOOT' in gs or 'THROW' in gs:
+        label, color = 'SHOOT', COL_RED
+    elif 'BEAT' in gs or 'COUNT' in gs:
+        label, color = 'COUNTING', COL_ACCENT
+    elif 'VOICE' in gs:
+        label, color = 'VOICE', COL_GREEN
+    else:
+        label, color = 'READY', COL_ACCENT
+
     w = frame.shape[1]
     font = cv2.FONT_HERSHEY_SIMPLEX
     (tw, th), _ = cv2.getTextSize(label, font, SCALE_CAPTION, 1)
@@ -304,14 +323,13 @@ def draw_arcade_hero(frame, game_state, voice_mode_active=False):
     draw_panel(frame, x1, y1, x2, y2,
                fill=COL_PANEL_BG, alpha=0.78, border=border_col, border_thickness=1)
 
-    ph  = y2 - y1
-    pw  = x2 - x1
-
-    # State label pill -- y 12% of panel
-    chip_y = y1 + _ix(ph * 0.14)
+    ph     = y2 - y1
+    pw     = x2 - x1
+    pcx    = (x1 + x2) // 2
+    pill_y = y1 + _ix(ph * 0.14)
 
     if state == "ROUND_INTRO":
-        draw_status_chip(frame, game_state.get("round_text", "ROUND"), chip_y, COL_ACCENT)
+        _draw_state_pill(frame, "READY", pcx, pill_y)
         draw_centered_text(frame, main_text, y1 + _ix(ph * 0.52),
                            SCALE_DISPLAY_L, COL_TEXT_PRIMARY, thickness=2, outline=3)
         draw_centered_text(frame, sub_text, y1 + _ix(ph * 0.82),
@@ -319,7 +337,7 @@ def draw_arcade_hero(frame, game_state, voice_mode_active=False):
 
     elif state == "WAITING_FOR_ROCK":
         if voice_mode_active:
-            draw_status_chip(frame, "VOICE MODE", chip_y, COL_GREEN)
+            _draw_state_pill(frame, "VOICE", pcx, pill_y)
             draw_centered_text(frame, 'Say READY',
                                y1 + _ix(ph * 0.46),
                                SCALE_DISPLAY_L, COL_GREEN, thickness=2, outline=3)
@@ -327,7 +345,7 @@ def draw_arcade_hero(frame, game_state, voice_mode_active=False):
                                y1 + _ix(ph * 0.76),
                                SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
         else:
-            draw_status_chip(frame, "READY", chip_y, COL_TEXT_SECONDARY)
+            _draw_state_pill(frame, "READY", pcx, pill_y)
             draw_centered_text(frame, "MAKE A FIST",
                                y1 + _ix(ph * 0.46),
                                SCALE_DISPLAY_XL, COL_TEXT_PRIMARY, thickness=2, outline=3)
@@ -342,14 +360,12 @@ def draw_arcade_hero(frame, game_state, voice_mode_active=False):
         if voice_mode_active:
             next_words = {0: "ONE", 1: "TWO", 2: "THREE"}
             next_word  = next_words.get(beat_count, "THREE")
-            chip_label = f"BEAT {beat_count} / 3" if beat_count > 0 else "COUNTING"
-            chip_col   = COL_AMBER if beat_count >= 2 else COL_ACCENT
-            draw_status_chip(frame, chip_label, chip_y, chip_col)
+            _draw_state_pill(frame, "COUNTING", pcx, pill_y)
             draw_centered_text(frame, f"Say  {next_word}",
                                y1 + _ix(ph * 0.46),
                                SCALE_DISPLAY_L, COL_ACCENT, thickness=2, outline=3)
         else:
-            draw_status_chip(frame, f"BEAT {beat_count} OF 4", chip_y, COL_ACCENT)
+            _draw_state_pill(frame, f"BEAT {beat_count} OF 4", pcx, pill_y)
             draw_centered_text_in_rect(frame, "SHOOT",
                 (x1 + _ix(pw * 0.06), y1 + _ix(ph * 0.28),
                  x2 - _ix(pw * 0.06), y1 + _ix(ph * 0.72)),
@@ -360,7 +376,7 @@ def draw_arcade_hero(frame, game_state, voice_mode_active=False):
                                    SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
 
     elif state == "SHOOT_WINDOW":
-        draw_status_chip(frame, "THROW NOW", chip_y, COL_RED)
+        _draw_state_pill(frame, "SHOOT", pcx, pill_y)
         if voice_mode_active:
             draw_centered_text(frame, "SAY YOUR THROW",
                                y1 + _ix(ph * 0.40),
@@ -459,19 +475,7 @@ def draw_result_screen(frame, game_state, colourblind=False):
     draw_panel(frame, x1, y1, x2, y2,
                fill=COL_PANEL_BG, alpha=0.88,
                border=banner_col, border_thickness=1)
-    draw_status_chip(frame, banner, y1 + _ix((y2 - y1) * 0.09), banner_col)
-
-    # Reaction time or score
-    rxn_ms = game_state.get("reaction_ms")
-    if rxn_ms and rxn_ms < 3000:
-        rxn_col = COL_GREEN if rxn_ms < 400 else (COL_AMBER if rxn_ms < 800 else COL_RED)
-        draw_centered_text(frame, f"{rxn_ms}ms reaction",
-                           y1 + _ix((y2 - y1) * 0.22), SCALE_BODY,
-                           rxn_col, thickness=1, outline=2)
-    elif game_state["score_text"]:
-        draw_centered_text(frame, game_state["score_text"],
-                           y1 + _ix((y2 - y1) * 0.22), SCALE_BODY,
-                           COL_TEXT_PRIMARY, thickness=1, outline=2)
+    _draw_state_pill(frame, banner, (x1 + x2) // 2, y1 + _ix((y2 - y1) * 0.09))
 
     # Colourblind tint
     if colourblind:
@@ -683,15 +687,6 @@ def draw_game_mode_view(frame, game_state, emotion_state=None, voice_mode_active
 
     w, h = _frame_size(frame)
     layout = _game_layout(frame)
-
-    # Gesture confidence lock bar
-    if tracker_state and cur_state not in {"ROUND_RESULT", "MATCH_RESULT"}:
-        if voice_mode_active and cur_state == "COUNTDOWN":
-            draw_gesture_confidence_bar(frame, game_state.get("beat_count", 0), 3,
-                                        _ix(w * 0.01), h - _ix(h * 0.045), _ix(w * 0.22))
-        else:
-            draw_gesture_confidence_bar(frame, tracker_state.get("stable_streak", 0), 3,
-                                        _ix(w * 0.01), h - _ix(h * 0.045), _ix(w * 0.22))
 
     # Win/loss streak label
     streak_text = game_state.get("streak_label", "")
