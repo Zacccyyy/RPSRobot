@@ -39,7 +39,7 @@ __all__ = [
     'draw_status_chip', 'get_result_banner_color',
     # New spec primitives
     'draw_gesture_glyph', 'draw_gesture_badge', 'draw_beat_track',
-    'draw_progress_bar', 'draw_selected_row',
+    'draw_progress_bar', 'draw_selected_row', 'draw_row',
 ]
 
 # ============================================================
@@ -194,7 +194,7 @@ def draw_panel(frame, x1, y1, x2, y2,
 def _draw_glow_border(frame, x1, y1, x2, y2, color, thickness=1):
     cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color, thickness)
 
-def draw_outlined_text(frame, text, x, y, scale, color, thickness=2, outline=4):
+def draw_outlined_text(frame, text, x, y, scale, color, thickness=1, outline=2):
     font = cv2.FONT_HERSHEY_SIMPLEX
     cv2.putText(frame, text, (int(x), int(y)), font, scale,
                 (0, 0, 0), thickness + outline, cv2.LINE_AA)
@@ -409,6 +409,29 @@ def draw_selected_row(frame, x1, y1, x2, y2, accent_bar=True):
     cv2.addWeighted(overlay, 0.95, roi, 0.05, 0, roi)
     if accent_bar:
         cv2.rectangle(frame, (x1, y1), (x1 + 2, y2), COL_ACCENT, -1)
+
+def draw_row(frame, x1, y1, x2, y2, label, selected=False,
+             sub_label='', right_hint=''):
+    row_h = y2 - y1
+    if selected:
+        roi = frame[y1:y2, x1:x2]
+        overlay = roi.copy()
+        cv2.rectangle(overlay, (0, 0), (x2 - x1, row_h), COL_ROW_SELECTED, -1)
+        cv2.addWeighted(overlay, 0.95, roi, 0.05, 0, roi)
+        cv2.rectangle(frame, (x1, y1), (x1 + 2, y2), COL_ACCENT, -1)
+    text_color = COL_TEXT_PRIMARY if selected else COL_TEXT_SECONDARY
+    pad = _ix((x2 - x1) * 0.025)
+    text_x = x1 + pad + (4 if selected else 0)
+    label_y = y1 + _ix(row_h * (0.48 if not sub_label else 0.38))
+    draw_outlined_text(frame, label, text_x, label_y, SCALE_BODY, text_color,
+                       thickness=1, outline=2)
+    if sub_label and selected:
+        draw_outlined_text(frame, sub_label, text_x, y1 + _ix(row_h * 0.72),
+                           SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
+    if right_hint and selected:
+        (tw, _), _ = cv2.getTextSize(right_hint, FONT_PRIMARY, SCALE_MICRO, 1)
+        draw_outlined_text(frame, right_hint, x2 - pad - tw, label_y,
+                           SCALE_MICRO, COL_ACCENT, thickness=1, outline=2)
 
 # ============================================================
 # BARS

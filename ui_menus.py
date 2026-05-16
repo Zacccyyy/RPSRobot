@@ -12,83 +12,74 @@ from ui_base import *
 def draw_menu_screen(frame, menu_items, selected_index, config,
                      show_help=False, voice_mode_active=False, in_submenu=False,
                      update_label="", calibration_warning=False):
-    layout = _menu_layout(frame)
-    w, h = layout["w"], layout["h"]
-    x1, y1, x2, y2 = layout["panel"]
+    w, h = _frame_size(frame)
 
     top_right = "UP/DOWN Navigate | Enter Select | N Feedback | ESC Back | Q Quit"
     draw_top_bar(frame, "RPS ROBOT", top_right)
 
-    # Calibration warning banner — shown above menu when no model exists
-    if calibration_warning:
-        import time as _t, math as _m
-        pulse  = 0.65 + 0.35 * abs(_m.sin(_t.monotonic() * _m.pi * 1.0))
-        bc     = tuple(min(255, int(c * pulse)) for c in COL_YELLOW)
-        ban_y1 = y1 - _ix(h * 0.115)
-        ban_y2 = y1 - _ix(h * 0.063)
-        draw_panel(frame, _ix(w*0.03), ban_y1, _ix(w*0.97), ban_y2,
-                   fill=(18, 14, 0), alpha=0.92, border=bc, border_thickness=2)
-        draw_centered_text_in_rect(frame,
-            "Gestures not calibrated - recognition may be inaccurate. "
-            "Go to Settings > Recalibrate Gestures to fix this.",
-            (_ix(w*0.04), ban_y1, _ix(w*0.96), ban_y2),
-            base_scale=0.30, color=bc, thickness=1, outline=2)
+    # Wordmark block -- centred y 14-28%
+    wm_cy = _ix(h * 0.21)
+    if in_submenu:
+        draw_centered_text(frame, "GAME MODES", wm_cy,
+                           SCALE_HEADING, COL_TEXT_PRIMARY, thickness=1, outline=2)
+        draw_centered_text(frame, "Select a mode to play", wm_cy + _ix(h * 0.055),
+                           SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
+    else:
+        draw_centered_text(frame, "Rock  Paper  Scissors", wm_cy - _ix(h * 0.045),
+                           SCALE_CAPTION, COL_TEXT_SECONDARY, thickness=1, outline=2)
+        draw_centered_text(frame, "RPS  ROBOT", wm_cy,
+                           SCALE_DISPLAY_L, COL_TEXT_PRIMARY, thickness=2, outline=3)
 
-    # Update banner — pulsing yellow strip above the menu panel
+    # Calibration warning banner
+    if calibration_warning:
+        pulse = 0.65 + 0.35 * abs(math.sin(time.monotonic() * math.pi * 1.0))
+        bc = tuple(min(255, int(c * pulse)) for c in COL_AMBER)
+        draw_panel(frame, _ix(w * 0.255), _ix(h * 0.30), _ix(w * 0.745), _ix(h * 0.36),
+                   fill=(18, 12, 0), alpha=0.92, border=bc, border_thickness=1)
+        draw_centered_text_in_rect(frame,
+            "Gestures not calibrated -- recognition may be inaccurate",
+            (_ix(w * 0.265), _ix(h * 0.30), _ix(w * 0.735), _ix(h * 0.36)),
+            base_scale=0.32, color=bc, thickness=1, outline=2)
+
+    # Update banner
     if update_label:
-        import time as _t, math as _m
-        pulse  = 0.65 + 0.35 * abs(_m.sin(_t.monotonic() * _m.pi * 1.2))
-        bc     = tuple(min(255, int(c * pulse)) for c in COL_YELLOW)
-        ban_y1 = y1 - _ix(h * 0.060)
-        ban_y2 = y1 - _ix(h * 0.008)
-        draw_panel(frame, _ix(w*0.03), ban_y1, _ix(w*0.97), ban_y2,
-                   fill=(18, 15, 0), alpha=0.90, border=bc, border_thickness=2)
+        pulse = 0.65 + 0.35 * abs(math.sin(time.monotonic() * math.pi * 1.2))
+        bc = tuple(min(255, int(c * pulse)) for c in COL_AMBER)
+        draw_panel(frame, _ix(w * 0.255), _ix(h * 0.30), _ix(w * 0.745), _ix(h * 0.36),
+                   fill=(18, 15, 0), alpha=0.90, border=bc, border_thickness=1)
         draw_centered_text_in_rect(frame, update_label,
-            (_ix(w*0.04), ban_y1, _ix(w*0.96), ban_y2),
+            (_ix(w * 0.265), _ix(h * 0.30), _ix(w * 0.735), _ix(h * 0.36)),
             base_scale=0.36, color=bc, thickness=1, outline=2)
 
-    draw_panel(frame, x1, y1, x2, y2, fill=COL_BG_PANEL, alpha=0.92,
-               border=COL_ACCENT, border_thickness=1)
+    # Menu panel -- x 25.5%-74.5%, y 38-86%
+    px1 = _ix(w * 0.255)
+    py1 = _ix(h * 0.38)
+    px2 = _ix(w * 0.745)
+    py2 = _ix(h * 0.86)
+    draw_panel(frame, px1, py1, px2, py2,
+               fill=COL_PANEL_BG, alpha=0.92, border=COL_BORDER_HAIR, border_thickness=1)
 
-    if in_submenu:
-        draw_centered_text(frame, "GAME MODES", y1 + _ix((y2 - y1) * 0.09),
-                           0.80, COL_YELLOW, thickness=2, outline=3)
-        draw_centered_text(frame, "Select a mode to play",
-                           y1 + _ix((y2 - y1) * 0.17), 0.40, COL_TEXT_DIM, thickness=1, outline=2)
-    else:
-        draw_centered_text(frame, "ROCK  PAPER  SCISSORS", y1 + _ix((y2 - y1) * 0.09),
-                           0.68, COL_TEXT, thickness=2, outline=3)
-        draw_centered_text(frame, "ROBOT ARCADE", y1 + _ix((y2 - y1) * 0.19),
-                           1.00, COL_YELLOW, thickness=3, outline=4)
+    # Config hint row at panel top
+    subtitle = f"{config['default_play_mode']}  |  {config['default_display_mode']}"
+    header_h = _ix((py2 - py1) * 0.12)
+    draw_centered_text_in_rect(frame, subtitle,
+        (px1, py1, px2, py1 + header_h),
+        base_scale=SCALE_MICRO, color=COL_TEXT_DIM, thickness=1, outline=2)
+    cv2.line(frame, (px1, py1 + header_h), (px2, py1 + header_h), COL_BORDER_HAIR, 1)
 
-    line_y = y1 + _ix((y2 - y1) * 0.26)
-    cv2.line(frame, (x1 + _ix(w * 0.10), line_y), (x2 - _ix(w * 0.10), line_y), COL_CYAN, 1)
-
-    subtitle = f"Default: {config['default_play_mode']} | Display: {config['default_display_mode']}"
-    draw_centered_text(frame, subtitle, y1 + _ix((y2 - y1) * 0.32),
-                       0.42, COL_TEXT_DIM, thickness=1, outline=2)
-
-    item_area_top = y1 + _ix((y2 - y1) * 0.40)
+    # Menu rows
     n_items = len(menu_items)
-    # Scale font down automatically when there are many items
-    item_gap  = _ix((y2 - y1) * 0.55 / max(n_items, 1))
-    font_base = min(0.68, 0.68 * (8 / max(n_items, 8)))
+    item_area_y1 = py1 + header_h + 1
+    item_area_y2 = py2 - 1
+    row_h = _ix((item_area_y2 - item_area_y1) / max(n_items, 1))
 
     for i, (label, _) in enumerate(menu_items):
-        selected = i == selected_index
-        cy = item_area_top + i * item_gap
-        bar_h = max(_ix(h * 0.018), item_gap // 2 - 2)
+        ry1 = item_area_y1 + i * row_h
+        ry2 = ry1 + row_h
+        draw_row(frame, px1, ry1, px2, ry2, label, selected=(i == selected_index))
+        if i < n_items - 1:
+            cv2.line(frame, (px1 + 3, ry2), (px2 - 3, ry2), COL_BORDER_HAIR, 1)
 
-        if selected:
-            draw_selected_row(frame, x1 + _ix(w * 0.04), cy - bar_h, x2 - _ix(w * 0.04), cy + bar_h)
-
-        color  = COL_ACCENT if selected else COL_TEXT_DIM
-        prefix = "> " if selected else "  "
-        draw_centered_text_in_rect(frame, f"{prefix}{label}",
-            (x1 + _ix(w * 0.06), cy - bar_h, x2 - _ix(w * 0.06), cy + bar_h),
-            base_scale=font_base, color=color, thickness=2, outline=3)
-
-    # Dynamic bottom bar
     if voice_mode_active:
         bottom = "ESC Back  |  Voice: CHEAT  FAIR  CHALLENGE  CLONE  STATS  SETTINGS  |  ? Help"
     elif in_submenu:
@@ -369,7 +360,7 @@ def draw_settings_screen(frame, settings_schema, selected_index, config,
                border=COL_ACCENT, border_thickness=1)
 
     draw_centered_text(frame, "GAME SETTINGS", y1 + _ix((y2 - y1) * 0.07),
-                       0.80, COL_TEXT, thickness=3, outline=4)
+                       SCALE_HEADING, COL_TEXT_PRIMARY, thickness=1, outline=2)
 
     n_items = len(settings_schema)
     # Show a scrolling window of items so the description box is never obscured.
@@ -404,10 +395,9 @@ def draw_settings_screen(frame, settings_schema, selected_index, config,
             draw_selected_row(frame, x1 + _ix(w * 0.015), bar_y1, x2 - _ix(w * 0.015), bar_y2)
 
         label_color = COL_ACCENT if selected else COL_TEXT_DIM
-        prefix = "> " if selected else "  "
 
-        draw_outlined_text(frame, f"{prefix}{item['label']}", x1 + _ix(w * 0.025), y,
-                           0.54, label_color, thickness=2, outline=2)
+        draw_outlined_text(frame, item['label'], x1 + _ix(w * 0.025), y,
+                           SCALE_BODY, label_color, thickness=1, outline=2)
 
         # Value + optional +/- buttons for adjustable items
         value = format_value_fn(item)
@@ -563,9 +553,9 @@ def draw_features_screen(frame, features_schema, selected_index, config,
                border=COL_ACCENT, border_thickness=1)
 
     draw_centered_text(frame, "OPTIONAL FEATURES", y1 + _ix((y2 - y1) * 0.07),
-                       0.80, COL_YELLOW, thickness=3, outline=4)
+                       SCALE_HEADING, COL_TEXT_PRIMARY, thickness=1, outline=2)
     draw_centered_text(frame, "All OFF by default  |  enable what you need",
-                       y1 + _ix((y2 - y1) * 0.13), 0.38, COL_TEXT_DIM,
+                       y1 + _ix((y2 - y1) * 0.13), SCALE_CAPTION, COL_TEXT_DIM,
                        thickness=1, outline=2)
 
     n_items = len(features_schema)
@@ -585,9 +575,8 @@ def draw_features_screen(frame, features_schema, selected_index, config,
                               x2 - _ix(w * 0.015), y + bar_half)
 
         label_color = COL_ACCENT if selected else COL_TEXT_DIM
-        prefix      = "> " if selected else "  "
-        draw_outlined_text(frame, f"{prefix}{item['label']}", x1 + _ix(w * 0.025), y,
-                           0.48, label_color, thickness=1, outline=2)
+        draw_outlined_text(frame, item['label'], x1 + _ix(w * 0.025), y,
+                           SCALE_BODY, label_color, thickness=1, outline=2)
 
         if not is_back:
             if is_choice and selected:
@@ -687,97 +676,81 @@ def draw_game_category_screen(frame, categories, category_index, mode_index,
     Left panel  -- scrollable list of game categories.
     Right panel -- category description, or mode list when category opened.
     """
-    layout = _menu_layout(frame)
-    w, h   = layout["w"], layout["h"]
-    px1, py1, px2, py2 = layout["panel"]
-    ph, pw = py2 - py1, px2 - px1
+    w, h = _frame_size(frame)
 
     hint = ("W/S Navigate  |  Enter Open  |  ESC Back" if not in_mode_list
             else "W/S Select Mode  |  Enter Start  |  ESC Back")
     draw_top_bar(frame, "GAME MODES", hint)
 
-    # -- Left panel: categories --------------------------------------------
-    lx1 = px1
-    lx2 = px1 + _ix(pw * 0.42)
-    draw_panel(frame, lx1, py1, lx2, py2, fill=COL_BG_PANEL, alpha=0.94,
-               border=COL_ACCENT, border_thickness=1)
+    py1 = _ix(h * 0.105)
+    py2 = _ix(h * 0.93)
+    ph  = py2 - py1
 
+    # Left panel -- x 3.6%, w 31%
+    lx1 = _ix(w * 0.036)
+    lx2 = lx1 + _ix(w * 0.31)
+    draw_panel(frame, lx1, py1, lx2, py2,
+               fill=COL_PANEL_BG, alpha=0.92, border=COL_BORDER_HAIR, border_thickness=1)
+
+    header_h = _ix(ph * 0.10)
     draw_centered_text_in_rect(frame, "CATEGORIES",
-        (lx1, py1, lx2, py1 + _ix(ph * 0.10)),
-        base_scale=0.52, color=COL_CYAN, thickness=2, outline=3)
+        (lx1, py1, lx2, py1 + header_h),
+        base_scale=SCALE_CAPTION, color=COL_TEXT_SECONDARY, thickness=1, outline=2)
+    cv2.line(frame, (lx1, py1 + header_h), (lx2, py1 + header_h), COL_BORDER_HAIR, 1)
 
-    n_cats       = len(categories)
-    VISIBLE_CATS = 6   # how many rows visible at once  -  matches original sizing
-    cat_area_top = py1 + _ix(ph * 0.14)
-    item_h       = _ix(ph * 0.78 / VISIBLE_CATS)   # fixed height regardless of total count
-    bar_half     = min(_ix(h * 0.016), item_h // 2 - 3)
+    n_cats = len(categories)
+    VISIBLE_CATS = 7
+    cat_y1 = py1 + header_h + 1
+    cat_y2 = py2 - 1
+    row_h  = _ix((cat_y2 - cat_y1) / VISIBLE_CATS)
 
-    # Scroll offset: keep selected item visible
-    scroll_off = max(0, min(category_index - VISIBLE_CATS + 1,
-                            n_cats - VISIBLE_CATS))
+    scroll_off = max(0, min(category_index - VISIBLE_CATS + 1, n_cats - VISIBLE_CATS))
     scroll_off = max(0, scroll_off)
 
     for i, cat in enumerate(categories):
         vis_idx = i - scroll_off
         if vis_idx < 0 or vis_idx >= VISIBLE_CATS:
             continue
-        cy      = cat_area_top + vis_idx * item_h + item_h // 2
-        sel_cat = (i == category_index)
-        if sel_cat:
-            draw_selected_row(frame, lx1 + _ix(w * 0.008), cy - bar_half,
-                              lx2 - _ix(w * 0.008), cy + bar_half)
-        col    = COL_ACCENT if sel_cat else COL_TEXT_DIM
-        prefix = "> " if sel_cat else "  "
-        draw_centered_text_in_rect(frame, f"{prefix}{cat['label']}",
-            (lx1 + _ix(w * 0.012), cy - bar_half, lx2 - _ix(w * 0.012), cy + bar_half),
-            base_scale=0.48, color=col, thickness=2, outline=2)
+        ry1 = cat_y1 + vis_idx * row_h
+        ry2 = ry1 + row_h
+        draw_row(frame, lx1, ry1, lx2, ry2, cat['label'], selected=(i == category_index))
+        if vis_idx < VISIBLE_CATS - 1:
+            cv2.line(frame, (lx1 + 3, ry2), (lx2 - 3, ry2), COL_BORDER_HAIR, 1)
 
-    # Scroll indicators
     if scroll_off > 0:
-        draw_centered_text(frame, "^  more",
-                           cat_area_top - _ix(h * 0.015), 0.28, COL_TEXT_DIM,
-                           thickness=1, outline=1)
+        cv2.putText(frame, "^ more", (lx1 + _ix((lx2 - lx1) * 0.30), cat_y1 - 4),
+                    FONT_PRIMARY, SCALE_MICRO, COL_TEXT_DIM, 1, cv2.LINE_AA)
     if scroll_off + VISIBLE_CATS < n_cats:
-        draw_centered_text(frame, "v  more",
-                           cat_area_top + VISIBLE_CATS * item_h + _ix(h * 0.010),
-                           0.28, COL_TEXT_DIM, thickness=1, outline=1)
+        cv2.putText(frame, "v more", (lx1 + _ix((lx2 - lx1) * 0.30), cat_y2 + _ix(h * 0.018)),
+                    FONT_PRIMARY, SCALE_MICRO, COL_TEXT_DIM, 1, cv2.LINE_AA)
 
-    # -- Right panel: description OR mode list ----------------------------
-    rx1 = lx2 + _ix(w * 0.012)
-    rx2 = px2
-    rpw = rx2 - rx1
-    draw_panel(frame, rx1, py1, rx2, py2, fill=(8, 8, 22), alpha=0.94,
-               border=COL_BORDER_HAIR, border_thickness=1)
+    # Right panel -- x 36.4%, w 60%
+    rx1 = _ix(w * 0.364)
+    rx2 = rx1 + _ix(w * 0.60)
+    draw_panel(frame, rx1, py1, rx2, py2,
+               fill=COL_PANEL_BG, alpha=0.92, border=COL_BORDER_HAIR, border_thickness=1)
 
     sel_cat = categories[category_index]
-    pad_x   = _ix(rpw * 0.07)
+    rpw   = rx2 - rx1
+    pad_x = _ix(rpw * 0.06)
+
+    draw_centered_text_in_rect(frame, sel_cat['label'],
+        (rx1, py1, rx2, py1 + header_h),
+        base_scale=SCALE_HEADING, color=COL_TEXT_PRIMARY, thickness=1, outline=2)
+    cv2.line(frame, (rx1, py1 + header_h), (rx2, py1 + header_h), COL_BORDER_HAIR, 1)
 
     if not in_mode_list:
-        # -- Description panel --------------------------------------------
-        title_y2 = py1 + _ix(ph * 0.13)
-        draw_centered_text_in_rect(frame, sel_cat["label"],
-            (rx1, py1, rx2, title_y2),
-            base_scale=0.58, color=COL_MAGENTA, thickness=2, outline=3)
-
-        sep_y = py1 + _ix(ph * 0.15)
-        cv2.line(frame,
-                 (rx1 + _ix(rpw * 0.05), sep_y),
-                 (rx2 - _ix(rpw * 0.05), sep_y),
-                 COL_MAGENTA, 1)
-
-        # Word-wrap description -- break on "--" into separate lines too
-        raw_desc  = sel_cat.get("desc", "")
-        # Split on -- to create natural line breaks
-        parts     = [p.strip() for p in raw_desc.replace("--", "\n").split("\n") if p.strip()]
-        font_sc   = 0.50
-        max_px    = rpw - 2 * pad_x
-        lines     = []
+        # Description view
+        raw_desc = sel_cat.get('desc', '')
+        parts    = [p.strip() for p in raw_desc.replace('--', '\n').split('\n') if p.strip()]
+        max_px   = rpw - 2 * pad_x
+        lines    = []
         for part in parts:
             words = part.split()
-            cur   = ""
+            cur   = ''
             for word in words:
-                test = f"{cur} {word}".strip()
-                (tw, _), _ = cv2.getTextSize(test, cv2.FONT_HERSHEY_SIMPLEX, font_sc, 1)
+                test = f'{cur} {word}'.strip()
+                (tw, _), _ = cv2.getTextSize(test, FONT_PRIMARY, SCALE_BODY, 1)
                 if tw <= max_px:
                     cur = test
                 else:
@@ -786,85 +759,66 @@ def draw_game_category_screen(frame, categories, category_index, mode_index,
                     cur = word
             if cur:
                 lines.append(cur)
-            lines.append("")   # blank line between parts
-
-        # Remove trailing blank
-        while lines and lines[-1] == "":
+            lines.append('')
+        while lines and lines[-1] == '':
             lines.pop()
 
-        dy   = py1 + _ix(ph * 0.20)
-        dgap = _ix(ph * 0.095)
-        for line in lines[:7]:
-            if line == "":
-                dy += _ix(ph * 0.030)   # extra gap between parts
+        dy       = py1 + _ix(ph * 0.15)
+        line_gap = _ix(ph * 0.085)
+        for line in lines[:8]:
+            if line == '':
+                dy += _ix(ph * 0.025)
                 continue
             draw_outlined_text(frame, line, rx1 + pad_x, dy,
-                               font_sc, COL_TEXT, thickness=1, outline=2)
-            dy += dgap
+                               SCALE_BODY, COL_TEXT_SECONDARY, thickness=1, outline=2)
+            dy += line_gap
 
-        # Modes preview list - max 3 items to avoid overlap with hint
-        sep2_y = py1 + _ix(ph * 0.60)
-        cv2.line(frame,
-                 (rx1 + _ix(rpw * 0.05), sep2_y),
-                 (rx2 - _ix(rpw * 0.05), sep2_y),
-                 (50, 30, 70), 1)
-        draw_outlined_text(frame, "Modes:", rx1 + pad_x, sep2_y + _ix(ph * 0.05),
-                           0.44, COL_TEXT_DIM, thickness=1, outline=1)
-        my = sep2_y + _ix(ph * 0.12)
-        for (ml, _) in sel_cat["modes"][:3]:
-            draw_outlined_text(frame, f"  {ml}", rx1 + pad_x, my,
-                               0.42, (130, 130, 180), thickness=1, outline=1)
+        sep_y = py1 + _ix(ph * 0.62)
+        cv2.line(frame, (rx1 + pad_x, sep_y), (rx2 - pad_x, sep_y), COL_BORDER_HAIR, 1)
+        draw_outlined_text(frame, 'Modes', rx1 + pad_x, sep_y + _ix(ph * 0.055),
+                           SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=1)
+        my = sep_y + _ix(ph * 0.13)
+        for (ml, _) in sel_cat['modes'][:3]:
+            draw_outlined_text(frame, ml, rx1 + pad_x + _ix(w * 0.01), my,
+                               SCALE_CAPTION, COL_TEXT_SECONDARY, thickness=1, outline=1)
             my += _ix(ph * 0.075)
 
-        # Hint pinned to absolute panel bottom
-        draw_outlined_text(frame, "Enter to open",
-                           rx1 + pad_x, py2 - _ix(ph * 0.035),
-                           0.40, COL_CYAN, thickness=1, outline=2)
+        draw_outlined_text(frame, 'Enter to open',
+                           rx1 + pad_x, py2 - _ix(ph * 0.03),
+                           SCALE_MICRO, COL_ACCENT, thickness=1, outline=2)
 
     else:
-        # -- Mode list ----------------------------------------------------
-        draw_centered_text_in_rect(frame, "SELECT MODE",
-            (rx1, py1, rx2, py1 + _ix(ph * 0.10)),
-            base_scale=0.54, color=COL_MAGENTA, thickness=2, outline=3)
+        # Mode list view
+        modes   = sel_cat['modes']
+        n_modes = len(modes)
+        VISIBLE_MODES = 6
+        m_y1  = py1 + header_h + 1
+        m_y2  = py2 - _ix(ph * 0.08)
+        m_row = _ix((m_y2 - m_y1) / VISIBLE_MODES)
 
-        modes    = sel_cat["modes"]
-        n_modes  = len(modes)
-        VISIBLE_MODES = 5   # always show at most 5 at full size
-        m_area   = py1 + _ix(ph * 0.14)
-        m_gap    = _ix(ph * 0.74 / VISIBLE_MODES)   # fixed height for 5 items
-        m_half   = min(_ix(h * 0.032), m_gap // 2 - 4)
-
-        # Scroll to keep selected mode visible
-        m_scroll = max(0, min(mode_index - VISIBLE_MODES + 1,
-                              n_modes - VISIBLE_MODES))
+        m_scroll = max(0, min(mode_index - VISIBLE_MODES + 1, n_modes - VISIBLE_MODES))
         m_scroll = max(0, m_scroll)
 
         for j, (ml, _) in enumerate(modes):
             vis_j = j - m_scroll
             if vis_j < 0 or vis_j >= VISIBLE_MODES:
                 continue
-            my    = m_area + vis_j * m_gap + m_gap // 2
-            sel_m = (j == mode_index)
-            if sel_m:
-                draw_selected_row(frame, rx1 + _ix(w * 0.008), my - m_half,
-                                  rx2 - _ix(w * 0.008), my + m_half)
-            col    = COL_ACCENT if sel_m else COL_TEXT
-            prefix = "> " if sel_m else "  "
-            draw_centered_text_in_rect(frame, f"{prefix}{ml}",
-                (rx1 + _ix(w * 0.012), my - m_half, rx2 - _ix(w * 0.012), my + m_half),
-                base_scale=0.52, color=col, thickness=2, outline=2)
+            ry1 = m_y1 + vis_j * m_row
+            ry2 = ry1 + m_row
+            draw_row(frame, rx1, ry1, rx2, ry2, ml, selected=(j == mode_index))
+            if vis_j < VISIBLE_MODES - 1:
+                cv2.line(frame, (rx1 + 3, ry2), (rx2 - 3, ry2), COL_BORDER_HAIR, 1)
 
         if m_scroll + VISIBLE_MODES < n_modes:
-            draw_centered_text(frame, "v  more",
-                               m_area + VISIBLE_MODES * m_gap + _ix(h * 0.010),
-                               0.28, COL_TEXT_DIM, thickness=1, outline=1)
+            cv2.putText(frame, 'v more',
+                        (rx1 + _ix(rpw * 0.40), m_y2 + _ix(h * 0.018)),
+                        FONT_PRIMARY, SCALE_MICRO, COL_TEXT_DIM, 1, cv2.LINE_AA)
 
-        draw_outlined_text(frame, "ESC to go back",
-                           rx1 + pad_x, py2 - _ix(ph * 0.035),
-                           0.40, COL_TEXT_DIM, thickness=1, outline=2)
+        draw_outlined_text(frame, 'ESC to go back',
+                           rx1 + pad_x, py2 - _ix(ph * 0.03),
+                           SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
 
-    draw_bottom_bar(frame,
-        "W/S Navigate  |  Enter Select  |  ESC Back  |  Q Quit")
+    draw_bottom_bar(frame, 'W/S Navigate  |  Enter Select  |  ESC Back  |  Q Quit')
 
 
 # ============================================================
@@ -920,15 +874,15 @@ def draw_simulations_hub_screen(frame, selected_index=0, sim_state=None):
     # Title and subtitle — bounded to the outer panel
     draw_centered_text_in_rect(frame, "SIMULATION LAB",
         (px1, py1, px2, py1 + _ix(ph * 0.10)),
-        base_scale=0.80, color=COL_YELLOW, thickness=3, outline=4)
+        base_scale=SCALE_HEADING, color=COL_TEXT_PRIMARY, thickness=1, outline=2)
     draw_centered_text_in_rect(frame, "Run high-fidelity RPS strategy simulations",
         (px1, py1 + _ix(ph * 0.10), px2, py1 + _ix(ph * 0.18)),
-        base_scale=0.38, color=COL_TEXT_DIM, thickness=1, outline=2)
+        base_scale=SCALE_CAPTION, color=COL_TEXT_DIM, thickness=1, outline=2)
 
     cv2.line(frame,
              (px1 + _ix(pw * 0.05), py1 + _ix(ph * 0.19)),
              (px2 - _ix(pw * 0.05), py1 + _ix(ph * 0.19)),
-             COL_YELLOW, 1)
+             COL_BORDER_HAIR, 1)
 
     # Left: sim list
     lx1 = px1 + _ix(pw * 0.02)
@@ -939,11 +893,8 @@ def draw_simulations_hub_screen(frame, selected_index=0, sim_state=None):
         sel      = (i == selected_index)
         if sel:
             draw_selected_row(frame, lx1, bar_y - bar_half, lx2, bar_y + bar_half)
-        col    = COL_ACCENT if sel else COL_TEXT_DIM
-        prefix = "> " if sel else "  "
-        draw_centered_text_in_rect(frame, f"{prefix}{entry['label']}",
-            (lx1, bar_y - bar_half, lx2, bar_y + bar_half),
-            base_scale=0.48, color=col, thickness=2, outline=2)
+        draw_row(frame, lx1, bar_y - bar_half, lx2, bar_y + bar_half,
+                 entry['label'], selected=sel)
 
     # Right: description panel
     rx1 = px1 + _ix(pw * 0.46)
@@ -1022,7 +973,7 @@ def draw_clone_setup_screen(frame, clone_state):
                    border=COL_ACCENT, border_thickness=1)
 
         draw_centered_text(frame, "CLONE MODE", y1 + _ix((y2 - y1) * 0.09),
-                           0.90, COL_MAGENTA, thickness=3, outline=4)
+                           SCALE_HEADING, COL_AMBER, thickness=1, outline=2)
 
         draw_centered_text(frame, "Play against an AI clone of a real player.",
                            y1 + _ix((y2 - y1) * 0.22), 0.44, COL_TEXT_DIM, thickness=1, outline=2)
@@ -1037,7 +988,7 @@ def draw_clone_setup_screen(frame, clone_state):
         name_text = clone_state.get("text_buffer", "")
         display = f"> {name_text}_"
         draw_centered_text(frame, display, y1 + _ix((y2 - y1) * 0.65),
-                           0.78, COL_MAGENTA, thickness=2, outline=3)
+                           SCALE_HEADING, COL_TEXT_PRIMARY, thickness=1, outline=2)
 
         msg = clone_state.get("message", "")
         if msg:
@@ -1055,7 +1006,7 @@ def draw_clone_setup_screen(frame, clone_state):
         draw_centered_text(frame, f"Playing as: {player_name}", y1 + _ix((y2 - y1) * 0.07),
                            0.48, COL_TEXT_DIM, thickness=1, outline=2)
         draw_centered_text(frame, "SELECT OPPONENT", y1 + _ix((y2 - y1) * 0.17),
-                           0.70, COL_MAGENTA, thickness=2, outline=3)
+                           SCALE_BODY, COL_AMBER, thickness=1, outline=2)
         draw_centered_text(frame, "Best of 5 vs their AI clone",
                            y1 + _ix((y2 - y1) * 0.26), 0.42, COL_TEXT_DIM, thickness=1, outline=2)
 
@@ -1073,12 +1024,8 @@ def draw_clone_setup_screen(frame, clone_state):
                 bar_y2 = cy + _ix(h * 0.020)
                 draw_selected_row(frame, x1 + _ix(w * 0.04), bar_y1, x2 - _ix(w * 0.04), bar_y2)
 
-            color = COL_ACCENT if selected else COL_TEXT_DIM
-            prefix = "> " if selected else "  "
-            label = f"{prefix}{name} ({count} rounds)"
-            draw_centered_text_in_rect(frame, label,
-                (x1 + _ix(w * 0.06), cy - _ix(h * 0.018), x2 - _ix(w * 0.06), cy + _ix(h * 0.018)),
-                base_scale=0.64, color=color, thickness=2, outline=3)
+            draw_row(frame, x1, cy - _ix(h * 0.020), x2, cy + _ix(h * 0.020),
+                     f"{name} ({count} rounds)", selected=selected)
 
         msg = clone_state.get("message", "")
         if msg:
@@ -1151,7 +1098,7 @@ def draw_player_stats_screen(frame, stats_state):
                    border=COL_ACCENT, border_thickness=1)
 
         draw_centered_text(frame, "SELECT PLAYER", y1 + _ix((y2 - y1) * 0.10),
-                           0.80, COL_YELLOW, thickness=3, outline=4)
+                           SCALE_HEADING, COL_TEXT_PRIMARY, thickness=1, outline=2)
 
         players = stats_state.get("players", [])
         selected_idx = stats_state.get("selected_index", 0)
@@ -1167,12 +1114,8 @@ def draw_player_stats_screen(frame, stats_state):
                 bar_y2 = cy + _ix(h * 0.020)
                 draw_selected_row(frame, x1 + _ix(w * 0.04), bar_y1, x2 - _ix(w * 0.04), bar_y2)
 
-            color = COL_ACCENT if selected else COL_TEXT_DIM
-            prefix = "> " if selected else "  "
-            label = f"{prefix}{name} ({count} rounds)"
-            draw_centered_text_in_rect(frame, label,
-                (x1 + _ix(w * 0.06), cy - _ix(h * 0.018), x2 - _ix(w * 0.06), cy + _ix(h * 0.018)),
-                base_scale=0.64, color=color, thickness=2, outline=3)
+            draw_row(frame, x1, cy - _ix(h * 0.020), x2, cy + _ix(h * 0.020),
+                     f"{name} ({count} rounds)", selected=selected)
 
         draw_bottom_bar(frame, "View play patterns and strategy analysis")
         return
@@ -1442,7 +1385,7 @@ def draw_tutorial_screen(frame, tut_state):
                        0.70, border_col, thickness=2, outline=3)
 
     draw_centered_text(frame, instruction, panel_y1 + _ix((panel_y2 - panel_y1) * 0.50),
-                       0.90, COL_TEXT, thickness=2, outline=4)
+                       0.90, COL_TEXT, thickness=1, outline=2)
 
     draw_centered_text(frame, sub, panel_y1 + _ix((panel_y2 - panel_y1) * 0.78),
                        0.44, COL_TEXT_DIM, thickness=1, outline=2)
@@ -2003,7 +1946,7 @@ def draw_hardware_test_view(frame, diag_state):
     if not pyserial_ok:
         draw_centered_text_in_rect(frame, "pyserial NOT INSTALLED",
             (0, _ix(h*0.30), w, _ix(h*0.42)),
-            base_scale=0.70, color=(220, 80, 80), thickness=2, outline=4)
+            base_scale=0.70, color=(220, 80, 80), thickness=1, outline=2)
         draw_centered_text_in_rect(frame,
             "Run:  pip install pyserial",
             (0, _ix(h*0.44), w, _ix(h*0.54)),
@@ -2062,11 +2005,10 @@ def draw_hardware_test_view(frame, diag_state):
                        lx1 + pad, ly - _ix(h*0.005),
                        lx2 - pad, ly + _ix(h*0.032),
                        fill=bg_col, alpha=0.90, border=bdr, border_thickness=1)
-            prefix = "> " if is_sel else "  "
-            col    = COL_CYAN if is_sel else COL_TEXT_DIM
-            draw_outlined_text(frame, f"{prefix}{port}",
+            col = COL_CYAN if is_sel else COL_TEXT_DIM
+            draw_outlined_text(frame, port,
                                lx1 + _ix(w*0.03), ly + _ix(h*0.022),
-                               0.38, col, thickness=1, outline=2)
+                               SCALE_CAPTION, col, thickness=1, outline=2)
             ly += _ix(h * 0.048)
 
     ly += _ix(h * 0.01)
@@ -2194,7 +2136,7 @@ def draw_notes_screen(frame, text_buffer, submitted=False, saved_path="", return
         col   = tuple(min(255, int(c * pulse)) for c in COL_GREEN)
         draw_centered_text_in_rect(frame, "FEEDBACK SUBMITTED",
             (0, _ix(h*0.28), w, _ix(h*0.42)),
-            base_scale=0.80, color=col, thickness=3, outline=5)
+            base_scale=0.80, color=col, thickness=1, outline=2)
         draw_centered_text_in_rect(frame,
             "Thank you! Your suggestion has been saved.",
             (0, _ix(h*0.45), w, _ix(h*0.53)),
@@ -2301,7 +2243,7 @@ def draw_consent_screen(frame, selected=0):
     title_y2 = _ix(h * 0.16)
     draw_centered_text_in_rect(frame, "BEFORE YOU PLAY",
         (0, title_y1, w, title_y2),
-        base_scale=0.65, color=COL_CYAN, thickness=2, outline=4)
+        base_scale=0.65, color=COL_CYAN, thickness=1, outline=2)
 
     # ── Content panel — occupies middle section ──────────────────────────
     px1 = _ix(w * 0.07)
@@ -2465,7 +2407,7 @@ def draw_calibration_view(frame, cal_state, hand_state=None):
     if phase == "INTRO":
         draw_centered_text_in_rect(frame, "QUICK SETUP REQUIRED",
             (0, _ix(h*0.10), w, _ix(h*0.20)),
-            base_scale=0.65, color=COL_CYAN, thickness=2, outline=4)
+            base_scale=0.65, color=COL_CYAN, thickness=1, outline=2)
 
         px1, px2 = _ix(w*0.08), _ix(w*0.92)
         py1, py2 = _ix(h*0.22), _ix(h*0.76)
@@ -2504,7 +2446,7 @@ def draw_calibration_view(frame, cal_state, hand_state=None):
                  "Scissors": COL_MAGENTA}.get(gesture, COL_TEXT_ACCENT)
         draw_centered_text_in_rect(frame, f"Show:  {gesture.upper()}",
             (0, _ix(h*0.08), w, _ix(h*0.18)),
-            base_scale=0.75, color=g_col, thickness=3, outline=5)
+            base_scale=0.75, color=g_col, thickness=1, outline=2)
 
         # Instruction
         draw_centered_text_in_rect(frame, instruction,
@@ -2591,7 +2533,7 @@ def draw_calibration_view(frame, cal_state, hand_state=None):
     elif phase == "TRAINING":
         draw_centered_text_in_rect(frame, "TRAINING MODEL...",
             (0, _ix(h*0.35), w, _ix(h*0.50)),
-            base_scale=0.70, color=COL_YELLOW, thickness=2, outline=4)
+            base_scale=0.70, color=COL_YELLOW, thickness=1, outline=2)
         draw_centered_text_in_rect(frame,
             "Please wait  -  this takes a few seconds",
             (0, _ix(h*0.52), w, _ix(h*0.60)),
@@ -2603,7 +2545,7 @@ def draw_calibration_view(frame, cal_state, hand_state=None):
         gc = tuple(min(255, int(c * pulse4)) for c in COL_GREEN)
         draw_centered_text_in_rect(frame, "CALIBRATION COMPLETE",
             (0, _ix(h*0.18), w, _ix(h*0.30)),
-            base_scale=0.70, color=gc, thickness=3, outline=5)
+            base_scale=0.70, color=gc, thickness=1, outline=2)
         if accuracy is not None:
             draw_centered_text_in_rect(frame,
                 f"Model accuracy: {accuracy:.0%}",
@@ -2627,7 +2569,7 @@ def draw_calibration_view(frame, cal_state, hand_state=None):
     elif phase == "FAILED":
         draw_centered_text_in_rect(frame, "TRAINING FAILED",
             (0, _ix(h*0.25), w, _ix(h*0.38)),
-            base_scale=0.70, color=(220,80,80), thickness=3, outline=5)
+            base_scale=0.70, color=(220,80,80), thickness=1, outline=2)
         draw_centered_text_in_rect(frame,
             "Not enough samples were collected.",
             (0, _ix(h*0.40), w, _ix(h*0.48)),
