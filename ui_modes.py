@@ -1858,257 +1858,200 @@ def draw_rpsls_tutorial_screen(frame, step=0, hand_state=None):
       5  - Gesture diagnostic (all 5, live feedback)
     """
     w, h = frame.shape[1], frame.shape[0]
-    t    = time.monotonic()
-    N_STEPS = 6
-
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA,
-               border=COL_BORDER_HAIR, border_thickness=1)
-    draw_top_bar(frame, "RPSLS  HOW TO PLAY",
-                 f"Step {step+1}/{N_STEPS}  |  W/D or Enter = Next  |  A/S = Back  |  ESC Quit")
-
+    N_STEPS  = 6
+    GESTURES = ["Rock", "Paper", "Scissors", "Lizard", "Spock"]
     cx = w // 2
-    lm = _menu_layout(frame)
-    px1, py1, px2, py2 = lm["panel"]
-    ph = py2 - py1
-    pw = px2 - px1
 
-    # Progress dots
-    dot_y = py2 - _ix(ph * 0.04)
+    detected = "Unknown"
+    conf     = 0.0
+    if hand_state is not None:
+        detected = hand_state.get("raw_gesture", "Unknown")
+        conf     = hand_state.get("confidence", 0.0)
+
+    draw_top_bar(frame, "R P S L S  *  HOW TO PLAY",
+                 f"Step {step+1}/{N_STEPS}  |  Enter=Next  |  ESC Back")
+
+    # 3px progress bar just below top bar
+    prog = (step + 1) / N_STEPS
+    draw_progress_bar(frame, _ix(w * 0.02), _ix(h * 0.065),
+                      _ix(w * 0.98), _ix(h * 0.065) + 3,
+                      prog, color=COL_ACCENT, track_height=3)
+
+    if step == 0:
+        card_w  = _ix(w * 0.17)
+        card_h  = _ix(h * 0.50)
+        gap     = _ix(w * 0.015)
+        row_w   = 5 * card_w + 4 * gap
+        start_x = cx - row_w // 2
+        card_y1 = _ix(h * 0.22)
+        card_y2 = card_y1 + card_h
+
+        draw_centered_text(frame, "5 gestures. 10 outcomes. Each beats exactly two others.",
+                           _ix(h * 0.17), SCALE_CAPTION, COL_TEXT_SECONDARY,
+                           thickness=1, outline=2)
+
+        for i, g in enumerate(GESTURES):
+            gx1 = start_x + i * (card_w + gap)
+            gx2 = gx1 + card_w
+            draw_panel(frame, gx1, card_y1, gx2, card_y2,
+                       fill=COL_PANEL_BG, alpha=0.85,
+                       border=COL_BORDER_HAIR, border_thickness=1)
+            gc_x = (gx1 + gx2) // 2
+            gc_y = card_y1 + _ix(card_h * 0.42)
+            draw_gesture_glyph(frame, g,
+                               (gc_x - 36, gc_y - 36, gc_x + 36, gc_y + 36),
+                               COL_ACCENT)
+            draw_centered_text_in_rect(frame, g,
+                (gx1, card_y1 + _ix(card_h * 0.74), gx2, card_y1 + _ix(card_h * 0.92)),
+                base_scale=SCALE_CAPTION, color=COL_TEXT_SECONDARY,
+                thickness=1, outline=1)
+
+        draw_centered_text(frame, "Press Enter to learn each gesture",
+                           _ix(h * 0.80), SCALE_CAPTION, COL_TEXT_DIM,
+                           thickness=1, outline=2)
+
+    elif step in (1, 2, 3):
+        step_gestures = {
+            1: [("Rock",     "Closed fist, all fingers curled in."),
+                ("Scissors", "Index + middle up, ring + pinky curled.")],
+            2: [("Paper",    "Flat open palm, all fingers extended."),
+                ("Lizard",   "Sock-puppet mouth, fingers forward, thumb below.")],
+            3: [("Spock",    "Vulcan salute, wide gap between middle + ring.")],
+        }
+        pairs = step_gestures[step]
+        n     = len(pairs)
+
+        any_det = any(detected == g for g, _ in pairs)
+        status  = f"DETECTED: {detected}" if any_det else "Show a gesture to the camera"
+        s_col   = COL_GREEN if any_det else COL_TEXT_DIM
+        draw_centered_text(frame, status, _ix(h * 0.15), SCALE_CAPTION,
+                           s_col, thickness=1, outline=2)
+
+        gap    = _ix(w * 0.04)
+        card_w = _ix(w * 0.38) if n == 2 else _ix(w * 0.46)
+        total  = n * card_w + (n - 1) * gap
+        start_x = cx - total // 2
+        card_y1 = _ix(h * 0.20)
+        card_y2 = _ix(h * 0.82)
+        card_h  = card_y2 - card_y1
+
+        for i, (g, desc) in enumerate(pairs):
+            gx1    = start_x + i * (card_w + gap)
+            gx2    = gx1 + card_w
+            is_det = (detected == g)
+            draw_panel(frame, gx1, card_y1, gx2, card_y2,
+                       fill=(6, 22, 6) if is_det else COL_PANEL_BG,
+                       alpha=0.92,
+                       border=COL_GREEN if is_det else COL_BORDER_HAIR,
+                       border_thickness=2 if is_det else 1)
+            gc_x = (gx1 + gx2) // 2
+            gc_y = card_y1 + _ix(card_h * 0.34)
+            half = min(_ix(card_w * 0.30), _ix(card_h * 0.22))
+            draw_gesture_glyph(frame, g,
+                               (gc_x - half, gc_y - half, gc_x + half, gc_y + half),
+                               COL_GREEN if is_det else COL_ACCENT)
+            draw_centered_text_in_rect(frame, g,
+                (gx1, card_y1 + _ix(card_h * 0.60), gx2, card_y1 + _ix(card_h * 0.74)),
+                base_scale=SCALE_BODY,
+                color=COL_GREEN if is_det else COL_TEXT_SECONDARY,
+                thickness=1, outline=2)
+            draw_centered_text_in_rect(frame, desc,
+                (gx1 + 8, card_y1 + _ix(card_h * 0.76), gx2 - 8,
+                 card_y1 + _ix(card_h * 0.92)),
+                base_scale=SCALE_CAPTION,
+                color=(160, 220, 160) if is_det else COL_TEXT_DIM,
+                thickness=1, outline=1)
+
+    elif step == 4:
+        draw_centered_text(frame, "WHO BEATS WHO",
+                           _ix(h * 0.15), SCALE_HEADING, COL_TEXT_PRIMARY,
+                           thickness=2, outline=3)
+
+        rules_compact = [
+            ("Scissors", "cuts",        "Paper"),
+            ("Paper",    "covers",      "Rock"),
+            ("Rock",     "crushes",     "Lizard"),
+            ("Lizard",   "poisons",     "Spock"),
+            ("Spock",    "smashes",     "Scissors"),
+            ("Scissors", "decapitates", "Lizard"),
+            ("Lizard",   "eats",        "Paper"),
+            ("Paper",    "disproves",   "Spock"),
+            ("Spock",    "vaporizes",   "Rock"),
+            ("Rock",     "crushes",     "Scissors"),
+        ]
+        col_x_l = _ix(w * 0.10)
+        col_x_r = _ix(w * 0.55)
+        row_h   = _ix(h * 0.062)
+        top_y   = _ix(h * 0.22)
+        font_s  = cv2.FONT_HERSHEY_SIMPLEX
+
+        for idx, (winner, verb, loser) in enumerate(rules_compact):
+            col_x = col_x_l if idx < 5 else col_x_r
+            ry    = top_y + (idx % 5) * row_h
+            draw_outlined_text(frame, winner, col_x, ry,
+                               SCALE_BODY, COL_ACCENT, thickness=1, outline=2)
+            (ww, _), _ = cv2.getTextSize(winner, font_s, SCALE_BODY, 1)
+            draw_outlined_text(frame, f" {verb} ", col_x + ww + 2, ry,
+                               SCALE_CAPTION, COL_TEXT_SECONDARY, thickness=1, outline=1)
+            (vw, _), _ = cv2.getTextSize(f" {verb} ", font_s, SCALE_CAPTION, 1)
+            draw_outlined_text(frame, loser, col_x + ww + vw + 4, ry,
+                               SCALE_BODY, COL_TEXT_DIM, thickness=1, outline=2)
+
+    elif step == 5:
+        draw_centered_text(frame, "GESTURE DIAGNOSTIC",
+                           _ix(h * 0.15), SCALE_HEADING, COL_TEXT_PRIMARY,
+                           thickness=2, outline=3)
+        draw_centered_text(frame, "Try all five gestures",
+                           _ix(h * 0.21), SCALE_CAPTION, COL_TEXT_DIM,
+                           thickness=1, outline=2)
+
+        card_w  = _ix(w * 0.15)
+        card_h  = _ix(h * 0.45)
+        gap     = _ix(w * 0.025)
+        row_w   = 5 * card_w + 4 * gap
+        start_x = cx - row_w // 2
+        card_y1 = _ix(h * 0.26)
+        card_y2 = card_y1 + card_h
+
+        for i, g in enumerate(GESTURES):
+            gx1    = start_x + i * (card_w + gap)
+            gx2    = gx1 + card_w
+            is_det = (detected == g)
+            draw_panel(frame, gx1, card_y1, gx2, card_y2,
+                       fill=(6, 22, 6) if is_det else COL_PANEL_BG,
+                       alpha=0.92,
+                       border=COL_GREEN if is_det else COL_BORDER_HAIR,
+                       border_thickness=2 if is_det else 1)
+            gc_x = (gx1 + gx2) // 2
+            gc_y = card_y1 + _ix(card_h * 0.40)
+            half = min(28, _ix(card_w * 0.35))
+            draw_gesture_glyph(frame, g,
+                               (gc_x - half, gc_y - half, gc_x + half, gc_y + half),
+                               COL_GREEN if is_det else COL_ACCENT)
+            draw_centered_text_in_rect(frame, g,
+                (gx1, card_y1 + _ix(card_h * 0.73), gx2, card_y1 + _ix(card_h * 0.92)),
+                base_scale=SCALE_CAPTION,
+                color=COL_GREEN if is_det else COL_TEXT_SECONDARY,
+                thickness=1, outline=1)
+
+        badge_x = _ix(w * 0.30)
+        draw_gesture_badge(frame, detected, conf, badge_x, _ix(h * 0.80))
+        draw_centered_text(frame, "Press Enter to start playing!",
+                           _ix(h * 0.88), SCALE_CAPTION, COL_TEXT_DIM,
+                           thickness=1, outline=2)
+
+    # Progress dots at y=92%
+    dot_y  = _ix(h * 0.92)
     dot_sp = _ix(w * 0.025)
     for i in range(N_STEPS):
         dx = cx + (i - N_STEPS // 2) * dot_sp + dot_sp // 2
-        col = COL_CYAN if i <= step else (40, 40, 60)
-        cv2.circle(frame, (dx, dot_y), _ix(w * 0.007), col, -1 if i <= step else 2)
-
-    # ── Current step content ─────────────────────────────────────────────
-    if step == 0:
-        # Overview
-        draw_centered_text(frame, "ROCK  PAPER  SCISSORS", py1 + _ix(ph * 0.06),
-                           0.62, COL_TEXT, thickness=2, outline=3)
-        draw_centered_text(frame, "LIZARD  SPOCK", py1 + _ix(ph * 0.14),
-                           0.72, COL_YELLOW, thickness=2, outline=3)
-
-        draw_centered_text(frame, "5 gestures. 10 outcomes. Classic RPS plus two more.",
-                           py1 + _ix(ph * 0.24), 0.44, COL_TEXT_ACCENT, thickness=1, outline=2)
-        draw_centered_text(frame, "Each gesture beats exactly two others",
-                           py1 + _ix(ph * 0.31), 0.42, COL_TEXT_DIM, thickness=1, outline=2)
-        draw_centered_text(frame, "and loses to exactly two others.",
-                           py1 + _ix(ph * 0.37), 0.42, COL_TEXT_DIM, thickness=1, outline=2)
-
-        # Row of all 5 icons
-        gestures  = ["Rock", "Paper", "Scissors", "Lizard", "Spock"]
-        icon_w    = _ix(pw * 0.16)
-        icon_gap  = _ix(pw * 0.03)
-        total_row = len(gestures) * (icon_w + icon_gap) - icon_gap
-        start_x   = cx - total_row // 2
-        iy1 = py1 + _ix(ph * 0.46)
-        iy2 = iy1  + _ix(ph * 0.30)
-        for i, g in enumerate(gestures):
-            gx1 = start_x + i * (icon_w + icon_gap)
-            gx2 = gx1 + icon_w
-            col = _RPSLS_COLS.get(g, COL_TEXT_DIM)
-            draw_panel(frame, gx1, iy1, gx2, iy2, fill=(8, 8, 20), alpha=0.85,
-                       border=col, border_thickness=2)
-            _draw_rpsls_gesture_icon(frame, g, (gx1 + 4, iy1 + 4, gx2 - 4, iy2 - _ix(ph * 0.06)))
-
-        draw_centered_text(frame, "Press Enter or D for next step",
-                           py2 - _ix(ph * 0.10), 0.38, COL_TEXT_DIM, thickness=1, outline=2)
-
-    elif step in (1, 2, 3):
-        # Gesture teach steps with live detection feedback.
-        # Each gesture gets its own card; description lives INSIDE the card
-        # below the icon; title drawn once in the card's colour.
-        step_gestures = {
-            1: [
-                ("Rock",     "Closed fist.\nAll fingers curled in."),
-                ("Scissors", "Index + middle up.\nRing + pinky curled.\nThumb position: either."),
-            ],
-            2: [
-                ("Paper",    "Flat open palm.\nAll fingers extended."),
-                ("Lizard",   "Sock-puppet mouth.\nFingers forward, thumb below.\nHold hand sideways."),
-            ],
-            3: [
-                ("Spock",    "Vulcan salute.\n4 fingers extended.\nWide gap: middle + ring."),
-            ],
-        }
-        pairs = step_gestures[step]
-        n = len(pairs)
-
-        detected = "Unknown"
-        if hand_state is not None:
-            detected = hand_state.get("raw_gesture", "Unknown")
-
-        # ── Layout ────────────────────────────────────────────────────────
-        # Cards: for 2 gestures use 46% width each with 4% gap between.
-        # For 1 gesture (Spock) use 54% width centred.
-        gap = _ix(pw * 0.04)
-        if n == 2:
-            card_w = _ix(pw * 0.46)
-            total  = 2 * card_w + gap
+        if i <= step:
+            cv2.circle(frame, (dx, dot_y), _ix(w * 0.007), COL_ACCENT, -1)
         else:
-            card_w = _ix(pw * 0.54)
-            total  = card_w
-        start_x = cx - total // 2
+            cv2.circle(frame, (dx, dot_y), _ix(w * 0.007), COL_PANEL_BG, -1)
+            cv2.circle(frame, (dx, dot_y), _ix(w * 0.007), COL_BORDER_HAIR, 1)
 
-        # Card spans the full content area; icon takes top 52%, name strip 10%,
-        # description takes remaining ~30% at bottom.
-        card_y1 = py1 + _ix(ph * 0.04)
-        card_y2 = py2 - _ix(ph * 0.10)   # leave room for progress dots
-        card_h  = card_y2 - card_y1
-
-        icon_zone_frac  = 0.52   # fraction of card height for icon
-        name_zone_frac  = 0.10   # fraction for gesture name strip
-        desc_zone_frac  = 0.30   # fraction for description lines
-        # Positions within card (relative to card_y1)
-        icon_y1 = card_y1 + _ix(card_h * 0.02)
-        icon_y2 = card_y1 + _ix(card_h * icon_zone_frac)
-        name_y1 = icon_y2
-        name_y2 = name_y1 + _ix(card_h * name_zone_frac)
-        desc_y1 = name_y2 + _ix(card_h * 0.01)
-
-        for i, (g, desc) in enumerate(pairs):
-            gx1 = start_x + i * (card_w + gap)
-            gx2 = gx1 + card_w
-
-            is_det = (detected == g)
-            col = _RPSLS_COLS.get(g, COL_TEXT_DIM)
-            border_col = COL_GREEN if is_det else col
-            fill_col   = (6, 22, 6) if is_det else (8, 8, 20)
-
-            # Card panel
-            draw_panel(frame, gx1, card_y1, gx2, card_y2,
-                       fill=fill_col, alpha=0.92,
-                       border=border_col, border_thickness=3 if is_det else 2)
-
-            # Icon  -  no built-in name (show_name=False)
-            _draw_rpsls_gesture_icon(frame, g,
-                (gx1 + _ix(card_w * 0.06), icon_y1,
-                 gx2 - _ix(card_w * 0.06), icon_y2),
-                show_name=False)
-
-            # Gesture name strip
-            name_col = COL_GREEN if is_det else col
-            draw_centered_text_in_rect(frame, g,
-                (gx1, name_y1, gx2, name_y2),
-                base_scale=0.50, color=name_col, thickness=2, outline=2)
-
-            # Separator line
-            cv2.line(frame,
-                     (gx1 + _ix(card_w * 0.05), name_y2 + 2),
-                     (gx2 - _ix(card_w * 0.05), name_y2 + 2),
-                     tuple(c // 2 for c in col), 1)
-
-            # Description  -  one line per \n entry
-            lines = desc.split("\n")
-            line_h = _ix(card_h * 0.078)
-            dy = desc_y1 + _ix(card_h * 0.015)
-            for line in lines:
-                draw_centered_text_in_rect(frame, line,
-                    (gx1 + 4, dy, gx2 - 4, dy + line_h),
-                    base_scale=0.34,
-                    color=COL_TEXT_DIM if not is_det else (160, 220, 160),
-                    thickness=1, outline=1)
-                dy += line_h + _ix(card_h * 0.005)
-
-        # Single status line above cards (not per-card)
-        any_det = any(detected == g for g, _ in pairs)
-        status  = f"DETECTED: {detected}!" if any_det else "Show a gesture to the camera"
-        s_col   = COL_GREEN if any_det else COL_TEXT_DIM
-        draw_centered_text(frame, status,
-                           py1 + _ix(ph * 0.01),
-                           0.40, s_col, thickness=1, outline=2)
-
-    elif step == 4:
-        # Rules wheel - who beats who
-        draw_centered_text(frame, "WHO BEATS WHO", py1 + _ix(ph * 0.04),
-                           0.68, COL_YELLOW, thickness=2, outline=3)
-
-        rules_compact = [
-            ("Scissors", "cuts",       "Paper"),
-            ("Paper",    "covers",     "Rock"),
-            ("Rock",     "crushes",    "Lizard"),
-            ("Lizard",   "poisons",    "Spock"),
-            ("Spock",    "smashes",    "Scissors"),
-            ("Scissors", "decapitates","Lizard"),
-            ("Lizard",   "eats",       "Paper"),
-            ("Paper",    "disproves",  "Spock"),
-            ("Spock",    "vaporizes",  "Rock"),
-            ("Rock",     "crushes",    "Scissors"),
-        ]
-
-        # Two columns
-        col_w    = _ix(pw * 0.46)
-        left_x   = px1 + _ix(pw * 0.02)
-        right_x  = cx + _ix(pw * 0.04)
-        row_h    = _ix(ph * 0.074)
-        top_y    = py1 + _ix(ph * 0.14)
-
-        for idx, (winner, verb, loser) in enumerate(rules_compact):
-            col_x  = left_x if idx < 5 else right_x
-            ry     = top_y + (idx % 5) * row_h
-            wcol   = _RPSLS_COLS.get(winner, COL_TEXT_DIM)
-            lcol   = _RPSLS_COLS.get(loser,  COL_TEXT_DIM)
-            line   = f"{winner} {verb} {loser}"
-            # Winner in its colour, rest dimmed
-            draw_outlined_text(frame, winner, col_x, ry, 0.42, wcol, thickness=1, outline=2)
-            (ww, _), _ = cv2.getTextSize(winner, cv2.FONT_HERSHEY_SIMPLEX, 0.42, 1)
-            draw_outlined_text(frame, f" {verb} ", col_x + ww + 2, ry,
-                               0.38, COL_TEXT_DIM, thickness=1, outline=1)
-            (vw, _), _ = cv2.getTextSize(f" {verb} ", cv2.FONT_HERSHEY_SIMPLEX, 0.38, 1)
-            draw_outlined_text(frame, loser, col_x + ww + vw + 4, ry,
-                               0.42, lcol, thickness=1, outline=2)
-
-    elif step == 5:
-        # Live diagnostic - all 5 gestures
-        draw_centered_text(frame, "GESTURE DIAGNOSTIC", py1 + _ix(ph * 0.04),
-                           0.62, COL_CYAN, thickness=2, outline=3)
-        draw_centered_text(frame, "Try all five gestures - watch the detector respond",
-                           py1 + _ix(ph * 0.12), 0.40, COL_TEXT_DIM, thickness=1, outline=2)
-
-        detected = hand_state.get("raw_gesture", "Unknown") if hand_state else "Unknown"
-
-        gestures = ["Rock", "Paper", "Scissors", "Lizard", "Spock"]
-        icon_w   = _ix(pw * 0.16)
-        icon_gap = _ix(pw * 0.025)
-        total_row = len(gestures) * (icon_w + icon_gap) - icon_gap
-        start_x  = cx - total_row // 2
-        iy1 = py1 + _ix(ph * 0.20)
-        iy2 = iy1  + _ix(ph * 0.44)
-
-        for i, g in enumerate(gestures):
-            gx1 = start_x + i * (icon_w + icon_gap)
-            gx2 = gx1 + icon_w
-            is_det   = (detected == g)
-            base_col = _RPSLS_COLS.get(g, COL_TEXT_DIM)
-            if is_det:
-                pulse = 0.7 + 0.3 * abs(math.sin(t * math.pi * 3))
-                col   = tuple(min(255, int(c * pulse)) for c in base_col)
-            else:
-                col = tuple(c // 3 for c in base_col)
-            border_col = base_col if is_det else tuple(c // 2 for c in base_col)
-            fill_col   = (8, 25, 8) if is_det else (8, 8, 16)
-            draw_panel(frame, gx1, iy1, gx2, iy2, fill=fill_col, alpha=0.90,
-                       border=border_col, border_thickness=3 if is_det else 1)
-            _draw_rpsls_gesture_icon(frame, g,
-                (gx1 + 4, iy1 + 4, gx2 - 4, iy2 - _ix(ph * 0.04)))
-
-        if detected in gestures:
-            draw_centered_text(frame, f"Detected: {detected}",
-                               iy2 + _ix(ph * 0.06), 0.56, _RPSLS_COLS.get(detected, COL_TEXT),
-                               thickness=2, outline=3)
-        else:
-            draw_centered_text(frame, "No hand detected - show your hand",
-                               iy2 + _ix(ph * 0.06), 0.42, COL_TEXT_DIM, thickness=1, outline=2)
-
-        # Orientation tip
-        draw_centered_text(frame, "Hold hand sideways to camera  |  Side mode active",
-                           iy2 + _ix(ph * 0.15), 0.36, COL_YELLOW, thickness=1, outline=2)
-
-        draw_centered_text(frame, "Press Enter to start playing!",
-                           py2 - _ix(ph * 0.10), 0.44, COL_GREEN, thickness=1, outline=2)
-
-    draw_bottom_bar(frame,
-        "A/S = Back  |  D/Enter = Next  |  ESC = Back to menu")
+    draw_bottom_bar(frame, "A/S Back  |  D/Enter Next  |  ESC Back to menu")
 
 
 def draw_rpsls_side_notice(frame, was_front_on=False, confirmed_gesture="Unknown",
@@ -2122,28 +2065,18 @@ def draw_rpsls_side_notice(frame, was_front_on=False, confirmed_gesture="Unknown
         ticked = set()
 
     w, h = frame.shape[1], frame.shape[0]
-    t    = time.monotonic()
+    GESTURES_5 = ["Rock", "Paper", "Scissors", "Lizard", "Spock"]
 
-    draw_panel(frame, 0, 0, w - 1, h - 1, fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA,
-               border=COL_BORDER_HAIR, border_thickness=1)
-    draw_top_bar(frame, "ROCK PAPER SCISSORS LIZARD SPOCK",
-                 "Hold each gesture to tick it off  |  Enter to start  |  ESC Back")
+    draw_top_bar(frame, "R P S L S  *  WARMUP",
+                 "Hold each gesture  |  Enter to start  |  ESC Back")
 
-    # Orientation warning if player was using front-on
     if was_front_on:
         draw_centered_text(frame, "SIDE-ON VIEW REQUIRED FOR RPSLS",
-                           _ix(h * 0.12), 0.44, COL_YELLOW, thickness=1, outline=2)
+                           _ix(h * 0.12), SCALE_CAPTION, COL_TEXT_PRIMARY,
+                           thickness=1, outline=2)
         draw_centered_text(frame, "Turn your hand 90 degrees so it faces sideways",
-                           _ix(h * 0.18), 0.36, COL_TEXT_DIM, thickness=1, outline=1)
-
-    GESTURES_5 = ["Rock", "Paper", "Scissors", "Lizard", "Spock"]
-    _RPSLS_GESTURE_COLS = {
-        "Rock":     COL_CYAN,
-        "Paper":    COL_GREEN,
-        "Scissors": COL_MAGENTA,
-        "Lizard":   (80, 200, 80),
-        "Spock":    (255, 200, 0),
-    }
+                           _ix(h * 0.18), SCALE_CAPTION, COL_TEXT_DIM,
+                           thickness=1, outline=1)
 
     # 5 cards in a row
     n       = len(GESTURES_5)
@@ -2161,109 +2094,89 @@ def draw_rpsls_side_notice(frame, was_front_on=False, confirmed_gesture="Unknown
 
         is_ticked  = gest in ticked
         is_current = (confirmed_gesture == gest and not is_ticked)
-        col        = _RPSLS_GESTURE_COLS.get(gest, COL_TEXT_ACCENT)
 
         if is_ticked:
-            fill   = tuple(min(255, int(c * 0.30)) for c in col)
-            border = col
-            bthick = 3
+            border = COL_GREEN
+            bthick = 2
         elif is_current:
-            fill   = tuple(min(255, int(c * 0.12)) for c in col)
-            border = col
+            border = COL_ACCENT
             bthick = 2
         else:
-            fill   = (8, 10, 20)
-            border = (50, 50, 70)
+            border = COL_BORDER_HAIR
             bthick = 1
 
         draw_panel(frame, cx1, card_y, cx2, cy2,
-                   fill=fill, alpha=0.92, border=border, border_thickness=bthick)
+                   fill=COL_PANEL_BG, alpha=0.92, border=border, border_thickness=bthick)
 
-        # Gesture icon
-        icon_pad = _ix(card_w * 0.12)
+        icon_pad  = _ix(card_w * 0.12)
+        glyph_col = COL_GREEN if is_ticked else (COL_ACCENT if is_current else COL_TEXT_DIM)
         draw_gesture_glyph(frame, gest,
             (cx1 + icon_pad, card_y + _ix(card_h * 0.08),
-             cx2 - icon_pad, card_y + _ix(card_h * 0.60)))
+             cx2 - icon_pad, card_y + _ix(card_h * 0.60)),
+            glyph_col)
 
-        # Gesture name
+        name_col = (COL_GREEN if is_ticked
+                    else (COL_TEXT_PRIMARY if is_current else COL_TEXT_DIM))
         draw_centered_text_in_rect(frame, gest,
             (cx1, card_y + _ix(card_h * 0.62), cx2, card_y + _ix(card_h * 0.78)),
-            base_scale=0.38, color=col if (is_ticked or is_current) else COL_TEXT_DIM,
-            thickness=1, outline=1)
+            base_scale=SCALE_CAPTION, color=name_col, thickness=1, outline=1)
 
-        # Tick or dwell bar
+        # Dwell / tick bar
         bar_y  = card_y + _ix(card_h * 0.82)
         bar_x1 = cx1 + _ix(card_w * 0.08)
         bar_x2 = cx2 - _ix(card_w * 0.08)
         bar_h2 = _ix(h * 0.018)
         if is_ticked:
-            draw_progress_bar(frame, bar_x1, bar_y, bar_x2, bar_y + bar_h2, 1.0, color=col)
+            draw_progress_bar(frame, bar_x1, bar_y, bar_x2, bar_y + bar_h2,
+                              1.0, color=COL_GREEN)
             draw_centered_text_in_rect(frame, "DONE",
-                (cx1, bar_y - _ix(2), cx2, bar_y + bar_h2 + _ix(2)),
-                base_scale=0.32, color=(0, 0, 0), thickness=1, outline=0)
+                (cx1, bar_y - 2, cx2, bar_y + bar_h2 + 2),
+                base_scale=SCALE_MICRO, color=(0, 0, 0), thickness=1, outline=0)
         elif is_current and dwell_pct > 0:
-            draw_progress_bar(frame, bar_x1, bar_y, bar_x2, bar_y + bar_h2, dwell_pct, color=col)
+            draw_progress_bar(frame, bar_x1, bar_y, bar_x2, bar_y + bar_h2,
+                              dwell_pct, color=COL_ACCENT)
         else:
-            cv2.rectangle(frame, (bar_x1, bar_y), (bar_x2, bar_y + bar_h2), (30, 30, 40), -1)
-            cv2.rectangle(frame, (bar_x1, bar_y), (bar_x2, bar_y + bar_h2), COL_BORDER_HAIR, 1)
+            cv2.rectangle(frame, (bar_x1, bar_y), (bar_x2, bar_y + bar_h2),
+                          (30, 30, 40), -1)
+            cv2.rectangle(frame, (bar_x1, bar_y), (bar_x2, bar_y + bar_h2),
+                          COL_BORDER_HAIR, 1)
 
-    # Progress text
-    n_done = len(ticked)
+        # 3px status bar at card bottom
+        bar_col = COL_GREEN if is_ticked else (COL_ACCENT if is_current else COL_BORDER_HAIR)
+        cv2.rectangle(frame, (cx1 + 2, cy2 - 5), (cx2 - 2, cy2 - 2), bar_col, -1)
+
+    n_done   = len(ticked)
     prog_col = COL_GREEN if n_done == 5 else COL_TEXT_DIM
     draw_centered_text(frame, f"{n_done} / 5 gestures practiced",
-                       card_y + card_h + _ix(h * 0.04), 0.40, prog_col,
+                       card_y + card_h + _ix(h * 0.04), SCALE_CAPTION, prog_col,
                        thickness=1, outline=2)
-
-    pulse = 0.5 + 0.5 * abs(math.sin(t * math.pi * 1.2))
-    pcol  = tuple(min(255, int(c * pulse)) for c in COL_GREEN)
     draw_centered_text(frame, "Press ENTER when ready to play",
-                       card_y + card_h + _ix(h * 0.12), 0.44, pcol,
-                       thickness=2, outline=3)
+                       card_y + card_h + _ix(h * 0.12), SCALE_BODY, COL_TEXT_SECONDARY,
+                       thickness=1, outline=2)
 
     draw_bottom_bar(frame, "Hold each gesture 1.5s to tick off  |  Enter to start  |  ESC Back")
 
 
 def draw_rpsls_view(frame, game_state, tracker_state=None, hand_state=None):
-    """
-    RPSLS game screen.
-    Left panel: player gesture. Right panel: AI gesture (revealed after shoot).
-    Centre: countdown, result verb, score.
-    Bottom: scrolling rule strip.
-    """
+    """RPSLS game screen."""
     w, h = frame.shape[1], frame.shape[0]
-    t    = time.monotonic()
 
     cur_state  = game_state["state"]
     p_gest     = game_state.get("player_gesture", "Unknown")
     ai_gest    = game_state.get("ai_gesture", "Unknown")
     banner     = game_state.get("result_banner", "")
     verb       = game_state.get("result_verb", "")
-    score_text = game_state.get("score_text", "")
     beat_count = game_state.get("beat_count", 0)
-    time_left  = game_state.get("time_left", 0.0)
-    round_txt  = game_state.get("round_text", "")
     win_target = game_state.get("win_target", 3)
     p_score    = game_state.get("player_score", 0)
     ai_score   = game_state.get("robot_score", 0)
 
-    draw_top_bar(frame, "RPSLS  -  vs AI",
-                 f"{round_txt}  |  First to {win_target}  |  Q Quit")
+    draw_top_bar(frame, "R P S L S  *  vs AI",
+                 f"First to {win_target}  |  Q Quit")
 
-    # -- Panel geometry ----------------------------------------------------
-    pan_w = _ix(w * 0.28)
-    py1   = _ix(h * 0.09)
-    py2   = _ix(h * 0.82)
-    ph    = py2 - py1
-    cx1   = _ix(w * 0.01)
-    cx2   = cx1 + pan_w
-    ax1   = w - _ix(w * 0.01) - pan_w
-    ax2   = w - _ix(w * 0.01)
-    mid1  = cx2 + _ix(w * 0.01)
-    mid2  = ax1 - _ix(w * 0.01)
-    mid_w = mid2 - mid1
+    GESTURES_5 = ["Rock", "Paper", "Scissors", "Lizard", "Spock"]
 
-    # -- Live gesture display (player) -------------------------------------
-    # Show live from tracker during gameplay, locked gesture after shoot
+    # Live gesture for player panel
     if cur_state not in ("ROUND_RESULT", "MATCH_RESULT") and tracker_state:
         conf = tracker_state.get("confirmed_gesture", "Unknown")
         stab = tracker_state.get("stable_gesture", "Unknown")
@@ -2272,123 +2185,173 @@ def draw_rpsls_view(frame, game_state, tracker_state=None, hand_state=None):
     else:
         live = p_gest
 
-    p_col   = _RPSLS_COLS.get(live, COL_TEXT_DIM)
-    p_fill  = (10, 14, 24)
-    if cur_state in ("ROUND_RESULT", "MATCH_RESULT") and p_gest != "Unknown":
-        outcome = game_state.get("last_round_result", "")
-        if outcome == "win":   p_fill = (8, 45, 8)
-        elif outcome == "lose": p_fill = (40, 8, 8)
+    # 5-gesture indicator row y=9-17%
+    ind_y1   = _ix(h * 0.09)
+    ind_y2   = _ix(h * 0.17)
+    chip_w   = _ix(w * 0.16)
+    chip_gap = _ix(w * 0.02)
+    row_chips = 5 * chip_w + 4 * chip_gap
+    chip_start = (w - row_chips) // 2
+    for i, g in enumerate(GESTURES_5):
+        ccx1 = chip_start + i * (chip_w + chip_gap)
+        ccx2 = ccx1 + chip_w
+        is_live = (live == g)
+        draw_panel(frame, ccx1, ind_y1, ccx2, ind_y2,
+                   fill=COL_PANEL_BG, alpha=0.85,
+                   border=COL_ACCENT if is_live else COL_BORDER_HAIR,
+                   border_thickness=2 if is_live else 1)
+        draw_centered_text_in_rect(frame, g, (ccx1, ind_y1, ccx2, ind_y2),
+            base_scale=SCALE_CAPTION,
+            color=COL_TEXT_PRIMARY if is_live else COL_TEXT_DIM,
+            thickness=1, outline=1)
 
+    # Score bar y=18-22%
+    sc_y1  = _ix(h * 0.18)
+    sc_y2  = _ix(h * 0.22)
+    sc_mid = (sc_y1 + sc_y2) // 2
+    draw_panel(frame, _ix(w * 0.01), sc_y1, _ix(w * 0.99), sc_y2,
+               fill=COL_PANEL_BG, alpha=0.78, border=COL_BORDER_HAIR, border_thickness=1)
+    draw_outlined_text(frame, "YOU", _ix(w * 0.04), sc_mid + 6,
+                       SCALE_CAPTION, COL_TEXT_SECONDARY, thickness=1, outline=1)
+    for i in range(win_target):
+        px = _ix(w * 0.12) + i * _ix(18)
+        cv2.circle(frame, (px, sc_mid), _ix(w * 0.006),
+                   COL_ACCENT if i < p_score else (40, 40, 50), -1)
+    draw_centered_text(frame, f"FIRST TO {win_target}", sc_mid + 6,
+                       SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=1)
+    for i in range(win_target):
+        px = _ix(w * 0.83) + i * _ix(18)
+        cv2.circle(frame, (px, sc_mid), _ix(w * 0.006),
+                   COL_TEXT_SECONDARY if i < ai_score else (40, 40, 50), -1)
+    draw_outlined_text(frame, "AI", _ix(w * 0.93), sc_mid + 6,
+                       SCALE_CAPTION, COL_TEXT_SECONDARY, thickness=1, outline=1)
+
+    # Panel geometry
+    py1   = _ix(h * 0.24)
+    py2   = _ix(h * 0.84)
+    ph    = py2 - py1
+    cx1   = _ix(w * 0.01)
+    cx2   = _ix(w * 0.29)
+    mid1  = _ix(w * 0.30)
+    mid2  = _ix(w * 0.70)
+    ax1   = _ix(w * 0.71)
+    ax2   = _ix(w * 0.99)
+    pan_w = cx2 - cx1
+
+    outcome = game_state.get("last_round_result", "")
+    locked  = cur_state in ("ROUND_RESULT", "MATCH_RESULT")
+
+    # YOU panel
+    p_fill = COL_PANEL_BG
+    if locked and p_gest != "Unknown":
+        if outcome == "win":    p_fill = (6, 22, 6)
+        elif outcome == "lose": p_fill = (22, 6, 6)
     draw_panel(frame, cx1, py1, cx2, py2, fill=p_fill, alpha=COL_PANEL_ALPHA,
-               border=COL_ACCENT, border_thickness=1)
+               border=COL_BORDER_HAIR, border_thickness=1)
     draw_centered_text_in_rect(frame, "YOU",
-        (cx1, py1 + _ix(ph*0.01), cx2, py1 + _ix(ph*0.12)),
-        base_scale=0.50, color=p_col, thickness=2, outline=3)
-    _draw_rpsls_gesture_icon(frame, live,
-        (cx1 + _ix(pan_w*0.08), py1 + _ix(ph*0.14),
-         cx2 - _ix(pan_w*0.08), py1 + _ix(ph*0.72)))
+        (cx1, py1 + _ix(ph * 0.01), cx2, py1 + _ix(ph * 0.12)),
+        base_scale=SCALE_CAPTION, color=COL_TEXT_SECONDARY, thickness=1, outline=2)
 
-    # LOCK bar
-    streak = tracker_state.get("stable_streak", 0) if tracker_state else 0
+    glyph_gest = p_gest if locked else live
+    g_col      = COL_TEXT_PRIMARY if locked else COL_ACCENT
+    g_cx       = (cx1 + cx2) // 2
+    g_cy       = py1 + _ix(ph * 0.48)
+    g_half     = _ix(pan_w * 0.28)
+    draw_gesture_glyph(frame, glyph_gest,
+                       (g_cx - g_half, g_cy - g_half, g_cx + g_half, g_cy + g_half),
+                       g_col)
+
+    streak   = tracker_state.get("stable_streak", 0) if tracker_state else 0
     pct_lock = min(1.0, streak / 3)
-    bar_x  = cx2 - _ix(pan_w*0.08)
-    bar_y1 = py1 + _ix(ph*0.14)
-    bar_y2 = bar_y1 + _ix(ph*0.40)
-    bar_w2 = _ix(pan_w*0.06)
-    fc_lock = COL_GREEN if streak >= 3 else COL_ACCENT
-    draw_progress_bar(frame, bar_x, bar_y1, bar_x+bar_w2, bar_y2, pct_lock, color=fc_lock)
+    lbar_x   = cx2 - _ix(pan_w * 0.10)
+    lbar_y1  = py1 + _ix(ph * 0.14)
+    lbar_y2  = py1 + _ix(ph * 0.58)
+    fc_lock  = COL_GREEN if streak >= 3 else COL_ACCENT
+    draw_progress_bar(frame, lbar_x, lbar_y1, lbar_x + _ix(pan_w * 0.06), lbar_y2,
+                      pct_lock, color=fc_lock)
 
-    # -- AI panel ----------------------------------------------------------
-    show_ai = (cur_state in ("ROUND_RESULT", "MATCH_RESULT") and
-               ai_gest in ("Rock","Paper","Scissors","Lizard","Spock"))
-    ai_col   = _RPSLS_COLS.get(ai_gest, COL_RED)
-    ai_fill  = (10, 14, 24)
+    # AI panel
+    show_ai = locked and ai_gest in GESTURES_5
+    ai_fill = COL_PANEL_BG
     if show_ai:
-        outcome = game_state.get("last_round_result", "")
-        if outcome == "lose":  ai_fill = (8, 45, 8)
-        elif outcome == "win": ai_fill = (40, 8, 8)
+        if outcome == "lose":  ai_fill = (6, 22, 6)
+        elif outcome == "win": ai_fill = (22, 6, 6)
     draw_panel(frame, ax1, py1, ax2, py2, fill=ai_fill, alpha=COL_PANEL_ALPHA,
                border=COL_BORDER_HAIR, border_thickness=1)
     draw_centered_text_in_rect(frame, "AI",
-        (ax1, py1 + _ix(ph*0.01), ax2, py1 + _ix(ph*0.12)),
-        base_scale=0.50, color=COL_RED, thickness=2, outline=3)
+        (ax1, py1 + _ix(ph * 0.01), ax2, py1 + _ix(ph * 0.12)),
+        base_scale=SCALE_CAPTION, color=COL_TEXT_SECONDARY, thickness=1, outline=2)
+    ai_cx = (ax1 + ax2) // 2
+    ai_cy = py1 + _ix(ph * 0.48)
     if show_ai:
-        _draw_rpsls_gesture_icon(frame, ai_gest,
-            (ax1 + _ix(pan_w*0.08), py1 + _ix(ph*0.14),
-             ax2 - _ix(pan_w*0.08), py1 + _ix(ph*0.72)))
+        draw_gesture_glyph(frame, ai_gest,
+                           (ai_cx - g_half, ai_cy - g_half, ai_cx + g_half, ai_cy + g_half),
+                           COL_TEXT_SECONDARY)
     else:
         draw_centered_text_in_rect(frame, "?",
-            (ax1, py1 + _ix(ph*0.30), ax2, py1 + _ix(ph*0.65)),
-            base_scale=1.4, color=(60,60,80), thickness=2, outline=3)
+            (ax1, py1 + _ix(ph * 0.28), ax2, py1 + _ix(ph * 0.68)),
+            base_scale=1.6, color=COL_TEXT_DIM, thickness=2, outline=3)
 
-    # -- Centre panel ------------------------------------------------------
+    # Centre panel
     draw_panel(frame, mid1, py1, mid2, py2, fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA,
-               border=COL_ACCENT, border_thickness=1)
+               border=COL_BORDER_HAIR, border_thickness=1)
 
-    draw_status_chip(frame, cur_state.replace("_"," "),
-                     py1 + _ix(ph*0.04), COL_YELLOW)
+    # Inline state pill
+    _PILL = {
+        "WAITING_FOR_ROCK": ("READY",      COL_ACCENT),
+        "COUNTDOWN":        ("COUNTING",   COL_ACCENT),
+        "SHOOT_WINDOW":     ("SHOOT",      COL_RED),
+        "ROUND_RESULT":     ("RESULT",     COL_TEXT_SECONDARY),
+        "MATCH_RESULT":     ("MATCH OVER", COL_TEXT_SECONDARY),
+    }
+    pill_lbl, pill_col = _PILL.get(cur_state, ("READY", COL_ACCENT))
+    pill_mid_y = py1 + _ix(ph * 0.07)
+    pill_h2    = _ix(h * 0.018)
+    font_s     = cv2.FONT_HERSHEY_SIMPLEX
+    (pw2, _), _ = cv2.getTextSize(pill_lbl, font_s, SCALE_CAPTION, 1)
+    pill_cx     = (mid1 + mid2) // 2
+    pill_x1     = pill_cx - pw2 // 2 - 10
+    pill_x2     = pill_cx + pw2 // 2 + 10
+    draw_panel(frame, pill_x1, pill_mid_y - pill_h2, pill_x2, pill_mid_y + pill_h2,
+               fill=COL_PANEL_BG, alpha=0.92, border=pill_col, border_thickness=1)
+    draw_centered_text_in_rect(frame, pill_lbl,
+        (pill_x1, pill_mid_y - pill_h2, pill_x2, pill_mid_y + pill_h2),
+        base_scale=SCALE_CAPTION, color=pill_col, thickness=1, outline=1)
 
-    if cur_state in ("ROUND_RESULT", "MATCH_RESULT"):
+    # Centre content
+    if locked:
         b_col = get_result_banner_color(banner)
         draw_centered_text_in_rect(frame, banner,
-            (mid1+4, py1+_ix(ph*0.14), mid2-4, py1+_ix(ph*0.34)),
-            base_scale=0.52, color=b_col, thickness=2, outline=3)
+            (mid1 + 4, py1 + _ix(ph * 0.16), mid2 - 4, py1 + _ix(ph * 0.42)),
+            base_scale=SCALE_DISPLAY_L, color=b_col, thickness=2, outline=3)
         if verb:
             draw_centered_text_in_rect(frame, verb,
-                (mid1+4, py1+_ix(ph*0.36), mid2-4, py1+_ix(ph*0.54)),
-                base_scale=0.36, color=COL_TEXT_DIM, thickness=1, outline=2)
+                (mid1 + 4, py1 + _ix(ph * 0.44), mid2 - 4, py1 + _ix(ph * 0.60)),
+                base_scale=SCALE_BODY, color=COL_TEXT_DIM, thickness=1, outline=2)
     elif cur_state == "COUNTDOWN":
         mt = "READY" if beat_count == 0 else str(min(beat_count, 3))
-        pulse = 0.72 + 0.28 * abs(math.sin(t * math.pi * 1.4))
-        nc    = tuple(min(255, int(c*pulse)) for c in COL_CYAN)
+        sc = SCALE_DISPLAY_L if mt == "READY" else 1.8
         draw_centered_text_in_rect(frame, mt,
-            (mid1, py1+_ix(ph*0.18), mid2, py1+_ix(ph*0.60)),
-            base_scale=2.0 if mt not in ("READY",) else 0.70,
-            color=nc, thickness=3, outline=5)
+            (mid1, py1 + _ix(ph * 0.18), mid2, py1 + _ix(ph * 0.62)),
+            base_scale=sc, color=COL_TEXT_PRIMARY, thickness=2, outline=4)
     elif cur_state == "SHOOT_WINDOW":
         draw_centered_text_in_rect(frame, "SHOOT!",
-            (mid1, py1+_ix(ph*0.18), mid2, py1+_ix(ph*0.58)),
-            base_scale=0.80, color=COL_RED, thickness=2, outline=4)
-        draw_centered_text_in_rect(frame, "Rock/Paper/Scissors/Lizard/Spock",
-            (mid1+4, py1+_ix(ph*0.60), mid2-4, py1+_ix(ph*0.72)),
-            base_scale=0.28, color=COL_TEXT_DIM, thickness=1, outline=2)
+            (mid1, py1 + _ix(ph * 0.18), mid2, py1 + _ix(ph * 0.56)),
+            base_scale=SCALE_DISPLAY_L, color=COL_RED, thickness=2, outline=4)
+        draw_centered_text_in_rect(frame, "Rock  Paper  Scissors  Lizard  Spock",
+            (mid1 + 4, py1 + _ix(ph * 0.60), mid2 - 4, py1 + _ix(ph * 0.72)),
+            base_scale=SCALE_MICRO, color=COL_TEXT_DIM, thickness=1, outline=1)
     else:
         draw_centered_text_in_rect(frame, "MAKE A FIST",
-            (mid1, py1+_ix(ph*0.30), mid2, py1+_ix(ph*0.62)),
-            base_scale=0.50, color=COL_CYAN, thickness=2, outline=3)
+            (mid1, py1 + _ix(ph * 0.30), mid2, py1 + _ix(ph * 0.62)),
+            base_scale=SCALE_BODY, color=COL_TEXT_DIM, thickness=1, outline=2)
 
-    # Beat track
+    # Beat track below panels (centre column)
     if cur_state in ("COUNTDOWN", "WAITING_FOR_ROCK", "SHOOT_WINDOW"):
-        bt_y1 = py1 + _ix(ph*0.72)
-        bt_y2 = py1 + _ix(ph*0.90)
         draw_beat_track(frame, beat_count, state=cur_state,
-                        x1=mid1, y1=bt_y1, x2=mid2, y2=bt_y2)
+                        x1=mid1, y1=_ix(h * 0.86), x2=mid2, y2=_ix(h * 0.93))
 
-    # Score + progress dots
-    draw_centered_text(frame, score_text,
-                       py2 + _ix(h*0.007), 0.46, COL_TEXT_ACCENT,
-                       thickness=2, outline=3)
-
-    # Mini score pips
-    for px_offset, score, col in [
-        (-_ix(w*0.15), p_score, COL_CYAN),
-        (+_ix(w*0.15), ai_score, COL_RED),
-    ]:
-        bx0 = w//2 + px_offset - _ix(win_target * 10)
-        for i in range(win_target):
-            bx = bx0 + i * _ix(20)
-            fc = col if i < score else (40, 40, 50)
-            cv2.circle(frame, (bx, py2 + _ix(h*0.025)), _ix(w*0.007), fc, -1)
-
-    # -- Scrolling rule strip at bottom ------------------------------------
-    strip_y = h - _ix(h*0.050)
-    # Slowly scroll rules
-    scroll_idx = int(t * 0.5) % len(_RPSLS_RULES)
-    rule_txt = _RPSLS_RULES[scroll_idx] + "  |  " + _RPSLS_RULES[(scroll_idx+1) % len(_RPSLS_RULES)]
-    draw_centered_text(frame, rule_txt, strip_y, 0.30, COL_TEXT_DIM,
-                       thickness=1, outline=1)
-
-    draw_bottom_bar(frame, "5 gestures: Rock  Paper  Scissors  Lizard  Spock  |  Q Quit")
+    draw_bottom_bar(frame, "Rock  Paper  Scissors  Lizard  Spock  |  Q Quit")
 
 
 def draw_two_player_diagnostic(frame, game_state,

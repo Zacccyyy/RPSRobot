@@ -969,112 +969,156 @@ def draw_simulations_hub_screen(frame, selected_index=0, sim_state=None):
 # ============================================================
 
 def draw_clone_setup_screen(frame, clone_state):
-    layout = _menu_layout(frame)
-    w, h = layout["w"], layout["h"]
-    x1, y1, x2, y2 = layout["panel"]
-
+    import time as _time
+    w, h = frame.shape[1], frame.shape[0]
     step = clone_state.get("step", "enter_name")
+    msg  = clone_state.get("message", "")
 
     if step == "enter_name":
-        draw_top_bar(frame, "CLONE MODE", "Type name | Enter confirm | ESC Back")
-        draw_panel(frame, x1, y1, x2, y2, fill=COL_BG_PANEL, alpha=0.94,
-                   border=COL_ACCENT, border_thickness=1)
+        draw_top_bar(frame, "C L O N E   M O D E", "ENTER to confirm  |  ESC Back")
 
-        draw_centered_text(frame, "CLONE MODE", y1 + _ix((y2 - y1) * 0.09),
-                           SCALE_HEADING, COL_AMBER, thickness=1, outline=2)
+        draw_outlined_text(frame, "CLONE MODE",
+                           _ix(w * 0.50) - 80, _ix(h * 0.20),
+                           SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
+        heading  = "Who are you playing as?"
+        font_d   = cv2.FONT_HERSHEY_DUPLEX
+        (hw, _), _ = cv2.getTextSize(heading, font_d, SCALE_DISPLAY_L, 2)
+        hx = (w - hw) // 2
+        cv2.putText(frame, heading, (hx, _ix(h * 0.30)),
+                    font_d, SCALE_DISPLAY_L, (0, 0, 0), 4, cv2.LINE_AA)
+        cv2.putText(frame, heading, (hx, _ix(h * 0.30)),
+                    font_d, SCALE_DISPLAY_L, COL_TEXT_PRIMARY, 2, cv2.LINE_AA)
 
-        draw_centered_text(frame, "Play against an AI clone of a real player.",
-                           y1 + _ix((y2 - y1) * 0.22), 0.44, COL_TEXT_DIM, thickness=1, outline=2)
-        draw_centered_text(frame, "Your rounds will be recorded so",
-                           y1 + _ix((y2 - y1) * 0.30), 0.42, COL_TEXT_DIM, thickness=1, outline=2)
-        draw_centered_text(frame, "others can clone YOU too.",
-                           y1 + _ix((y2 - y1) * 0.37), 0.42, COL_TEXT_DIM, thickness=1, outline=2)
-
-        draw_centered_text(frame, "YOUR NAME:", y1 + _ix((y2 - y1) * 0.52),
-                           0.56, COL_TEXT, thickness=2, outline=3)
+        # Input rect
+        box_x1 = _ix(w * 0.227)
+        box_y1 = _ix(h * 0.43)
+        box_x2 = box_x1 + _ix(w * 0.546)
+        box_y2 = box_y1 + 70
+        draw_panel(frame, box_x1, box_y1, box_x2, box_y2,
+                   fill=COL_PANEL_BG, alpha=0.70, border=COL_ACCENT, border_thickness=1)
 
         name_text = clone_state.get("text_buffer", "")
-        display = f"> {name_text}_"
-        draw_centered_text(frame, display, y1 + _ix((y2 - y1) * 0.65),
-                           SCALE_HEADING, COL_TEXT_PRIMARY, thickness=1, outline=2)
+        font_d2   = cv2.FONT_HERSHEY_DUPLEX
+        (tw2, th2), _ = cv2.getTextSize(name_text or "A", font_d2, SCALE_HEADING, 2)
+        ty = box_y1 + (70 + th2) // 2
+        tx = box_x1 + 14
+        if name_text:
+            cv2.putText(frame, name_text, (tx, ty), font_d2, SCALE_HEADING,
+                        (0, 0, 0), 4, cv2.LINE_AA)
+            cv2.putText(frame, name_text, (tx, ty), font_d2, SCALE_HEADING,
+                        COL_TEXT_PRIMARY, 2, cv2.LINE_AA)
+        t = _time.time()
+        if int(t * 2) % 2 == 0:
+            (cw, _), _ = cv2.getTextSize(name_text, font_d2, SCALE_HEADING, 2)
+            cur_x = tx + cw + 2
+            cv2.rectangle(frame, (cur_x, ty - th2 - 2), (cur_x + 2, ty + 4), COL_ACCENT, -1)
 
-        msg = clone_state.get("message", "")
+        draw_centered_text(frame, "A-Z  *  1-12 characters  *  ENTER to confirm",
+                           _ix(h * 0.60), SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
+
         if msg:
-            draw_centered_text(frame, msg, y1 + _ix((y2 - y1) * 0.80),
-                               0.42, COL_ORANGE, thickness=1, outline=2)
+            draw_centered_text(frame, msg, _ix(h * 0.68), SCALE_CAPTION,
+                               COL_AMBER, thickness=1, outline=2)
 
-        draw_bottom_bar(frame, "Type your name, then press Enter")
+        draw_bottom_bar(frame, "Type your name  |  ENTER Confirm  |  ESC Back")
 
     elif step == "select_opponent":
-        draw_top_bar(frame, "SELECT OPPONENT", "UP/DOWN Move | SELECT | BACK")
-        draw_panel(frame, x1, y1, x2, y2, fill=COL_BG_PANEL, alpha=0.94,
-                   border=COL_ACCENT, border_thickness=1)
+        draw_top_bar(frame, "C L O N E   M O D E", "UP/DOWN Navigate  |  ENTER Fight  |  ESC Back")
 
         player_name = clone_state.get("player_name", "")
-        draw_centered_text(frame, f"Playing as: {player_name}", y1 + _ix((y2 - y1) * 0.07),
-                           0.48, COL_TEXT_DIM, thickness=1, outline=2)
-        draw_centered_text(frame, "SELECT OPPONENT", y1 + _ix((y2 - y1) * 0.17),
-                           SCALE_BODY, COL_AMBER, thickness=1, outline=2)
-        draw_centered_text(frame, "Best of 5 vs their AI clone",
-                           y1 + _ix((y2 - y1) * 0.26), 0.42, COL_TEXT_DIM, thickness=1, outline=2)
+        draw_centered_text(frame, f"PLAYING AS  {player_name.upper()}",
+                           _ix(h * 0.14), SCALE_CAPTION, COL_TEXT_SECONDARY,
+                           thickness=1, outline=2)
 
-        available = clone_state.get("available", [])
+        px1 = _ix(w * 0.18);  px2 = _ix(w * 0.82)
+        py1 = _ix(h * 0.18);  py2 = _ix(h * 0.90)
+        ph  = py2 - py1
+        pw  = px2 - px1
+        draw_panel(frame, px1, py1, px2, py2,
+                   fill=COL_PANEL_BG, alpha=0.88, border=COL_BORDER_HAIR, border_thickness=1)
+
+        # Title strip
+        strip_y2 = py1 + 38
+        draw_panel(frame, px1, py1, px2, strip_y2,
+                   fill=COL_PANEL_BG, alpha=0.92, border=COL_BORDER_HAIR, border_thickness=1)
+        draw_centered_text_in_rect(frame, "S E L E C T   O P P O N E N T",
+            (px1, py1, px2, strip_y2),
+            base_scale=SCALE_MICRO, color=COL_TEXT_DIM, thickness=1, outline=1)
+        cv2.line(frame, (px1, strip_y2), (px2, strip_y2), COL_BORDER_HAIR, 1)
+
+        available    = clone_state.get("available", [])
         selected_idx = clone_state.get("selected_index", 0)
-        item_top = y1 + _ix((y2 - y1) * 0.36)
-        item_gap = _ix((y2 - y1) * 0.09)
+        row_h        = 64
+        ry           = strip_y2
 
         for i, (name, count) in enumerate(available):
-            selected = i == selected_idx
-            cy = item_top + i * item_gap
+            selected = (i == selected_idx)
+            draw_row(frame, px1, ry, px2, ry + row_h,
+                     label=name,
+                     sub_label=f"{count} rounds recorded",
+                     right_hint="ENTER FIGHT",
+                     selected=selected)
+            ry += row_h
 
-            if selected:
-                bar_y1 = cy - _ix(h * 0.020)
-                bar_y2 = cy + _ix(h * 0.020)
-                draw_selected_row(frame, x1 + _ix(w * 0.04), bar_y1, x2 - _ix(w * 0.04), bar_y2)
-
-            draw_row(frame, x1, cy - _ix(h * 0.020), x2, cy + _ix(h * 0.020),
-                     f"{name} ({count} rounds)", selected=selected)
-
-        msg = clone_state.get("message", "")
-        if msg:
-            draw_centered_text(frame, msg, y2 - _ix((y2 - y1) * 0.08),
-                               0.42, COL_ORANGE, thickness=1, outline=2)
-
-        # Progress chip while generate_all_player_reports runs in background
         if clone_state.get("profiles_updating"):
-            t = time.monotonic()
-            dots = "." * (1 + int(t * 2) % 3)
+            t2 = time.monotonic()
+            dots = "." * (1 + int(t2 * 2) % 3)
             draw_outlined_text(frame, f"Updating profiles{dots}",
-                               x1 + _ix(w * 0.025), y2 - _ix((y2 - y1) * 0.14),
-                               0.36, COL_CYAN, thickness=1, outline=2)
+                               px1 + _ix(pw * 0.02), py2 - 20,
+                               SCALE_CAPTION, COL_ACCENT, thickness=1, outline=2)
 
-        draw_bottom_bar(frame, "The AI learns from their recorded play style")
+        if msg:
+            draw_centered_text(frame, msg, py2 + 14, SCALE_CAPTION,
+                               COL_AMBER, thickness=1, outline=2)
+
+        draw_bottom_bar(frame, "UP/DOWN Navigate  *  ENTER Fight  *  ESC Back")
 
     elif step == "no_profiles":
-        draw_top_bar(frame, "CLONE MODE", "Enter/ESC to go back")
-        draw_panel(frame, x1, y1, x2, y2, fill=COL_BG_PANEL, alpha=0.94,
-                   border=COL_ACCENT, border_thickness=1)
+        draw_top_bar(frame, "C L O N E   M O D E", "Enter/ESC to go back")
 
-        draw_centered_text(frame, "NO CLONES AVAILABLE YET",
-                           y1 + _ix((y2 - y1) * 0.14), 0.72, COL_ORANGE, thickness=2, outline=3)
+        px1 = _ix(w * 0.18);  px2 = _ix(w * 0.82)
+        py1 = _ix(h * 0.18);  py2 = _ix(h * 0.90)
+        ph  = py2 - py1
+        draw_panel(frame, px1, py1, px2, py2,
+                   fill=COL_PANEL_BG, alpha=0.88, border=COL_BORDER_HAIR, border_thickness=1)
 
-        draw_centered_text(frame, "To create a clone, a player needs to:",
-                           y1 + _ix((y2 - y1) * 0.28), 0.46, COL_TEXT_DIM, thickness=1, outline=2)
-        draw_centered_text(frame, "1. Enter their name here",
-                           y1 + _ix((y2 - y1) * 0.38), 0.48, COL_TEXT, thickness=1, outline=2)
-        draw_centered_text(frame, "2. Play 30+ rounds in any mode",
-                           y1 + _ix((y2 - y1) * 0.47), 0.48, COL_TEXT, thickness=1, outline=2)
-        draw_centered_text(frame, "3. Patterns are learned automatically",
-                           y1 + _ix((y2 - y1) * 0.56), 0.48, COL_TEXT, thickness=1, outline=2)
+        strip_y2 = py1 + 38
+        draw_panel(frame, px1, py1, px2, strip_y2,
+                   fill=COL_PANEL_BG, alpha=0.92, border=COL_BORDER_HAIR, border_thickness=1)
+        draw_centered_text_in_rect(frame, "S E L E C T   O P P O N E N T",
+            (px1, py1, px2, strip_y2),
+            base_scale=SCALE_MICRO, color=COL_TEXT_DIM, thickness=1, outline=1)
+        cv2.line(frame, (px1, strip_y2), (px2, strip_y2), COL_BORDER_HAIR, 1)
+
+        draw_centered_text_in_rect(frame, "NO CLONES AVAILABLE YET",
+            (px1, py1 + _ix(ph * 0.12), px2, py1 + _ix(ph * 0.28)),
+            base_scale=SCALE_HEADING, color=COL_TEXT_PRIMARY, thickness=1, outline=3)
+
+        for j, line in enumerate([
+            "To create a clone, a player needs to:",
+            "1. Enter their name here",
+            "2. Play 30+ rounds in any mode",
+            "3. Patterns are learned automatically",
+        ]):
+            draw_centered_text_in_rect(frame, line,
+                (px1 + 16, py1 + _ix(ph * (0.32 + j * 0.10)),
+                 px2 - 16, py1 + _ix(ph * (0.42 + j * 0.10))),
+                base_scale=SCALE_BODY,
+                color=COL_TEXT_SECONDARY if j == 0 else COL_TEXT_DIM,
+                thickness=1, outline=1)
 
         all_players = clone_state.get("all_players", [])
         if all_players:
-            draw_centered_text(frame, "Players recording:", y1 + _ix((y2 - y1) * 0.70),
-                               0.42, COL_TEXT_DIM, thickness=1, outline=2)
-            for i, (name, count) in enumerate(all_players[:4]):
-                draw_centered_text(frame, f"{name}: {count}/30 rounds",
-                    y1 + _ix((y2 - y1) * (0.78 + i * 0.07)),
-                    0.46, COL_CYAN, thickness=1, outline=2)
+            draw_centered_text_in_rect(frame, "Players recording:",
+                (px1, py1 + _ix(ph * 0.72), px2, py1 + _ix(ph * 0.80)),
+                base_scale=SCALE_CAPTION, color=COL_TEXT_SECONDARY,
+                thickness=1, outline=1)
+            for k, (name, count) in enumerate(all_players[:4]):
+                draw_centered_text_in_rect(frame, f"{name}: {count}/30 rounds",
+                    (px1, py1 + _ix(ph * (0.80 + k * 0.05)),
+                     px2, py1 + _ix(ph * (0.85 + k * 0.05))),
+                    base_scale=SCALE_CAPTION, color=COL_TEXT_DIM,
+                    thickness=1, outline=1)
 
         draw_bottom_bar(frame, "Play Fair Play or Challenge to record rounds")
 
