@@ -17,18 +17,20 @@ def _draw_state_pill(frame, state_str, cx, cy):
     Maps any game-state / banner string to a short label + colour.
     """
     gs = (state_str or "").upper()
-    if 'WIN' in gs or 'SURVIVE' in gs:
+    if any(w in gs for w in ('WIN', 'SURVIVE', 'WON')):
         label, color = 'WIN',   COL_GREEN
-    elif 'LOSS' in gs or 'LOSE' in gs:
+    elif any(w in gs for w in ('LOSS', 'LOSE', 'LOST')):
         label, color = 'LOSS',  COL_RED
     elif 'DRAW' in gs:
         label, color = 'DRAW',  COL_TEXT_PRIMARY
-    elif 'SHOOT' in gs or 'THROW' in gs:
+    elif any(w in gs for w in ('SHOOT', 'THROW')):
         label, color = 'SHOOT', COL_RED
-    elif 'BEAT' in gs or 'COUNT' in gs:
+    elif any(w in gs for w in ('BEAT', 'COUNT')):
         label, color = 'COUNTING', COL_ACCENT
     elif 'VOICE' in gs:
         label, color = 'VOICE', COL_GREEN
+    elif any(w in gs for w in ('RESULT', 'REVEAL', 'SHOW')):
+        label, color = 'RESULT', COL_TEXT_SECONDARY
     else:
         label, color = 'READY', COL_ACCENT
 
@@ -189,7 +191,7 @@ def draw_game_status_strip(frame, game_state):
     else:
         r_txt = game_state.get("round_text", "")
         s_txt = game_state.get("score_text", "")
-        sep   = "  *  "
+        sep   = "  |  "
         text  = f"{r_txt}{sep}{s_txt}" if r_txt and s_txt else (r_txt or s_txt)
 
     draw_centered_text(frame, text, score_y,
@@ -346,15 +348,16 @@ def draw_arcade_hero(frame, game_state, voice_mode_active=False):
                                SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
         else:
             _draw_state_pill(frame, "READY", pcx, pill_y)
-            draw_centered_text(frame, "MAKE A FIST",
-                               y1 + _ix(ph * 0.46),
-                               SCALE_DISPLAY_XL, COL_TEXT_PRIMARY, thickness=2, outline=3)
-            draw_centered_text(frame, "TO START",
-                               y1 + _ix(ph * 0.68),
-                               SCALE_DISPLAY_XL, COL_TEXT_PRIMARY, thickness=2, outline=3)
-            if sub_text:
-                draw_centered_text(frame, sub_text, y1 + _ix(ph * 0.90),
-                                   SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
+            fist_txt   = "Make a fist to start"
+            fist_scale = SCALE_DISPLAY_XL * 0.6
+            fist_font  = cv2.FONT_HERSHEY_DUPLEX
+            (ftw, _), _ = cv2.getTextSize(fist_txt, fist_font, fist_scale, 2)
+            ftx = (w - ftw) // 2
+            fty = y1 + _ix(ph * 0.56)
+            cv2.putText(frame, fist_txt, (ftx, fty),
+                        fist_font, fist_scale, (0, 0, 0), 4, cv2.LINE_AA)
+            cv2.putText(frame, fist_txt, (ftx, fty),
+                        fist_font, fist_scale, COL_TEXT_PRIMARY, 2, cv2.LINE_AA)
 
     elif state == "COUNTDOWN":
         if voice_mode_active:
@@ -485,18 +488,13 @@ def draw_result_screen(frame, game_state, colourblind=False):
         cv2.rectangle(overlay, (x1, y1), (x2, y2), tint, -1)
         cv2.addWeighted(overlay, 0.10, frame, 0.90, 0, frame)
 
-    # 3-column result grid
+    # 3-column result grid (no inner sub-panels)
     ph, pw = y2 - y1, x2 - x1
     col_w  = _ix(pw * 0.36)
     left   = _fit_rect(x1 + _ix(pw * 0.04), y1 + _ix(ph * 0.28),
                        x1 + _ix(pw * 0.04) + col_w, y1 + _ix(ph * 0.82))
     right  = _fit_rect(x2 - _ix(pw * 0.04) - col_w, y1 + _ix(ph * 0.28),
                        x2 - _ix(pw * 0.04), y1 + _ix(ph * 0.82))
-
-    draw_panel(frame, left[0], left[1], left[2], left[3],
-               fill=COL_PANEL_BG, alpha=0.70, border=COL_BORDER_HAIR, border_thickness=1)
-    draw_panel(frame, right[0], right[1], right[2], right[3],
-               fill=COL_PANEL_BG, alpha=0.70, border=COL_BORDER_HAIR, border_thickness=1)
 
     mode_label = game_state.get("play_mode_label", "")
     opp_label  = mode_label[3:] if mode_label.startswith("vs ") else "CPU"
@@ -518,9 +516,9 @@ def draw_result_screen(frame, game_state, colourblind=False):
         (right[0], right[1] + _ix((right[3] - right[1]) * 0.74), right[2], right[3] - 4),
         base_scale=SCALE_CAPTION, color=COL_TEXT_PRIMARY, thickness=1, outline=2)
 
-    # Centre: VS or colourblind stamp
-    vs_y = y1 + _ix(ph * 0.54)
+    # Colourblind stamp only (centre column otherwise empty)
     if colourblind:
+        vs_y = y1 + _ix(ph * 0.54)
         if "YOU WIN" in banner.upper() or "SURVIVE" in banner.upper():
             stamp, stamp_col = "WIN", _COL_CB_WIN
         elif "DRAW" in banner.upper():
@@ -529,13 +527,6 @@ def draw_result_screen(frame, game_state, colourblind=False):
             stamp, stamp_col = "LOSE", _COL_CB_LOSE
         draw_centered_text(frame, stamp, vs_y, SCALE_BODY, stamp_col,
                            thickness=2, outline=3)
-    else:
-        draw_centered_text(frame, "VS", vs_y, SCALE_BODY,
-                           COL_TEXT_DIM, thickness=1, outline=2)
-
-    draw_centered_text_in_rect(frame, game_state.get("play_mode_label", ""),
-        (x1, y1 + _ix(ph * 0.86), x2, y1 + _ix(ph * 0.95)),
-        base_scale=SCALE_MICRO, color=COL_TEXT_DIM, thickness=1, outline=2)
 
 def draw_session_summary(frame, summary):
     layout = _game_layout(frame)
@@ -682,7 +673,8 @@ def draw_game_mode_view(frame, game_state, emotion_state=None, voice_mode_active
         else:
             draw_arcade_hero(frame, game_state,
                              voice_mode_active=voice_mode_active)
-        draw_arcade_beat_track(frame, game_state["beat_count"], game_state["state"],
+        display_beat = 0 if cur_state == "WAITING_FOR_ROCK" else game_state["beat_count"]
+        draw_arcade_beat_track(frame, display_beat, game_state["state"],
                                voice_mode_active=voice_mode_active)
 
     w, h = _frame_size(frame)

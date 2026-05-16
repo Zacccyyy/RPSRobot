@@ -56,103 +56,119 @@ def draw_two_player_view(frame, game_state,
                          colourblind=False):
     """
     Render the two-player PvP game screen.
-    Layout: [P1 panel] [Centre: state/score/beat] [P2 panel]
+    Layout: two equal columns + floating centre overlay for state/beat.
     """
     w, h = frame.shape[1], frame.shape[0]
     t    = time.monotonic()
 
-    cur_state = game_state["state"]
-    banner    = game_state.get("result_banner", "")
+    cur_state  = game_state["state"]
+    banner     = game_state.get("result_banner", "")
+    beat_count = game_state.get("beat_count", 0)
+    main_text  = game_state.get("main_text", "")
 
-    # Panel geometry
-    panel_w = _ix(w * 0.28)
-    p1_x1, p1_x2 = _ix(w * 0.01), _ix(w * 0.01) + panel_w
-    p2_x1, p2_x2 = w - _ix(w * 0.01) - panel_w, w - _ix(w * 0.01)
-    pan_y1, pan_y2 = _ix(h * 0.08), _ix(h * 0.88)
+    # Column geometry
+    p1_x1, p1_x2 = _ix(w * 0.036), _ix(w * 0.50)
+    p2_x1, p2_x2 = _ix(w * 0.50),  _ix(w * 0.964)
+    col_y1, col_y2 = _ix(h * 0.105), _ix(h * 0.92)
+    col_h = col_y2 - col_y1
 
-    # Determine result colouring
-    def _res_col(won):
-        if won:
-            return _COL_CB_WIN if colourblind else COL_GREEN
-        return COL_PANEL_BG
-
-    p1_won = "PLAYER 1" in banner.upper() and "WIN" in banner.upper()
-    p2_won = "PLAYER 2" in banner.upper() and "WIN" in banner.upper()
-    p1_res = _res_col(p1_won) if cur_state in ("ROUND_RESULT", "MATCH_RESULT") else COL_PANEL_BG
-    p2_res = _res_col(p2_won) if cur_state in ("ROUND_RESULT", "MATCH_RESULT") else COL_PANEL_BG
-
-    # Draw player panels - show live tracker gesture during gameplay,
-    # resolved gesture only during result screens
     def _live_gest(tracker_st, game_key):
-        """Return the live confirmed gesture from tracker, falling back to game_state."""
         if cur_state not in ("ROUND_RESULT", "MATCH_RESULT") and tracker_st:
-            conf = tracker_st.get("confirmed_gesture", "Unknown")
-            stab = tracker_st.get("stable_gesture", "Unknown")
-            if conf in ("Rock", "Paper", "Scissors"):
-                return conf
-            if stab in ("Rock", "Paper", "Scissors"):
-                return stab
+            for k in ("confirmed_gesture", "stable_gesture"):
+                g = tracker_st.get(k, "Unknown")
+                if g in ("Rock", "Paper", "Scissors"):
+                    return g
         return game_state.get(game_key, "Unknown")
 
-    p1_display = _live_gest(p1_tracker_state, "p1_gesture")
-    p2_display = _live_gest(p2_tracker_state, "p2_gesture")
+    p1_gesture = _live_gest(p1_tracker_state, "p1_gesture")
+    p2_gesture = _live_gest(p2_tracker_state, "p2_gesture")
 
-    _draw_tp_hand_panel(frame, p1_x1, pan_y1, p1_x2, pan_y2,
-                        "PLAYER 1", p1_display,
-                        p1_tracker_state, COL_CYAN, p1_res)
-    _draw_tp_hand_panel(frame, p2_x1, pan_y1, p2_x2, pan_y2,
-                        "PLAYER 2", p2_display,
-                        p2_tracker_state, COL_MAGENTA, p2_res)
+    def _draw_player_col(x1, x2, label, player_col, gesture, score_key):
+        col_w = x2 - x1
+        col_cx = x1 + col_w // 2
 
-    # Centre column
-    cx1, cx2 = p1_x2 + _ix(w * 0.01), p2_x1 - _ix(w * 0.01)
-    draw_panel(frame, cx1, pan_y1, cx2, pan_y2, fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA,
-               border=COL_ACCENT, border_thickness=1)
+        draw_panel(frame, x1, col_y1, x2, col_y2,
+                   fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA,
+                   border=COL_BORDER_HAIR, border_thickness=1)
+        cv2.line(frame, (x1, col_y1), (x2, col_y1), player_col, 2)
 
-    cy_mid   = (pan_y1 + pan_y2) // 2
-    cent_ph  = pan_y2 - pan_y1
+        # Header: name left, score right
+        header_y = col_y1 + _ix(col_h * 0.065)
+        draw_outlined_text(frame, label, x1 + _ix(col_w * 0.04), header_y,
+                           SCALE_MICRO, player_col, thickness=1, outline=2)
+        score_val = str(game_state.get(score_key, 0))
+        (sw, _), _ = cv2.getTextSize(score_val, cv2.FONT_HERSHEY_SIMPLEX, SCALE_HEADING, 2)
+        draw_outlined_text(frame, score_val, x2 - sw - _ix(col_w * 0.04), header_y,
+                           SCALE_HEADING, player_col, thickness=2, outline=2)
 
-    # State chip
-    chip_y = pan_y1 + _ix(cent_ph * 0.06)
-    draw_status_chip(frame, cur_state.replace("_", " "), chip_y, COL_YELLOW)
+        # Gesture glyph at 80px radius
+        glyph_cy = col_y1 + _ix(col_h * 0.46)
+        radius   = 80
+        committed = gesture in ("Rock", "Paper", "Scissors")
+        if committed:
+            glyph_rect = (x1 + _ix(col_w * 0.10), glyph_cy - radius,
+                          x2 - _ix(col_w * 0.10), glyph_cy + radius)
+            draw_gesture_glyph(frame, gesture, glyph_rect)
+        else:
+            for angle in range(0, 360, 20):
+                cv2.ellipse(frame, (col_cx, glyph_cy),
+                            (radius, radius), 0, angle, angle + 12,
+                            COL_BORDER_HAIR, 2)
+            draw_outlined_text(frame, "WAITING",
+                               col_cx - _ix(col_w * 0.13), glyph_cy + _ix(radius * 0.15),
+                               SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
 
-    # Main text (countdown number, SHOOT, etc.)
-    main_text = game_state.get("main_text", "")
+        # Footer
+        footer_y = col_y2 - _ix(col_h * 0.055)
+        is_locked = (committed and
+                     cur_state in ("SHOOT_WINDOW", "ROUND_RESULT", "MATCH_RESULT"))
+        footer_txt = "LOCKED" if is_locked else "MAKE A FIST"
+        footer_col = COL_ACCENT if is_locked else COL_TEXT_DIM
+        (fw, _), _ = cv2.getTextSize(footer_txt, cv2.FONT_HERSHEY_SIMPLEX, SCALE_MICRO, 1)
+        draw_outlined_text(frame, footer_txt, col_cx - fw // 2, footer_y,
+                           SCALE_MICRO, footer_col, thickness=1, outline=2)
+
+    _draw_player_col(p1_x1, p1_x2, "PLAYER 1", COL_ACCENT, p1_gesture, "p1_score")
+    _draw_player_col(p2_x1, p2_x2, "PLAYER 2", COL_AMBER,  p2_gesture, "p2_score")
+
+    # Centre overlay: state / countdown
+    ov_x1 = _ix(w * 0.35);  ov_x2 = _ix(w * 0.65)
+    ov_y1 = _ix(h * 0.28);  ov_y2 = _ix(h * 0.42)
+    draw_panel(frame, ov_x1, ov_y1, ov_x2, ov_y2,
+               fill=COL_PANEL_BG, alpha=0.85,
+               border=COL_BORDER_HAIR, border_thickness=1)
+
     if cur_state == "COUNTDOWN" and main_text not in ("READY", ""):
-        pulse = 0.72 + 0.28 * abs(math.sin(t * math.pi * 1.4))
-        num_col = tuple(min(255, int(c * pulse)) for c in COL_CYAN)
+        pulse   = 0.72 + 0.28 * abs(math.sin(t * math.pi * 1.4))
+        num_col = tuple(min(255, int(c * pulse)) for c in COL_ACCENT)
         draw_centered_text_in_rect(frame, main_text,
-            (cx1, pan_y1 + _ix(cent_ph * 0.18), cx2, pan_y1 + _ix(cent_ph * 0.58)),
-            base_scale=2.2, color=num_col, thickness=4, outline=6)
+            (ov_x1, ov_y1, ov_x2, ov_y2),
+            base_scale=SCALE_DISPLAY_L, color=num_col, thickness=2, outline=3)
     elif cur_state in ("ROUND_RESULT", "MATCH_RESULT"):
         b_col = get_result_banner_color(banner, colourblind=colourblind)
         draw_centered_text_in_rect(frame, banner,
-            (cx1 + 4, pan_y1 + _ix(cent_ph * 0.18), cx2 - 4, pan_y1 + _ix(cent_ph * 0.52)),
-            base_scale=0.60, color=b_col, thickness=2, outline=3)
+            (ov_x1 + 4, ov_y1, ov_x2 - 4, ov_y2),
+            base_scale=SCALE_BODY, color=b_col, thickness=1, outline=2)
     else:
-        draw_centered_text_in_rect(frame, main_text,
-            (cx1, pan_y1 + _ix(cent_ph * 0.18), cx2, pan_y1 + _ix(cent_ph * 0.52)),
-            base_scale=0.72, color=COL_CYAN, thickness=2, outline=3)
+        hint = main_text if main_text else "Both make a fist"
+        draw_centered_text_in_rect(frame, hint,
+            (ov_x1, ov_y1, ov_x2, ov_y2),
+            base_scale=SCALE_CAPTION, color=COL_TEXT_SECONDARY, thickness=1, outline=2)
 
-    # Score
-    draw_centered_text(frame, game_state.get("score_text", ""),
-                       pan_y1 + _ix(cent_ph * 0.60), 0.54, COL_TEXT_ACCENT,
-                       thickness=2, outline=3)
-
-    # Beat track (mini)
+    # Beat track centred at y=80%
     if cur_state in ("COUNTDOWN", "WAITING_FOR_ROCK", "SHOOT_WINDOW"):
-        beat = game_state.get("beat_count", 0)
-        bt_y1 = pan_y1 + _ix(cent_ph * 0.70)
-        bt_y2 = pan_y1 + _ix(cent_ph * 0.90)
-        draw_beat_track(frame, beat, state=cur_state,
-                        x1=cx1, y1=bt_y1, x2=cx2, y2=bt_y2)
+        bt_cx  = _ix(w * 0.50)
+        bt_half = _ix(w * 0.20)
+        bt_mid  = _ix(h * 0.80)
+        draw_beat_track(frame, beat_count, state=cur_state,
+                        x1=bt_cx - bt_half, y1=bt_mid - _ix(h * 0.035),
+                        x2=bt_cx + bt_half, y2=bt_mid + _ix(h * 0.035))
 
-    # Sub text
-    draw_centered_text(frame, game_state.get("sub_text", ""),
-                       pan_y1 + _ix(cent_ph * 0.90), 0.34, COL_TEXT_DIM,
-                       thickness=1, outline=2)
+    score_text = game_state.get("score_text", "")
+    if score_text:
+        draw_centered_text(frame, score_text, _ix(h * 0.87),
+                           SCALE_BODY, COL_TEXT_SECONDARY, thickness=1, outline=2)
 
-    # Top bar
     draw_top_bar(frame, "2 PLAYER PvP",
                  f"Round {game_state.get('round_number', 1)} | ESC Back | Q Quit")
     draw_bottom_bar(frame, "Both players: make a FIST then pump 4x together | Q Quit")
@@ -256,14 +272,14 @@ def draw_pvpvai_view(frame, game_state,
         main_text = game_state.get("main_text", "")
         if cur_state == "COUNTDOWN" and main_text not in ("READY", ""):
             pulse = 0.72 + 0.28 * abs(math.sin(t * math.pi * 1.4))
-            num_col = tuple(min(255, int(c * pulse)) for c in COL_CYAN)
+            num_col = tuple(min(255, int(c * pulse)) for c in COL_ACCENT)
             draw_centered_text_in_rect(frame, main_text,
                 (cx1, pan_y1 + _ix(cent_ph*0.22), cx2, pan_y1 + _ix(cent_ph*0.62)),
-                base_scale=2.0, color=num_col, thickness=4, outline=6)
+                base_scale=SCALE_DISPLAY_L, color=num_col, thickness=2, outline=3)
         else:
             draw_centered_text_in_rect(frame, main_text,
                 (cx1, pan_y1 + _ix(cent_ph*0.22), cx2, pan_y1 + _ix(cent_ph*0.58)),
-                base_scale=0.68, color=COL_CYAN, thickness=2, outline=3)
+                base_scale=SCALE_BODY, color=COL_ACCENT, thickness=1, outline=2)
         # Beat dots
         beat = game_state.get("beat_count", 0)
         bt_y1 = pan_y1 + _ix(cent_ph * 0.70)
@@ -520,59 +536,75 @@ def _draw_reflex_target(frame, target, cx, cy, radius, flash=False):
 
 def draw_reflex_solo_view(frame, game_state):
     w, h = frame.shape[1], frame.shape[0]
-    t    = time.monotonic()
 
-    cur_state  = game_state["state"]
-    target     = game_state.get("target", "")
-    score      = game_state.get("score", 0)
-    time_left  = game_state.get("time_left", 30.0)
-    last_res   = game_state.get("last_result", "")
-    avg_rt     = game_state.get("avg_reaction_ms", 0)
+    cur_state = game_state["state"]
+    target    = game_state.get("target", "")
+    score     = game_state.get("score", 0)
+    best      = game_state.get("best_score", 0)
+    time_left = game_state.get("time_left", 30.0)
+    last_res  = game_state.get("last_result", "")
+    avg_rt    = game_state.get("avg_reaction_ms", 0)
 
-    draw_top_bar(frame, "SPEED REFLEX  -  SOLO",
-                 f"Match the gesture! Score: {score}  |  Q Quit")
+    draw_top_bar(frame, "SPEED REFLEX",
+                 f"Score: {score}  |  Best: {best}  |  Q Quit")
 
     if cur_state == "INTRO":
         draw_centered_text(frame, "SPEED REFLEX", h // 2 - _ix(h * 0.10),
-                           1.0, COL_YELLOW, thickness=3, outline=5)
+                           SCALE_DISPLAY_L, COL_ACCENT, thickness=2, outline=3)
         draw_centered_text(frame, "Match each gesture as fast as you can!",
-                           h // 2 + _ix(h * 0.02), 0.44, COL_TEXT_ACCENT,
+                           h // 2 + _ix(h * 0.04), SCALE_BODY, COL_TEXT_SECONDARY,
                            thickness=1, outline=2)
-        draw_centered_text(frame, "30 seconds  -  No penalty for misses",
-                           h // 2 + _ix(h * 0.09), 0.38, COL_TEXT_DIM,
+        draw_centered_text(frame, "30 seconds  |  No penalty for misses",
+                           h // 2 + _ix(h * 0.11), SCALE_CAPTION, COL_TEXT_DIM,
                            thickness=1, outline=2)
 
     elif cur_state == "GAME_OVER":
-        draw_centered_text(frame, "TIME'S UP!", h // 2 - _ix(h * 0.15),
-                           1.1, COL_RED, thickness=3, outline=5)
-        draw_centered_text(frame, f"Final Score: {score}", h // 2,
-                           0.80, COL_YELLOW, thickness=2, outline=4)
-        draw_centered_text(frame, f"Avg Reaction: {avg_rt}ms",
-                           h // 2 + _ix(h * 0.12), 0.50, COL_CYAN, thickness=2, outline=3)
+        draw_centered_text(frame, "TIME'S UP!", h // 2 - _ix(h * 0.12),
+                           SCALE_DISPLAY_L, COL_RED, thickness=2, outline=3)
+        draw_centered_text(frame, f"Final Score: {score}",
+                           h // 2 + _ix(h * 0.04), SCALE_HEADING, COL_ACCENT,
+                           thickness=2, outline=3)
+        if avg_rt:
+            draw_centered_text(frame, f"Avg Reaction: {avg_rt}ms",
+                               h // 2 + _ix(h * 0.13), SCALE_BODY, COL_TEXT_SECONDARY,
+                               thickness=1, outline=2)
 
     else:
-        # Main target circle
-        cx, cy = w // 2, h // 2
-        radius = _ix(min(w, h) * 0.18)
-        flash  = (last_res == "hit" and cur_state == "RESULT_FLASH")
-        _draw_reflex_target(frame, target, cx, cy, radius, flash=flash)
-
-        # Result feedback
-        if cur_state == "RESULT_FLASH":
-            res_col = COL_GREEN if last_res == "hit" else (COL_ORANGE if last_res == "timeout" else COL_RED)
-            res_txt = "HIT!" if last_res == "hit" else ("TIME!" if last_res == "timeout" else "MISS")
-            draw_centered_text(frame, res_txt, cy - radius - _ix(h * 0.08),
-                               0.70, res_col, thickness=2, outline=3)
-
-        # Timer bar at top
-        pct = time_left / 30.0
-        bar_x1 = _ix(w * 0.05); bar_x2 = _ix(w * 0.95)
-        bar_y  = _ix(h * 0.08)
-        bar_h2 = _ix(h * 0.014)
+        # 3px time bar just below top bar
+        pct   = min(1.0, time_left / 30.0)
+        bar_y = _ix(h * 0.10)
         col_t = COL_GREEN if pct > 0.5 else (COL_AMBER if pct > 0.25 else COL_RED)
-        draw_progress_bar(frame, bar_x1, bar_y, bar_x2, bar_y + bar_h2, pct, color=col_t)
-        draw_outlined_text(frame, f"{time_left:.1f}s",
-                           bar_x1, bar_y - 4, 0.36, COL_TEXT_DIM, thickness=1, outline=1)
+        draw_progress_bar(frame, 0, bar_y, w, bar_y + 3, pct, color=col_t)
+
+        # Centre outlined circle (diameter=280 => radius=140)
+        cx, cy = w // 2, _ix(h * 0.48)
+        radius = 140
+        circle_col = get_gesture_color(target) if target else COL_BORDER_HAIR
+        cv2.circle(frame, (cx, cy), radius, circle_col, 2)
+        cv2.circle(frame, (cx, cy), radius - 3, (10, 12, 20), -1)
+
+        # Gesture glyph inside circle
+        flash = (last_res == "hit" and cur_state == "RESULT_FLASH")
+        if flash:
+            cv2.circle(frame, (cx, cy), radius, COL_GREEN, 4)
+        glyph_pad = _ix(radius * 0.15)
+        glyph_rect = (cx - radius + glyph_pad, cy - radius + glyph_pad,
+                      cx + radius - glyph_pad, cy + radius - glyph_pad)
+        if target:
+            draw_gesture_glyph(frame, target, glyph_rect)
+
+        # Result feedback pill at y=86%
+        pill_y = _ix(h * 0.86)
+        if cur_state == "RESULT_FLASH":
+            res_col = COL_GREEN if last_res == "hit" else \
+                      (COL_AMBER if last_res == "timeout" else COL_RED)
+            res_txt = "HIT!" if last_res == "hit" else \
+                      ("TIME!" if last_res == "timeout" else "MISS")
+            draw_centered_text(frame, res_txt, pill_y,
+                               SCALE_BODY, res_col, thickness=1, outline=2)
+        elif avg_rt:
+            draw_centered_text(frame, f"Avg: {avg_rt}ms", pill_y,
+                               SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
 
     draw_bottom_bar(frame, f"Score: {score}  |  Avg RT: {avg_rt}ms  |  Say RESTART or BACK  |  Q Quit")
 
@@ -600,13 +632,13 @@ def draw_reflex_two_player_view(frame, game_state,
 
     if cur_state == "MATCH_OVER":
         draw_centered_text(frame, match_win, h // 2 - _ix(h * 0.08),
-                           0.80, COL_GREEN, thickness=2, outline=4)
+                           SCALE_HEADING, COL_GREEN, thickness=2, outline=3)
         draw_centered_text(frame, f"P1: {p1_score}  |  P2: {p2_score}",
-                           h // 2 + _ix(h * 0.06), 0.50, COL_TEXT_ACCENT,
-                           thickness=1, outline=3)
+                           h // 2 + _ix(h * 0.06), SCALE_BODY, COL_TEXT_SECONDARY,
+                           thickness=1, outline=2)
     elif cur_state == "INTRO":
         draw_centered_text(frame, "REFLEX RACE", cy - _ix(h * 0.08),
-                           0.90, COL_YELLOW, thickness=2, outline=4)
+                           SCALE_HEADING, COL_ACCENT, thickness=2, outline=3)
         draw_centered_text(frame, "Match the gesture first to score!",
                            cy + _ix(h * 0.06), 0.40, COL_TEXT_DIM,
                            thickness=1, outline=2)
@@ -682,18 +714,17 @@ def draw_bluff_mode_view(frame, game_state, tracker_state=None, hand_state=None,
     pan_y2  = _ix(h * 0.78)
     ph      = pan_y2 - pan_y1
 
-    # Pulse border when countdown active
-    if cur_state in ("COUNTDOWN", "WAITING_FOR_ROCK"):
-        pulse = 0.5 + 0.5 * abs(math.sin(t * math.pi * 1.2))
-        bcol  = tuple(min(255, int(c * pulse)) for c in COL_YELLOW)
-    else:
-        bcol = COL_YELLOW
-
     draw_panel(frame, cx1, pan_y1, cx2, pan_y2,
-               fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA, border=COL_ACCENT, border_thickness=1)
+               fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA,
+               border=COL_BORDER_HAIR, border_thickness=1)
 
-    # "AI DECLARES" label
-    draw_status_chip(frame, "AI DECLARES", pan_y1 + _ix(ph * 0.04), COL_YELLOW)
+    # "AI DECLARES" amber pill label
+    ai_lbl = "AI DECLARES"
+    (alw, alh), _ = cv2.getTextSize(ai_lbl, cv2.FONT_HERSHEY_SIMPLEX, SCALE_MICRO, 1)
+    lbl_x = (w - alw) // 2
+    lbl_y = pan_y1 + _ix(ph * 0.10)
+    draw_outlined_text(frame, ai_lbl, lbl_x, lbl_y,
+                       SCALE_MICRO, COL_AMBER, thickness=1, outline=2)
 
     # Show declaration from COUNTDOWN onward
     show_decl = cur_state in ("COUNTDOWN", "SHOOT_WINDOW", "ROUND_RESULT", "MATCH_RESULT")
@@ -706,28 +737,26 @@ def draw_bluff_mode_view(frame, game_state, tracker_state=None, hand_state=None,
         decl_col = get_gesture_color(declared)
         draw_centered_text_in_rect(frame, declared,
             (cx1, pan_y1 + _ix(ph * 0.60), cx2, pan_y1 + _ix(ph * 0.73)),
-            base_scale=0.60, color=decl_col, thickness=2, outline=3)
+            base_scale=SCALE_BODY, color=decl_col, thickness=1, outline=2)
 
-        # After round: reveal truth
         if cur_state in ("ROUND_RESULT", "MATCH_RESULT"):
             was_bluff = game_state.get("is_bluff", False)
             truth_txt = "BLUFF! AI played " + actual if was_bluff else "TRUTHFUL"
             truth_col = COL_RED if was_bluff else COL_GREEN
             draw_centered_text_in_rect(frame, truth_txt,
                 (cx1 + 4, pan_y1 + _ix(ph * 0.74), cx2 - 4, pan_y1 + _ix(ph * 0.87)),
-                base_scale=0.42, color=truth_col, thickness=2, outline=3)
+                base_scale=SCALE_CAPTION, color=truth_col, thickness=1, outline=2)
     else:
-        # Before declaration: beat countdown in panel
         main_text = "MAKE A FIST" if cur_state == "WAITING_FOR_ROCK" else \
                     ("READY" if beat_count == 0 else str(min(beat_count, 3)))
         pulse = 0.72 + 0.28 * abs(math.sin(t * math.pi * 1.4))
-        num_col = tuple(min(255, int(c * pulse)) for c in COL_CYAN) \
+        num_col = tuple(min(255, int(c * pulse)) for c in COL_ACCENT) \
                   if cur_state == "COUNTDOWN" and main_text not in ("MAKE A FIST", "READY") \
-                  else COL_CYAN
+                  else COL_ACCENT
         draw_centered_text_in_rect(frame, main_text,
             (cx1, pan_y1 + _ix(ph * 0.25), cx2, pan_y1 + _ix(ph * 0.65)),
-            base_scale=0.72 if cur_state != "COUNTDOWN" else 2.0,
-            color=num_col, thickness=2, outline=4)
+            base_scale=SCALE_BODY if cur_state != "COUNTDOWN" else SCALE_DISPLAY_L,
+            color=num_col, thickness=2, outline=3)
 
     # Beat track
     if cur_state in ("COUNTDOWN", "WAITING_FOR_ROCK", "SHOOT_WINDOW"):
@@ -737,15 +766,16 @@ def draw_bluff_mode_view(frame, game_state, tracker_state=None, hand_state=None,
         draw_beat_track(frame, beat_count, state=cur_state,
                         x1=bt_x1, y1=bt_y1, x2=cx2, y2=bt_y2)
 
-    # -- Result banner full-width ------------------------------------------
+    # Result banner
     if cur_state in ("ROUND_RESULT", "MATCH_RESULT"):
         b_col = get_result_banner_color(banner)
         draw_centered_text(frame, banner, pan_y2 + _ix(h * 0.10),
-                           0.62, b_col, thickness=2, outline=3)
+                           SCALE_HEADING, b_col, thickness=2, outline=3)
 
-    # -- Score strip ------------------------------------------------------
-    draw_centered_text(frame, score_text, pan_y2 + _ix(h * 0.19),
-                       0.50, COL_TEXT_ACCENT, thickness=2, outline=3)
+    # Score strip
+    if score_text:
+        draw_centered_text(frame, score_text, pan_y2 + _ix(h * 0.19),
+                           SCALE_BODY, COL_TEXT_SECONDARY, thickness=1, outline=2)
 
     # -- Research stat: bluff rate so far ---------------------------------
     research_txt = f"Bluff rate this session: {bluff_pct*100:.0f}%"
@@ -808,80 +838,82 @@ def _draw_simon_sequence_bar(frame, sequence, step_index, show_step, showing_seq
 def draw_simon_says_solo_view(frame, game_state):
     w, h = frame.shape[1], frame.shape[0]
 
-    showing_seq  = game_state.get("showing_sequence", False)
-    show_step    = game_state.get("show_step", 0)
-    sequence     = game_state.get("sequence", [])
-    step_index   = game_state.get("step_index", 0)
-    time_left    = game_state.get("time_left", 2.0)
-    target       = game_state.get("current_target", "")
-    score        = game_state.get("score", 0)
-    game_over    = game_state.get("game_over", False)
-    last_result  = game_state.get("last_result", "")
-    seq_len      = len(sequence)
-    t            = time.monotonic()
+    showing_seq = game_state.get("showing_sequence", False)
+    show_step   = game_state.get("show_step", 0)
+    sequence    = game_state.get("sequence", [])
+    step_index  = game_state.get("step_index", 0)
+    time_left   = game_state.get("time_left", 2.0)
+    target      = game_state.get("current_target", "")
+    score       = game_state.get("score", 0)
+    game_over   = game_state.get("game_over", False)
+    last_result = game_state.get("last_result", "")
+    seq_len     = len(sequence)
 
     draw_top_bar(frame, "SIMON SAYS",
-                 f"Sequence: {seq_len}  |  Score: {score}  |  Q Quit")
+                 f"Step {seq_len}  |  Score: {score}  |  Q Quit")
 
     if game_over:
-        draw_centered_text(frame, "GAME OVER", h // 2 - _ix(h * 0.14),
-                           1.0, COL_RED, thickness=3, outline=5)
+        draw_centered_text(frame, "GAME OVER", h // 2 - _ix(h * 0.12),
+                           SCALE_DISPLAY_L, COL_RED, thickness=2, outline=3)
         draw_centered_text(frame, game_state.get("game_over_text", ""),
-                           h // 2 + _ix(h * 0.02), 0.38, COL_TEXT_ACCENT,
+                           h // 2 + _ix(h * 0.04), SCALE_BODY, COL_TEXT_SECONDARY,
                            thickness=1, outline=2)
-        draw_centered_text(frame, f"Press Q to quit  |  ESC for menu",
-                           h // 2 + _ix(h * 0.12), 0.34, COL_TEXT_DIM,
+        draw_centered_text(frame, "Press Q to quit  |  ESC for menu",
+                           h // 2 + _ix(h * 0.12), SCALE_CAPTION, COL_TEXT_DIM,
                            thickness=1, outline=2)
         return
 
-    cy_mid = h // 2
+    # 3px progress bar below top bar
+    pct_prog = step_index / max(seq_len, 1) if not showing_seq else (show_step / max(seq_len, 1))
+    bar_y    = _ix(h * 0.10)
+    draw_progress_bar(frame, 0, bar_y, w, bar_y + 3, pct_prog, color=COL_ACCENT)
 
     if showing_seq:
-        # Showing the sequence - display each gesture big
         cur_g = sequence[show_step] if show_step < len(sequence) else ""
-        draw_status_chip(frame, "WATCH CAREFULLY", _ix(h * 0.10), COL_YELLOW)
+        draw_centered_text(frame, "WATCH CAREFULLY", _ix(h * 0.17),
+                           SCALE_BODY, COL_TEXT_SECONDARY, thickness=1, outline=2)
         if cur_g:
-            icon_rect = (_ix(w * 0.30), _ix(h * 0.18),
-                         _ix(w * 0.70), _ix(h * 0.68))
+            icon_rect = (_ix(w * 0.30), _ix(h * 0.22),
+                         _ix(w * 0.70), _ix(h * 0.66))
             draw_gesture_glyph(frame, cur_g, icon_rect)
-            col = _GESTURE_COLORS.get(cur_g, COL_TEXT_ACCENT)
-            draw_centered_text(frame, cur_g, _ix(h * 0.72), 0.68, col,
+            col = _GESTURE_COLORS.get(cur_g, COL_TEXT_PRIMARY)
+            draw_centered_text(frame, cur_g, _ix(h * 0.70), SCALE_HEADING, col,
                                thickness=2, outline=3)
         draw_centered_text(frame, f"Step {show_step + 1} of {seq_len}",
-                           _ix(h * 0.78), 0.36, COL_TEXT_DIM,
+                           _ix(h * 0.78), SCALE_CAPTION, COL_TEXT_DIM,
                            thickness=1, outline=2)
+
     elif last_result == "correct" and not game_over:
-        # Success flash
-        draw_centered_text(frame, "CORRECT!", cy_mid - _ix(h * 0.06),
-                           0.90, COL_GREEN, thickness=2, outline=4)
+        draw_centered_text(frame, "CORRECT!", h // 2 - _ix(h * 0.06),
+                           SCALE_HEADING, COL_GREEN, thickness=2, outline=3)
         draw_centered_text(frame, f"Next: {seq_len + 1} gestures",
-                           cy_mid + _ix(h * 0.07), 0.44, COL_TEXT_DIM,
+                           h // 2 + _ix(h * 0.07), SCALE_BODY, COL_TEXT_DIM,
                            thickness=1, outline=2)
+
     else:
         # Player input phase
-        draw_status_chip(frame, f"YOUR TURN - Step {step_index + 1} / {seq_len}",
-                         _ix(h * 0.10), COL_CYAN)
+        step_lbl = f"YOUR TURN  |  Step {step_index + 1} / {seq_len}"
+        draw_centered_text(frame, step_lbl, _ix(h * 0.17),
+                           SCALE_BODY, COL_TEXT_SECONDARY, thickness=1, outline=2)
 
-        # Big target
         if target:
-            icon_rect = (_ix(w * 0.32), _ix(h * 0.18),
-                         _ix(w * 0.68), _ix(h * 0.62))
+            icon_rect = (_ix(w * 0.32), _ix(h * 0.22),
+                         _ix(w * 0.68), _ix(h * 0.60))
             draw_gesture_glyph(frame, target, icon_rect)
-            col = _GESTURE_COLORS.get(target, COL_TEXT_ACCENT)
-            draw_centered_text(frame, target, _ix(h * 0.65), 0.68, col,
+            col = _GESTURE_COLORS.get(target, COL_TEXT_PRIMARY)
+            draw_centered_text(frame, target, _ix(h * 0.64), SCALE_HEADING, col,
                                thickness=2, outline=3)
 
-        # Timer bar
-        pct   = time_left / 2.0
-        bx1   = _ix(w * 0.20); bx2 = _ix(w * 0.80)
-        by    = _ix(h * 0.74)
-        bh    = _ix(h * 0.018)
-        tc = COL_GREEN if pct > 0.5 else (COL_AMBER if pct > 0.25 else COL_RED)
+        # Time bar at y=42% (urgency indicator for per-step timer)
+        pct  = min(1.0, time_left / 2.0)
+        bx1  = _ix(w * 0.20);  bx2 = _ix(w * 0.80)
+        by   = _ix(h * 0.70);  bh  = _ix(h * 0.016)
+        tc   = COL_GREEN if pct > 0.5 else (COL_AMBER if pct > 0.25 else COL_RED)
         draw_progress_bar(frame, bx1, by, bx2, by + bh, pct, color=tc)
 
         if last_result == "wrong":
-            draw_centered_text(frame, "WRONG!", _ix(h * 0.74),
-                               0.60, COL_RED, thickness=2, outline=3)
+            draw_centered_text(frame, "WRONG!", _ix(h * 0.76),
+                               SCALE_BODY, COL_RED, thickness=1, outline=2)
 
     _draw_simon_sequence_bar(frame, sequence, step_index, show_step, showing_seq, w, h)
     draw_bottom_bar(frame, "Match each gesture within 2 seconds  |  Say BACK  |  Q Quit")
@@ -906,47 +938,51 @@ def draw_simon_says_two_player_view(frame, game_state,
                  f"Chain: {chain_len}  |  {active} is active  |  Q Quit")
 
     if game_over:
-        draw_centered_text(frame, "GAME OVER", h // 2 - _ix(h * 0.14),
-                           0.90, COL_RED, thickness=3, outline=5)
+        draw_centered_text(frame, "GAME OVER", h // 2 - _ix(h * 0.12),
+                           SCALE_DISPLAY_L, COL_RED, thickness=2, outline=3)
         draw_centered_text(frame, game_state.get("game_over_text", ""),
-                           h // 2 + _ix(h * 0.02), 0.38, COL_TEXT_ACCENT,
+                           h // 2 + _ix(h * 0.04), SCALE_BODY, COL_TEXT_SECONDARY,
                            thickness=1, outline=2)
         return
 
-    act_col = COL_CYAN if active == "P1" else COL_MAGENTA
+    act_col = COL_ACCENT if active == "P1" else COL_AMBER
     cy_mid  = h // 2
 
     if showing_seq:
         cur_g = chain[show_step] if show_step < len(chain) else ""
-        draw_status_chip(frame, "WATCH THE CHAIN", _ix(h * 0.10), COL_YELLOW)
+        draw_centered_text(frame, "WATCH THE CHAIN", _ix(h * 0.17),
+                           SCALE_BODY, COL_TEXT_SECONDARY, thickness=1, outline=2)
         if cur_g:
-            icon_rect = (_ix(w * 0.30), _ix(h * 0.18),
-                         _ix(w * 0.70), _ix(h * 0.64))
+            icon_rect = (_ix(w * 0.30), _ix(h * 0.22),
+                         _ix(w * 0.70), _ix(h * 0.66))
             draw_gesture_glyph(frame, cur_g, icon_rect)
-            col = _GESTURE_COLORS.get(cur_g, COL_TEXT_ACCENT)
-            draw_centered_text(frame, cur_g, _ix(h * 0.68), 0.60, col,
+            col = _GESTURE_COLORS.get(cur_g, COL_TEXT_PRIMARY)
+            draw_centered_text(frame, cur_g, _ix(h * 0.70), SCALE_HEADING, col,
                                thickness=2, outline=3)
         draw_centered_text(frame, f"{show_step + 1} / {chain_len}",
-                           _ix(h * 0.76), 0.36, COL_TEXT_DIM,
+                           _ix(h * 0.78), SCALE_CAPTION, COL_TEXT_DIM,
                            thickness=1, outline=2)
     elif phase == "ADD":
-        draw_status_chip(frame, f"{active}  -  ADD A GESTURE", _ix(h * 0.10), act_col)
+        lbl = f"{active}  |  ADD A GESTURE"
+        draw_centered_text(frame, lbl, _ix(h * 0.17),
+                           SCALE_BODY, act_col, thickness=1, outline=2)
         draw_centered_text(frame, "Show your gesture now!",
-                           cy_mid, 0.50, act_col, thickness=1, outline=3)
+                           cy_mid, SCALE_BODY, COL_TEXT_SECONDARY, thickness=1, outline=2)
         pct = time_left / 2.0
         bx1 = _ix(w * 0.25); bx2 = _ix(w * 0.75)
         by  = _ix(h * 0.68); bh = _ix(h * 0.018)
         tc = COL_GREEN if pct > 0.5 else (COL_AMBER if pct > 0.25 else COL_RED)
         draw_progress_bar(frame, bx1, by, bx2, by + bh, pct, color=tc)
     elif phase == "RECITE":
-        draw_status_chip(frame, f"{active}  -  REPEAT STEP {step_index + 1}/{chain_len}",
-                         _ix(h * 0.10), act_col)
+        lbl = f"{active}  |  Step {step_index + 1} / {chain_len}"
+        draw_centered_text(frame, lbl, _ix(h * 0.17),
+                           SCALE_BODY, act_col, thickness=1, outline=2)
         if target:
             icon_rect = (_ix(w * 0.33), _ix(h * 0.20),
                          _ix(w * 0.67), _ix(h * 0.62))
             draw_gesture_glyph(frame, target, icon_rect)
-            col = _GESTURE_COLORS.get(target, COL_TEXT_ACCENT)
-            draw_centered_text(frame, target, _ix(h * 0.66), 0.55, col,
+            col = _GESTURE_COLORS.get(target, COL_TEXT_PRIMARY)
+            draw_centered_text(frame, target, _ix(h * 0.66), SCALE_HEADING, col,
                                thickness=2, outline=3)
         pct = time_left / 2.0
         bx1 = _ix(w * 0.25); bx2 = _ix(w * 0.75)
@@ -996,54 +1032,52 @@ def draw_squid_game_view(frame, game_state, hand_state=None):
 
     if state == "INTRO":
         draw_centered_text(frame, "RED LIGHT / GREEN LIGHT",
-                           h // 2 - _ix(h * 0.10), 0.70, COL_GREEN,
-                           thickness=2, outline=4)
+                           h // 2 - _ix(h * 0.10), SCALE_HEADING, COL_GREEN,
+                           thickness=2, outline=3)
         draw_centered_text(frame, "Guide your finger to the dot",
-                           h // 2 + _ix(h * 0.04), 0.42, COL_TEXT_ACCENT,
+                           h // 2 + _ix(h * 0.04), SCALE_BODY, COL_TEXT_SECONDARY,
                            thickness=1, outline=2)
         draw_centered_text(frame, "FREEZE on RED LIGHT",
-                           h // 2 + _ix(h * 0.12), 0.40, COL_RED,
+                           h // 2 + _ix(h * 0.12), SCALE_BODY, COL_RED,
                            thickness=1, outline=2)
         draw_top_bar(frame, "SQUID GAME", "Q Quit")
         return
 
     if game_over or state == "GAME_OVER":
-        draw_centered_text(frame, "ELIMINATED!", h // 2 - _ix(h * 0.14),
-                           1.0, COL_RED, thickness=3, outline=5)
+        draw_centered_text(frame, "ELIMINATED!", h // 2 - _ix(h * 0.12),
+                           SCALE_DISPLAY_L, COL_RED, thickness=2, outline=3)
         go_text = game_state.get("game_over_reason",
                   game_state.get("game_over_text", ""))
         parts = go_text.split("|")
         for i, part in enumerate(parts[:3]):
             draw_centered_text(frame, part.strip(),
-                               h // 2 + _ix(h * 0.02) + i * _ix(h * 0.09),
-                               0.38, COL_TEXT_ACCENT, thickness=1, outline=2)
+                               h // 2 + _ix(h * 0.04) + i * _ix(h * 0.09),
+                               SCALE_BODY, COL_TEXT_SECONDARY, thickness=1, outline=2)
         draw_top_bar(frame, "SQUID GAME  -  GAME OVER", "Q Quit  |  ESC Menu")
         return
 
-    # -- Light indicator ---------------------------------------------------
-    light_col = (0, 60, 0) if light == "GREEN" else (60, 0, 0)
+    # Light indicator banner
+    light_col = (0, 40, 0) if light == "GREEN" else (40, 0, 0)
     light_txt = "GREEN LIGHT" if light == "GREEN" else "RED LIGHT"
     light_fc  = COL_GREEN if light == "GREEN" else COL_RED
     pulse     = 0.85 + 0.15 * abs(math.sin(t * math.pi * (4 if light == "RED" else 1)))
     pc        = tuple(min(255, int(c * pulse)) for c in light_fc)
 
-    # Big light banner at top
     draw_panel(frame, 0, 0, w, _ix(h * 0.12),
-               fill=light_col, alpha=0.70, border=pc, border_thickness=3)
-    draw_centered_text(frame, light_txt, _ix(h * 0.07), 0.80, pc,
-                       thickness=3, outline=5)
+               fill=light_col, alpha=0.65, border=pc, border_thickness=2)
+    draw_centered_text(frame, light_txt, _ix(h * 0.07), SCALE_HEADING, pc,
+                       thickness=2, outline=3)
 
     # Light countdown bar
     max_dur = 5.0
     pct_l   = min(1.0, light_left / max_dur)
     bx1 = _ix(w * 0.05); bx2 = _ix(w * 0.95)
     by  = _ix(h * 0.12); bh  = _ix(h * 0.012)
-    cv2.rectangle(frame, (bx1, by), (bx2, by + bh), (30, 30, 30), -1)
+    cv2.rectangle(frame, (bx1, by), (bx2, by + bh), (25, 25, 25), -1)
     cv2.rectangle(frame, (bx1, by),
                   (bx1 + int((bx2 - bx1) * pct_l), by + bh), pc, -1)
 
-    # -- Dot ---------------------------------------------------------------
-    # Convert normalised coords to pixel coords (avoid top/bottom bars)
+    # Dot
     play_y1 = _ix(h * 0.14)
     play_y2 = _ix(h * 0.90)
     play_h  = play_y2 - play_y1
@@ -1052,11 +1086,10 @@ def draw_squid_game_view(frame, game_state, hand_state=None):
     dy = int(play_y1 + dot_y * play_h)
     dot_r = _ix(min(w, h) * 0.035)
 
-    # Pulsing dot
     dot_pulse = 0.80 + 0.20 * abs(math.sin(t * math.pi * 1.5))
-    dot_col   = tuple(min(255, int(c * dot_pulse)) for c in COL_YELLOW)
+    dot_col   = tuple(min(255, int(c * dot_pulse)) for c in COL_ACCENT)
     cv2.circle(frame, (dx, dy), dot_r + 4, dot_col, 2)
-    cv2.circle(frame, (dx, dy), dot_r, (30, 30, 0), -1)
+    cv2.circle(frame, (dx, dy), dot_r, (20, 20, 10), -1)
     cv2.circle(frame, (dx, dy), dot_r, dot_col, 2)
     cv2.circle(frame, (dx, dy), max(dot_r - 4, 2), dot_col, -1)
 
@@ -1353,12 +1386,12 @@ def draw_prediction_race_view(frame, game_state, tracker_state=None):
         "Throw anything EXCEPT what the AI predicts  |  Pump to start  |  Q Quit")
 
     draw_outlined_text(frame, score_text,
-                       _ix(w * 0.04), _ix(h * 0.10), 0.44, COL_CYAN,
+                       _ix(w * 0.04), _ix(h * 0.10), SCALE_CAPTION, COL_TEXT_SECONDARY,
                        thickness=1, outline=2)
 
     for i in range(win_target):
         px = _ix(w * 0.04) + i * _ix(w * 0.028)
-        pc = COL_CYAN if i < player_score else (40, 40, 60)
+        pc = COL_ACCENT if i < player_score else (40, 40, 60)
         cv2.circle(frame, (px, _ix(h * 0.145)), _ix(h * 0.012), pc, -1 if i < player_score else 2)
         ax = w - _ix(w * 0.04) - i * _ix(w * 0.028)
         ac = COL_RED if i < ai_score else (40, 40, 60)
@@ -1368,23 +1401,20 @@ def draw_prediction_race_view(frame, game_state, tracker_state=None):
         player_won  = player_score >= win_target
         winner_txt  = "YOU WIN THE MATCH!" if player_won else "AI WINS THE MATCH!"
         winner_col  = COL_GREEN if player_won else COL_RED
-        pulse = 0.7 + 0.3 * abs(math.sin(t * math.pi * 2.0))
-        pc2   = tuple(min(255, int(c * pulse)) for c in winner_col)
-        draw_centered_text(frame, winner_txt, cy - _ix(h * 0.18),
-                           0.90, pc2, thickness=3, outline=5)
-        draw_centered_text(frame, score_text,
-                           cy - _ix(h * 0.04), 0.60, COL_YELLOW,
-                           thickness=2, outline=3)
+        draw_centered_text(frame, winner_txt, cy - _ix(h * 0.16),
+                           SCALE_HEADING, winner_col, thickness=2, outline=3)
+        if score_text:
+            draw_centered_text(frame, score_text,
+                               cy - _ix(h * 0.04), SCALE_BODY, COL_TEXT_SECONDARY,
+                               thickness=1, outline=2)
         msg     = "You successfully fooled the AI!" if player_won else "The AI read your patterns. Train harder!"
         msg_col = COL_GREEN if player_won else COL_RED
         draw_centered_text(frame, msg,
-                           cy + _ix(h * 0.08), 0.40, msg_col,
+                           cy + _ix(h * 0.08), SCALE_BODY, msg_col,
                            thickness=1, outline=2)
-        pulse2 = 0.5 + 0.5 * abs(math.sin(t * math.pi * 1.2))
-        pcol2  = tuple(min(255, int(c * pulse2)) for c in COL_GREEN)
         draw_centered_text(frame, "Press ENTER to play again  |  ESC for menu",
-                           cy + _ix(h * 0.20), 0.44, pcol2,
-                           thickness=2, outline=3)
+                           cy + _ix(h * 0.18), SCALE_CAPTION, COL_TEXT_DIM,
+                           thickness=1, outline=2)
         return
 
     if prediction and cur_state in ("COUNTDOWN", "SHOOT_WINDOW", "ROUND_RESULT"):
@@ -1393,8 +1423,12 @@ def draw_prediction_race_view(frame, game_state, tracker_state=None):
         pan_y1 = _ix(h * 0.18);   pan_y2 = _ix(h * 0.72)
         pred_col = get_gesture_color(prediction)
         draw_panel(frame, px1, pan_y1, px2, pan_y2,
-                   fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA, border=COL_ACCENT, border_thickness=1)
-        draw_status_chip(frame, "AI PREDICTS", pan_y1 + _ix(h * 0.02), COL_YELLOW)
+                   fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA,
+                   border=COL_BORDER_HAIR, border_thickness=1)
+        ai_pred_lbl = "AI PREDICTS"
+        (apw, _), _ = cv2.getTextSize(ai_pred_lbl, cv2.FONT_HERSHEY_SIMPLEX, SCALE_MICRO, 1)
+        draw_outlined_text(frame, ai_pred_lbl, (w - apw) // 2, pan_y1 + _ix(h * 0.06),
+                           SCALE_MICRO, COL_AMBER, thickness=1, outline=2)
 
         if cur_state == "ROUND_RESULT":
             half = (px2 - px1) // 2
@@ -1417,35 +1451,33 @@ def draw_prediction_race_view(frame, game_state, tracker_state=None):
             bc2     = tuple(min(255, int(c * pulse2)) for c in ban_col)
             draw_centered_text_in_rect(frame, banner,
                 (px1+4, pan_y2-_ix(h*0.14), px2-4, pan_y2-_ix(h*0.02)),
-                base_scale=0.72, color=bc2, thickness=3, outline=4)
+                base_scale=SCALE_BODY, color=bc2, thickness=2, outline=3)
             if insight:
                 i_sc = get_fit_scale(insight, _ix(w*0.70), base_scale=0.30, thickness=1, min_scale=0.22)
                 draw_centered_text(frame, insight,
                                    pan_y2+_ix(h*0.04), i_sc, COL_TEXT_DIM, thickness=1, outline=1)
         else:
-            pulse3 = 0.75 + 0.25 * abs(math.sin(t * math.pi * 2.0))
-            pc3    = tuple(min(255, int(c * pulse3)) for c in pred_col)
             draw_gesture_glyph(frame, prediction,
                 (px1+_ix(pan_w*0.10), pan_y1+_ix(h*0.12),
                  px2-_ix(pan_w*0.10), pan_y1+_ix(h*0.58)))
             draw_centered_text_in_rect(frame, prediction,
                 (px1, pan_y1+_ix(h*0.59), px2, pan_y1+_ix(h*0.72)),
-                base_scale=0.66, color=pc3, thickness=2, outline=3)
+                base_scale=SCALE_BODY, color=pred_col, thickness=1, outline=2)
             if cur_state == "SHOOT_WINDOW":
                 draw_centered_text_in_rect(frame, "THROW NOW!",
                     (px1, pan_y2-_ix(h*0.14), px2, pan_y2-_ix(h*0.02)),
-                    base_scale=0.68, color=COL_GREEN, thickness=3, outline=4)
+                    base_scale=SCALE_BODY, color=COL_GREEN, thickness=1, outline=2)
             else:
                 draw_centered_text_in_rect(frame, "Don't throw this!",
                     (px1, pan_y2-_ix(h*0.12), px2, pan_y2-_ix(h*0.02)),
-                    base_scale=0.36, color=COL_TEXT_DIM, thickness=1, outline=2)
+                    base_scale=SCALE_CAPTION, color=COL_TEXT_DIM, thickness=1, outline=2)
     elif cur_state == "WAITING_FOR_ROCK":
         draw_centered_text(frame, "MAKE A FIST TO START", cy-_ix(h*0.06),
-                           0.68, COL_CYAN, thickness=2, outline=4)
+                           SCALE_BODY, COL_ACCENT, thickness=1, outline=2)
         draw_centered_text(frame, "Beat the pump 4 times, then throw",
-                           cy+_ix(h*0.05), 0.38, COL_TEXT_DIM, thickness=1, outline=2)
+                           cy+_ix(h*0.05), SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
         draw_centered_text(frame, "Throw anything EXCEPT what the AI predicts to score",
-                           cy+_ix(h*0.12), 0.34, COL_TEXT_ACCENT, thickness=1, outline=2)
+                           cy+_ix(h*0.12), SCALE_CAPTION, COL_TEXT_SECONDARY, thickness=1, outline=2)
 
     if cur_state in ("COUNTDOWN", "SHOOT_WINDOW"):
         bt_x1 = _ix(w * 0.25); bt_x2 = _ix(w * 0.75)
@@ -1582,16 +1614,18 @@ def draw_gesture_rehab_view(frame, game_state):
         return
 
     if cur_state == "COMPLETE":
-        done_col = COL_GREEN if accuracy >= 0.8 else COL_YELLOW
-        draw_centered_text(frame, "SESSION COMPLETE!", cy-_ix(h*0.16),
-                           0.90, done_col, thickness=3, outline=5)
+        done_col = COL_GREEN if accuracy >= 0.8 else COL_ACCENT
+        draw_centered_text(frame, "SESSION COMPLETE!", cy-_ix(h*0.14),
+                           SCALE_HEADING, done_col, thickness=2, outline=3)
         draw_centered_text(frame, f"Accuracy: {accuracy:.0%}",
-                           cy-_ix(h*0.04), 0.70, COL_YELLOW, thickness=2, outline=3)
+                           cy-_ix(h*0.02), SCALE_HEADING, COL_ACCENT, thickness=2, outline=3)
         draw_centered_text(frame, f"Completed: {completed}   Missed: {missed}",
-                           cy+_ix(h*0.08), 0.44, COL_TEXT_ACCENT, thickness=1, outline=2)
-        msg = "Excellent form!" if accuracy >= 0.9 else ("Good work! Keep practising." if accuracy >= 0.7 else "Keep at it - accuracy improves with practice.")
-        msg_col = COL_GREEN if accuracy >= 0.9 else (COL_YELLOW if accuracy >= 0.7 else COL_RED)
-        draw_centered_text(frame, msg, cy+_ix(h*0.18), 0.40, msg_col, thickness=1, outline=2)
+                           cy+_ix(h*0.09), SCALE_BODY, COL_TEXT_SECONDARY, thickness=1, outline=2)
+        msg = "Excellent form!" if accuracy >= 0.9 else \
+              ("Good work! Keep practising." if accuracy >= 0.7 else \
+               "Keep at it - accuracy improves with practice.")
+        msg_col = COL_GREEN if accuracy >= 0.9 else (COL_ACCENT if accuracy >= 0.7 else COL_RED)
+        draw_centered_text(frame, msg, cy+_ix(h*0.18), SCALE_CAPTION, msg_col, thickness=1, outline=2)
         return
 
     if cur_state == "REST":
@@ -1600,18 +1634,20 @@ def draw_gesture_rehab_view(frame, game_state):
         flash_col = COL_GREEN if was_ok else COL_RED
         pulse = 0.7 + 0.3 * abs(math.sin(t * math.pi * 3.0))
         pc = tuple(min(255, int(c * pulse)) for c in flash_col)
-        draw_centered_text(frame, "Correct!" if was_ok else "Missed", cy, 0.80, pc, thickness=2, outline=4)
+        draw_centered_text(frame, "Correct!" if was_ok else "Missed", cy,
+                           SCALE_HEADING, pc, thickness=2, outline=3)
         return
 
     if cur_state == "EXERCISE" and target:
         target_col = get_gesture_color(target)
         is_holding = (held == target)
-        draw_status_chip(frame, "SHOW THIS GESTURE", _ix(h*0.13), COL_CYAN)
+        draw_centered_text(frame, "SHOW THIS GESTURE", _ix(h*0.17),
+                           SCALE_BODY, COL_TEXT_SECONDARY, thickness=1, outline=2)
         draw_gesture_glyph(frame, target,
-            (_ix(w*0.28), _ix(h*0.20), _ix(w*0.72), _ix(h*0.62)))
+            (_ix(w*0.28), _ix(h*0.22), _ix(w*0.72), _ix(h*0.62)))
         draw_centered_text_in_rect(frame, target,
             (0, _ix(h*0.64), w, _ix(h*0.73)),
-            base_scale=0.72, color=target_col, thickness=2, outline=3)
+            base_scale=SCALE_HEADING, color=target_col, thickness=2, outline=3)
 
         bx1 = _ix(w*0.15); bx2 = _ix(w*0.85)
         by  = _ix(h*0.78);  bh2 = _ix(h*0.022)
@@ -1619,11 +1655,14 @@ def draw_gesture_rehab_view(frame, game_state):
         draw_progress_bar(frame, bx1, by, bx2, by+bh2, dwell_pct, color=bar_col)
 
         if is_holding and dwell_pct > 0:
-            draw_centered_text(frame, "Hold it...", by+bh2+_ix(h*0.025), 0.40, COL_GREEN, thickness=1, outline=2)
+            draw_centered_text(frame, "Hold it...", by+bh2+_ix(h*0.025),
+                               SCALE_CAPTION, COL_GREEN, thickness=1, outline=2)
         elif held and held != target:
-            draw_centered_text(frame, f"Showing: {held}", by+bh2+_ix(h*0.025), 0.38, get_gesture_color(held), thickness=1, outline=2)
+            draw_centered_text(frame, f"Showing: {held}", by+bh2+_ix(h*0.025),
+                               SCALE_CAPTION, get_gesture_color(held), thickness=1, outline=2)
         else:
-            draw_centered_text(frame, "Show the gesture above", by+bh2+_ix(h*0.025), 0.36, COL_TEXT_DIM, thickness=1, outline=2)
+            draw_centered_text(frame, "Show the gesture above", by+bh2+_ix(h*0.025),
+                               SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
 
         dot_y  = _ix(h*0.88)
         dot_sp = min(_ix(w*0.06), _ix(w*0.85/total_steps))
@@ -1670,8 +1709,8 @@ def draw_arcade_snake_view(frame, game_state, tracker_state=None):
     # ── INTRO ──────────────────────────────────────────────────────────────
     if state == "INTRO":
         draw_centered_text(frame, "GESTURE SNAKE",
-                           cy - _ix(h * 0.28), 0.90, COL_GREEN,
-                           thickness=3, outline=5)
+                           cy - _ix(h * 0.28), SCALE_HEADING, COL_GREEN,
+                           thickness=2, outline=3)
         draw_centered_text(frame, "Rock=Straight   Scissors=Left   Paper=Right",
                            cy - _ix(h * 0.14), 0.38, COL_TEXT_ACCENT,
                            thickness=1, outline=2)
@@ -1689,7 +1728,7 @@ def draw_arcade_snake_view(frame, game_state, tracker_state=None):
             medal = ["1st", "2nd", "3rd", "4th", "5th"]
             for i, entry in enumerate(leaderboard[:5]):
                 ey = lby1 + _ix(h * 0.08) + i * _ix(h * 0.058)
-                col = COL_YELLOW if i == 0 else COL_TEXT_DIM
+                col = COL_ACCENT if i == 0 else COL_TEXT_DIM
                 draw_outlined_text(frame,
                     f"{medal[i]}  {entry['score']:>5}   {entry['date']}",
                     lbx1 + _ix(w * 0.04), ey + _ix(h * 0.022),
@@ -1702,8 +1741,8 @@ def draw_arcade_snake_view(frame, game_state, tracker_state=None):
         pulse = 0.5 + 0.5 * abs(math.sin(t * math.pi * 1.2))
         pc    = tuple(min(255, int(c * pulse)) for c in COL_GREEN)
         draw_centered_text(frame, "Make a FIST to start",
-                           cy + _ix(h * 0.34), 0.52, pc,
-                           thickness=2, outline=3)
+                           cy + _ix(h * 0.34), SCALE_BODY, pc,
+                           thickness=1, outline=2)
         return
 
     # ── Grid helpers ───────────────────────────────────────────────────────
@@ -1762,15 +1801,15 @@ def draw_arcade_snake_view(frame, game_state, tracker_state=None):
         cv2.addWeighted(overlay, 0.55, frame, 0.45, 0, frame)
 
         # Title
-        title_col = COL_YELLOW if is_new_record else COL_RED
+        title_col = COL_ACCENT if is_new_record else COL_RED
         title_txt = "NEW RECORD!" if is_new_record else "GAME OVER"
         draw_centered_text(frame, title_txt,
-                           cy - _ix(h * 0.28), 0.90, title_col,
-                           thickness=3, outline=5)
+                           cy - _ix(h * 0.26), SCALE_HEADING, title_col,
+                           thickness=2, outline=3)
 
         # Score
         draw_centered_text(frame, f"Score: {session_score}",
-                           cy - _ix(h * 0.14), 0.68, COL_YELLOW,
+                           cy - _ix(h * 0.12), SCALE_HEADING, COL_ACCENT,
                            thickness=2, outline=3)
         if is_new_record:
             draw_centered_text(frame, "Personal best!",
@@ -1795,7 +1834,7 @@ def draw_arcade_snake_view(frame, game_state, tracker_state=None):
             for i, entry in enumerate(leaderboard[:5]):
                 ey = lby1 + _ix(h * 0.08) + i * _ix(h * 0.052)
                 is_this = (entry["score"] == session_score and is_new_record and i == 0)
-                col = COL_YELLOW if is_this else (COL_TEXT_ACCENT if i == 0 else COL_TEXT_DIM)
+                col = COL_ACCENT if is_this else (COL_TEXT_PRIMARY if i == 0 else COL_TEXT_DIM)
                 draw_outlined_text(frame,
                     f"{medal[i]}  {entry['score']:>5}   {entry['date']}",
                     lbx1 + _ix(w * 0.04), ey + _ix(h * 0.020),
@@ -1804,8 +1843,8 @@ def draw_arcade_snake_view(frame, game_state, tracker_state=None):
         pulse = 0.5 + 0.5 * abs(math.sin(t * math.pi * 1.2))
         pc    = tuple(min(255, int(c * pulse)) for c in COL_GREEN)
         draw_centered_text(frame, "Make a FIST to play again",
-                           cy + _ix(h * 0.42), 0.48, pc,
-                           thickness=2, outline=3)
+                           cy + _ix(h * 0.42), SCALE_BODY, pc,
+                           thickness=1, outline=2)
 
 
 def draw_rpsls_tutorial_screen(frame, step=0, hand_state=None):

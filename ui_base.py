@@ -350,7 +350,7 @@ def draw_beat_track(frame, beat_count, num_beats=4, state="", x1=None, y1=None,
     pw = bx2 - bx1
     cap_y = by1 + _ix(ph * 0.28)
     cv2.putText(frame, "BEAT TRACK", (bx1 + _ix(pw * 0.30), cap_y),
-                FONT_PRIMARY, SCALE_MICRO, COL_TEXT_DIM, 1, cv2.LINE_AA)
+                FONT_PRIMARY, SCALE_MICRO, COL_TEXT_SECONDARY, 1, cv2.LINE_AA)
 
     diameter = min(_ix(h * 0.052), 38)
     radius   = diameter // 2
@@ -375,7 +375,7 @@ def draw_beat_track(frame, beat_count, num_beats=4, state="", x1=None, y1=None,
             cv2.circle(frame, (cx, cy), radius, col, -1)
             num_col = (10, 10, 10)
         else:
-            cv2.circle(frame, (cx, cy), radius, col, 1)
+            cv2.circle(frame, (cx, cy), radius, col, 2)
             num_col = COL_TEXT_DIM
 
         label = str(i + 1)
@@ -416,9 +416,9 @@ def draw_row(frame, x1, y1, x2, y2, label, selected=False,
              sub_label='', right_hint=''):
     row_h = y2 - y1
     if selected:
-        roi = frame[y1:y2, x1:x2]
+        roi = frame[y1:y2, x1+2:x2-2]
         overlay = roi.copy()
-        cv2.rectangle(overlay, (0, 0), (x2 - x1, row_h), COL_ROW_SELECTED, -1)
+        cv2.rectangle(overlay, (0, 0), (x2 - x1 - 4, row_h), COL_ROW_SELECTED, -1)
         cv2.addWeighted(overlay, 0.95, roi, 0.05, 0, roi)
         cv2.rectangle(frame, (x1, y1), (x1 + 2, y2), COL_ACCENT, -1)
     text_color = COL_TEXT_PRIMARY if selected else COL_TEXT_SECONDARY

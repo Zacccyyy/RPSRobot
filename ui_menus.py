@@ -54,15 +54,16 @@ def draw_menu_screen(frame, menu_items, selected_index, config,
             (_ix(w * 0.265), _ix(h * 0.30), _ix(w * 0.735), _ix(h * 0.36)),
             base_scale=0.32, color=bc, thickness=1, outline=2)
 
-    # Update banner
+    # Update banner — frosted amber strip directly below top bar
     if update_label:
-        pulse = 0.65 + 0.35 * abs(math.sin(time.monotonic() * math.pi * 1.2))
-        bc = tuple(min(255, int(c * pulse)) for c in COL_AMBER)
-        draw_panel(frame, _ix(w * 0.255), _ix(h * 0.30), _ix(w * 0.745), _ix(h * 0.36),
-                   fill=(18, 15, 0), alpha=0.90, border=bc, border_thickness=1)
-        draw_centered_text_in_rect(frame, update_label,
-            (_ix(w * 0.265), _ix(h * 0.30), _ix(w * 0.735), _ix(h * 0.36)),
-            base_scale=0.36, color=bc, thickness=1, outline=2)
+        bh = _ix(h * 0.048)
+        uy1 = _ix(h * 0.06)
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (0, uy1), (w, uy1 + bh), (30, 80, 140), -1)
+        cv2.addWeighted(overlay, 0.75, frame, 0.25, 0, frame)
+        cv2.line(frame, (0, uy1 + bh), (w, uy1 + bh), COL_BORDER_HAIR, 1)
+        draw_centered_text(frame, update_label, uy1 + _ix(bh * 0.68),
+                           SCALE_MICRO, COL_AMBER, thickness=1, outline=2)
 
     # Menu panel -- x 25.5%-74.5%, y 38-86%
     px1 = _ix(w * 0.255)
@@ -745,7 +746,7 @@ def draw_game_category_screen(frame, categories, category_index, mode_index,
     cv2.line(frame, (rx1, py1 + header_h), (rx2, py1 + header_h), COL_BORDER_HAIR, 1)
 
     if not in_mode_list:
-        # Description view
+        # Description view — dynamic y cursor
         raw_desc = sel_cat.get('desc', '')
         parts    = [p.strip() for p in raw_desc.replace('--', '\n').split('\n') if p.strip()]
         max_px   = rpw - 2 * pad_x
@@ -768,25 +769,27 @@ def draw_game_category_screen(frame, categories, category_index, mode_index,
         while lines and lines[-1] == '':
             lines.pop()
 
-        dy       = py1 + _ix(ph * 0.15)
-        line_gap = _ix(ph * 0.085)
+        cursor_y = py1 + header_h + _ix(ph * 0.04)
+        line_gap = _ix(ph * 0.075)
         for line in lines[:8]:
             if line == '':
-                dy += _ix(ph * 0.025)
+                cursor_y += _ix(ph * 0.020)
                 continue
-            draw_outlined_text(frame, line, rx1 + pad_x, dy,
+            draw_outlined_text(frame, line, rx1 + pad_x, cursor_y,
                                SCALE_BODY, COL_TEXT_SECONDARY, thickness=1, outline=2)
-            dy += line_gap
+            cursor_y += line_gap
 
-        sep_y = py1 + _ix(ph * 0.62)
-        cv2.line(frame, (rx1 + pad_x, sep_y), (rx2 - pad_x, sep_y), COL_BORDER_HAIR, 1)
-        draw_outlined_text(frame, 'Modes', rx1 + pad_x, sep_y + _ix(ph * 0.055),
-                           SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=1)
-        my = sep_y + _ix(ph * 0.13)
-        for (ml, _) in sel_cat['modes'][:3]:
-            draw_outlined_text(frame, ml, rx1 + pad_x + _ix(w * 0.01), my,
-                               SCALE_CAPTION, COL_TEXT_SECONDARY, thickness=1, outline=1)
-            my += _ix(ph * 0.075)
+        # Separator + Modes section directly after description
+        cursor_y += 14
+        cv2.line(frame, (rx1 + pad_x, cursor_y), (rx2 - pad_x, cursor_y), COL_BORDER_HAIR, 1)
+        cursor_y += 14
+        draw_outlined_text(frame, 'MODES', rx1 + pad_x, cursor_y,
+                           SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=1)
+        cursor_y += 22
+        for (ml, _) in sel_cat['modes'][:4]:
+            draw_outlined_text(frame, ml, rx1 + pad_x + _ix(w * 0.01), cursor_y,
+                               SCALE_BODY, COL_TEXT_SECONDARY, thickness=1, outline=1)
+            cursor_y += 28
 
         draw_outlined_text(frame, 'Enter to open',
                            rx1 + pad_x, py2 - _ix(ph * 0.03),
@@ -1099,28 +1102,36 @@ def draw_player_stats_screen(frame, stats_state):
 
     if step == "select":
         draw_top_bar(frame, "PLAYER STATS", "UP/DOWN Move | SELECT | BACK")
-        draw_panel(frame, x1, y1, x2, y2, fill=COL_BG_PANEL, alpha=0.94,
-                   border=COL_ACCENT, border_thickness=1)
+        px1 = _ix(w * 0.18);  px2 = _ix(w * 0.82)
+        py1 = _ix(h * 0.20);  py2 = _ix(h * 0.90)
+        draw_panel(frame, px1, py1, px2, py2,
+                   fill=COL_PANEL_BG, alpha=0.88, border=COL_BORDER_HAIR, border_thickness=1)
+        pw = px2 - px1
 
-        draw_centered_text(frame, "SELECT PLAYER", y1 + _ix((y2 - y1) * 0.10),
-                           SCALE_HEADING, COL_TEXT_PRIMARY, thickness=1, outline=2)
+        title_h = 38
+        sc_t = get_fit_scale("SELECT PLAYER", pw - _ix(pw * 0.10),
+                             base_scale=SCALE_HEADING, thickness=1)
+        draw_outlined_text(frame, "SELECT PLAYER",
+                           px1 + _ix(pw * 0.05), py1 + _ix(title_h * 0.72),
+                           sc_t, COL_TEXT_PRIMARY, thickness=1, outline=2)
+        cv2.line(frame, (px1, py1 + title_h), (px2, py1 + title_h), COL_BORDER_HAIR, 1)
 
-        players = stats_state.get("players", [])
+        players      = stats_state.get("players", [])
         selected_idx = stats_state.get("selected_index", 0)
-        item_top = y1 + _ix((y2 - y1) * 0.26)
-        item_gap = _ix((y2 - y1) * 0.09)
+        row_h   = 64
+        row_top = py1 + title_h
 
         for i, (name, count) in enumerate(players):
-            selected = i == selected_idx
-            cy = item_top + i * item_gap
-
-            if selected:
-                bar_y1 = cy - _ix(h * 0.020)
-                bar_y2 = cy + _ix(h * 0.020)
-                draw_selected_row(frame, x1 + _ix(w * 0.04), bar_y1, x2 - _ix(w * 0.04), bar_y2)
-
-            draw_row(frame, x1, cy - _ix(h * 0.020), x2, cy + _ix(h * 0.020),
-                     f"{name} ({count} rounds)", selected=selected)
+            ry1 = row_top + i * row_h
+            ry2 = ry1 + row_h
+            if ry2 > py2:
+                break
+            draw_row(frame, px1, ry1, px2, ry2, name,
+                     selected=(i == selected_idx),
+                     sub_label=f"{count} rounds",
+                     right_hint="ENTER OPEN")
+            if i < len(players) - 1:
+                cv2.line(frame, (px1 + 3, ry2), (px2 - 3, ry2), COL_BORDER_HAIR, 1)
 
         draw_bottom_bar(frame, "View play patterns and strategy analysis")
         return
@@ -1136,8 +1147,8 @@ def draw_player_stats_screen(frame, stats_state):
                               stats_state.get("player_name_hint", "PLAYER"))
     draw_top_bar(frame, f"STATS: {player_name_for_header.upper()}",
                  "ESC Back | T Tab | A/D Filter | X Export")
-    draw_panel(frame, x1, y1, x2, y2, fill=COL_BG_PANEL, alpha=0.94,
-               border=COL_ACCENT, border_thickness=1)
+    draw_panel(frame, x1, y1, x2, y2, fill=COL_PANEL_BG, alpha=0.88,
+               border=COL_BORDER_HAIR, border_thickness=1)
 
     pw, ph = x2 - x1, y2 - y1
 
@@ -1150,17 +1161,19 @@ def draw_player_stats_screen(frame, stats_state):
         fx1 = x1 + fi * strip_w
         fx2 = fx1 + strip_w
         active = (flab == cur_flt)
-        fill   = (20, 55, 20) if active else (10, 15, 10)
-        border = COL_GREEN if active else (40, 60, 40)
         draw_panel(frame, fx1 + 2, strip_y1 + 2, fx2 - 2, strip_y2 - 2,
-                   fill=fill, alpha=0.85, border=border, border_thickness=1)
-        col = COL_GREEN if active else COL_TEXT_DIM
-        sc  = get_fit_scale(flab, strip_w - 8, base_scale=0.38, thickness=1, min_scale=0.24)
+                   fill=COL_PANEL_BG, alpha=0.85,
+                   border=COL_ACCENT if active else COL_BORDER_HAIR, border_thickness=1)
+        if active:
+            cv2.line(frame, (fx1 + 4, strip_y2 - 4), (fx2 - 4, strip_y2 - 4), COL_ACCENT, 2)
+        sc  = get_fit_scale(flab, strip_w - 8, base_scale=SCALE_CAPTION, thickness=1, min_scale=0.24)
         draw_centered_text_in_rect(frame, flab,
             (fx1 + 2, strip_y1 + 2, fx2 - 2, strip_y2 - 2),
-            base_scale=sc, color=col, thickness=1, outline=2)
+            base_scale=sc,
+            color=COL_TEXT_PRIMARY if active else COL_TEXT_SECONDARY,
+            thickness=1, outline=2)
 
-    # -- Tab strip - ALWAYS drawn -----------------------------------------
+    # -- View tab strip - ALWAYS drawn ------------------------------------
     _TABS  = [("overview", "Overview"), ("history", "Match History")]
     tab_y1 = strip_y2 + _ix(ph * 0.005)
     tab_y2 = tab_y1 + _ix(ph * 0.08)
@@ -1169,14 +1182,16 @@ def draw_player_stats_screen(frame, stats_state):
         tx1    = x1 + ti * tab_w
         tx2    = tx1 + tab_w
         active = (tid == cur_tab)
-        fill   = (15, 45, 55) if active else (8, 15, 20)
-        border = COL_CYAN if active else (30, 50, 60)
         draw_panel(frame, tx1 + 2, tab_y1 + 2, tx2 - 2, tab_y2 - 2,
-                   fill=fill, alpha=0.90, border=border, border_thickness=1 if active else 0)
-        col = COL_CYAN if active else COL_TEXT_DIM
+                   fill=COL_PANEL_BG, alpha=0.90,
+                   border=COL_ACCENT if active else COL_BORDER_HAIR, border_thickness=1)
+        if active:
+            cv2.line(frame, (tx1 + 4, tab_y2 - 4), (tx2 - 4, tab_y2 - 4), COL_ACCENT, 2)
         draw_centered_text_in_rect(frame, tlab,
             (tx1 + 4, tab_y1 + 2, tx2 - 4, tab_y2 - 2),
-            base_scale=0.40, color=col, thickness=1, outline=2)
+            base_scale=SCALE_CAPTION,
+            color=COL_TEXT_PRIMARY if active else COL_TEXT_SECONDARY,
+            thickness=1, outline=2)
 
     content_y1 = tab_y2 + _ix(ph * 0.01)
     body_y1    = content_y1 + _ix((y2 - content_y1) * 0.09)
@@ -1234,38 +1249,47 @@ def draw_player_stats_screen(frame, stats_state):
         # Left: Results
         sec_y = body_y1
         draw_outlined_text(frame, "RESULTS", col_left_x, sec_y,
-                           0.48, COL_TEXT, thickness=2, outline=3)
+                           SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
         sec_y += _ix(body_ph * 0.07)
-        for label, pct, color in [
+        for label, pct, pct_color in [
             ("Win",  data["win_pct"],  COL_GREEN),
             ("Loss", data["loss_pct"], COL_RED),
             ("Draw", data["draw_pct"], COL_TEXT_DIM),
         ]:
-            draw_outlined_text(frame, f"{label}: {pct:.0%}", col_left_x, sec_y,
-                               0.44, color, thickness=2, outline=3)
+            lbl_str = f"{label}:"
+            pct_str = f"{pct:.0%}"
+            draw_outlined_text(frame, lbl_str, col_left_x, sec_y,
+                               SCALE_BODY, COL_TEXT_SECONDARY, thickness=1, outline=2)
+            (lw, _lh), _ = cv2.getTextSize(lbl_str, cv2.FONT_HERSHEY_SIMPLEX, SCALE_BODY, 1)
+            draw_outlined_text(frame, pct_str, col_left_x + lw + 6, sec_y,
+                               SCALE_BODY, pct_color, thickness=1, outline=2)
             _draw_bar(frame, col_left_x + _ix(pw * 0.18), sec_y - bar_h + 2,
-                      bar_w - _ix(pw * 0.18), bar_h, pct, color)
+                      bar_w - _ix(pw * 0.18), bar_h, pct, pct_color, bg_color=(28, 28, 28))
             sec_y += _ix(body_ph * 0.065)
 
         # Left: Gestures
         sec_y += _ix(body_ph * 0.02)
         draw_outlined_text(frame, "GESTURES", col_left_x, sec_y,
-                           0.48, COL_TEXT, thickness=2, outline=3)
+                           SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
         sec_y += _ix(body_ph * 0.07)
         freq = data.get("gesture_freq", {})
         for g in ("Rock", "Paper", "Scissors"):
-            pct   = freq.get(g, 0)
-            color = get_gesture_color(g)
-            draw_outlined_text(frame, f"{g}: {pct:.0%}", col_left_x, sec_y,
-                               0.44, color, thickness=2, outline=3)
+            pct      = freq.get(g, 0)
+            pct_color = get_gesture_color(g)
+            pct_str  = f"{pct:.0%}"
+            draw_outlined_text(frame, f"{g}:", col_left_x, sec_y,
+                               SCALE_BODY, COL_TEXT_SECONDARY, thickness=1, outline=2)
+            (lw2, _), _ = cv2.getTextSize(f"{g}:", cv2.FONT_HERSHEY_SIMPLEX, SCALE_BODY, 1)
+            draw_outlined_text(frame, pct_str, col_left_x + lw2 + 6, sec_y,
+                               SCALE_BODY, pct_color, thickness=1, outline=2)
             _draw_bar(frame, col_left_x + _ix(pw * 0.22), sec_y - bar_h + 2,
-                      bar_w - _ix(pw * 0.22), bar_h, pct, color)
+                      bar_w - _ix(pw * 0.22), bar_h, pct, pct_color, bg_color=(28, 28, 28))
             sec_y += _ix(body_ph * 0.065)
 
         # Right: After-outcome response
         sec_y2 = body_y1
         draw_outlined_text(frame, "AFTER OUTCOME", col_right_x, sec_y2,
-                           0.48, COL_TEXT, thickness=2, outline=3)
+                           SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
         sec_y2 += _ix(body_ph * 0.07)
         for outcome in ("win", "lose", "draw"):
             resp = data.get("outcome_response", {}).get(outcome, {})
@@ -1274,57 +1298,66 @@ def draw_player_stats_screen(frame, stats_state):
             down = resp.get("downgrade", 0)
             line = f"{outcome.title()}: stay {stay:.0%} | up {up:.0%} | dn {down:.0%}"
             avail_w = x2 - col_right_x - _ix(pw * 0.04)
-            sc = get_fit_scale(line, avail_w, base_scale=0.40, thickness=1, min_scale=0.26)
+            sc = get_fit_scale(line, avail_w, base_scale=SCALE_BODY, thickness=1, min_scale=0.26)
             draw_outlined_text(frame, line, col_right_x, sec_y2,
-                               sc, COL_TEXT_ACCENT, thickness=1, outline=2)
+                               sc, COL_TEXT_SECONDARY, thickness=1, outline=2)
             sec_y2 += _ix(body_ph * 0.065)
 
         # Traits
         traits_y = y2 - _ix(ph * 0.26)
         cv2.line(frame, (x1 + _ix(pw * 0.04), traits_y - _ix(ph * 0.01)),
-                 (x2 - _ix(pw * 0.04), traits_y - _ix(ph * 0.01)), COL_YELLOW, 1)
+                 (x2 - _ix(pw * 0.04), traits_y - _ix(ph * 0.01)), COL_BORDER_HAIR, 1)
         draw_outlined_text(frame, "PLAYER TRAITS", col_left_x, traits_y,
-                           0.48, COL_TEXT, thickness=2, outline=3)
+                           SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
         traits_y += _ix(ph * 0.055)
         for trait in traits[:3]:
-            sc = get_fit_scale(trait, _ix(pw * 0.90), base_scale=0.40, thickness=1, min_scale=0.26)
+            sc = get_fit_scale(trait, _ix(pw * 0.90), base_scale=SCALE_BODY, thickness=1, min_scale=0.26)
             draw_outlined_text(frame, trait, col_left_x, traits_y,
-                               sc, COL_CYAN, thickness=1, outline=2)
+                               sc, COL_TEXT_SECONDARY, thickness=1, outline=2)
             traits_y += _ix(ph * 0.048)
 
-        # History dots row
+        # 14-px square history chips
         rounds = stats_state.get("rounds", [])
         if rounds:
-            draw_round_history_dots(frame, rounds,
-                                    x1 + _ix(pw * 0.04), y2 - _ix(ph * 0.06),
-                                    x2 - _ix(pw * 0.04))
+            recent   = rounds[-24:]
+            n        = len(recent)
+            chip     = 14
+            chip_gap = 2
+            total_chips_w = n * (chip + chip_gap) - chip_gap
+            chip_x0 = (x1 + x2) // 2 - total_chips_w // 2
+            chip_y  = y2 - _ix(ph * 0.06)
+            _col_map = {"win": COL_GREEN, "lose": COL_RED, "draw": COL_TEXT_SECONDARY}
+            for i, r in enumerate(recent):
+                outcome = r.get("outcome", r.get("player_outcome", "draw"))
+                col = _col_map.get(outcome, COL_TEXT_DIM)
+                cx = chip_x0 + i * (chip + chip_gap)
+                cv2.rectangle(frame, (cx, chip_y), (cx + chip, chip_y + chip), col, -1)
 
     # ====================================================================
     # HISTORY TAB
     # ====================================================================
     else:
         sessions = stats_state.get("sessions", [])
-        col_left_x = x1 + _ix(pw * 0.04)
-        body_ph    = y2 - body_y1
+        body_ph  = y2 - body_y1
 
         if not sessions:
             draw_centered_text(frame, "No session history yet",
                                body_y1 + _ix(body_ph * 0.40),
-                               0.55, COL_TEXT_DIM, thickness=1, outline=2)
+                               SCALE_BODY, COL_TEXT_DIM, thickness=1, outline=2)
         else:
             # Header row
             hdr_y = body_y1 + _ix(body_ph * 0.04)
-            for txt, xpct in [("Date / Time", 0.04), ("Mode", 0.30), ("Score", 0.47),
-                               ("Win%", 0.62), ("Avg RT", 0.76)]:
+            for txt, xpct in [("DATE / TIME", 0.04), ("MODE", 0.30), ("SCORE", 0.47),
+                               ("WIN%", 0.62), ("AVG RT", 0.76)]:
                 draw_outlined_text(frame, txt, x1 + _ix(pw * xpct), hdr_y,
-                                   0.36, COL_CYAN, thickness=1, outline=2)
+                                   SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
             cv2.line(frame,
                      (x1 + _ix(pw * 0.03), hdr_y + _ix(body_ph * 0.045)),
                      (x2 - _ix(pw * 0.03), hdr_y + _ix(body_ph * 0.045)),
-                     COL_CYAN, 1)
+                     COL_BORDER_HAIR, 1)
 
-            row_h  = _ix(body_ph * 0.13)
-            row_y  = hdr_y + _ix(body_ph * 0.07)
+            row_h = _ix(body_ph * 0.13)
+            row_y = hdr_y + _ix(body_ph * 0.07)
             for sess in reversed(sessions):   # most recent first
                 w_rate = sess.get("win_rate", 0)
                 wins   = sess.get("wins", 0)
@@ -1334,8 +1367,25 @@ def draw_player_stats_screen(frame, stats_state):
                 mode   = sess.get("mode", "?")
                 date   = sess.get("date", "?")
 
-                row_col = COL_GREEN if w_rate >= 0.5 else (COL_RED if w_rate < 0.35 else COL_TEXT_ACCENT)
+                if w_rate >= 0.5:
+                    tint_col = COL_GREEN
+                elif w_rate < 0.35:
+                    tint_col = COL_RED
+                else:
+                    tint_col = None
+                if tint_col:
+                    ty1 = row_y - row_h + 2
+                    ty2 = row_y + 2
+                    if ty1 >= 0 and ty2 <= frame.shape[0]:
+                        roi = frame[ty1:ty2, x1:x2]
+                        if roi.size > 0:
+                            ov = roi.copy()
+                            cv2.rectangle(ov, (0, 0), (x2 - x1, ty2 - ty1), tint_col, -1)
+                            cv2.addWeighted(ov, 0.06, roi, 0.94, 0, roi)
 
+                dot_col = COL_GREEN if w_rate >= 0.5 else (COL_RED if w_rate < 0.35 else COL_TEXT_DIM)
+                dot_x   = x1 + _ix(pw * 0.015)
+                cv2.circle(frame, (dot_x, row_y - 4), 4, dot_col, -1)
                 for txt, xpct in [
                     (date, 0.04),
                     (mode, 0.30),
@@ -1344,9 +1394,11 @@ def draw_player_stats_screen(frame, stats_state):
                     (f"{rt}ms" if rt else "n/a", 0.76),
                 ]:
                     sc = get_fit_scale(txt, _ix(pw * 0.22),
-                                       base_scale=0.38, thickness=1, min_scale=0.24)
+                                       base_scale=SCALE_CAPTION, thickness=1, min_scale=0.24)
                     draw_outlined_text(frame, txt, x1 + _ix(pw * xpct), row_y,
-                                       sc, row_col, thickness=1, outline=2)
+                                       sc, COL_TEXT_PRIMARY, thickness=1, outline=2)
+                cv2.line(frame, (x1 + _ix(pw * 0.03), row_y + 4),
+                         (x2 - _ix(pw * 0.03), row_y + 4), COL_BORDER_HAIR, 1)
                 row_y += row_h
                 if row_y > y2 - _ix(ph * 0.08):
                     break
@@ -1361,177 +1413,108 @@ def draw_tutorial_screen(frame, tut_state):
     """Draw the interactive tutorial overlaid on the camera feed."""
     w, h = _frame_size(frame)
 
-    step = tut_state.get("step", {})
-    step_idx = tut_state.get("step_index", 0)
-    total = tut_state.get("total_steps", 6)
-    detected = tut_state.get("detected_gesture", "Unknown")
-    hold = tut_state.get("hold_count", 0)
-    hold_needed = tut_state.get("hold_needed", 10)
-    pump_count = tut_state.get("pump_count", 0)
-    shot = tut_state.get("shot_gesture")
-    voice_mode = tut_state.get("voice_mode", False)
+    step        = tut_state.get("step", {})
+    step_idx    = tut_state.get("step_index", 0)
+    total       = tut_state.get("total_steps", 6)
+    detected    = tut_state.get("detected_gesture", "Unknown")
+    conf        = tut_state.get("gesture_confidence", 0.0)
+    voice_mode  = tut_state.get("voice_mode", False)
 
-    step_id = step.get("id", "")
-    title = step.get("title", "")
-    instruction = step.get("instruction", "")
-    sub = step.get("sub", "")
+    step_id      = step.get("id", "")
+    gesture_name = step.get("gesture_name", step.get("target_gesture", "Rock"))
+    instruction  = step.get("instruction", "")
+    description  = step.get("description", step.get("sub", ""))
+    step_num     = step_idx + 1
 
-    mode_label = "VOICE" if voice_mode else "HOW TO PLAY"
-    draw_top_bar(frame, mode_label, f"Step {step_idx + 1}/{total} | ESC / BACK to skip")
+    mode_label = "VOICE MODE" if voice_mode else "HOW TO PLAY"
+    draw_top_bar(frame, mode_label, f"Step {step_num} of {total}  |  ESC to skip")
 
-    # --- Instruction panel ---
-    panel_y1 = _ix(h * 0.12)
-    panel_y2 = _ix(h * 0.42)
-    border_col = COL_ACCENT
-    draw_panel(frame, _ix(w * 0.08), panel_y1, _ix(w * 0.92), panel_y2,
-               fill=(8, 8, 18), alpha=0.88, border=COL_ACCENT, border_thickness=1)
+    # 3px progress bar + captions immediately below top bar
+    prog       = step_idx / max(total - 1, 1) if total > 1 else 1.0
+    bar_y      = _ix(h * 0.065)
+    bar_x      = _ix(w * 0.02)
+    bar_w_full = w - _ix(w * 0.04)
+    cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w_full, bar_y + 3), (28, 28, 28), -1)
+    fill_x = bar_x + _ix(bar_w_full * prog)
+    if fill_x > bar_x:
+        cv2.rectangle(frame, (bar_x, bar_y), (fill_x, bar_y + 3), COL_ACCENT, -1)
+    step_lbl = f"STEP {step_num:02d}  *  OF {total:02d}"
+    draw_outlined_text(frame, step_lbl, bar_x, bar_y + 16,
+                       SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
+    if gesture_name and step_id not in ("done", ""):
+        show_lbl = f"SHOW {gesture_name.upper()}"
+        (tw, _), _ = cv2.getTextSize(show_lbl, cv2.FONT_HERSHEY_SIMPLEX, SCALE_MICRO, 1)
+        draw_outlined_text(frame, show_lbl, w - _ix(w * 0.02) - tw, bar_y + 16,
+                           SCALE_MICRO, COL_ACCENT, thickness=1, outline=2)
 
-    draw_centered_text(frame, title, panel_y1 + _ix((panel_y2 - panel_y1) * 0.18),
-                       0.70, border_col, thickness=2, outline=3)
+    # Column bounds (y=18% to y=82%)
+    body_y1 = _ix(h * 0.18)
+    body_y2 = _ix(h * 0.82)
+    lx1 = _ix(w * 0.04);  lx2 = _ix(w * 0.52)
+    rx1 = _ix(w * 0.54);  rx2 = _ix(w * 0.92)
 
-    draw_centered_text(frame, instruction, panel_y1 + _ix((panel_y2 - panel_y1) * 0.50),
-                       0.90, COL_TEXT, thickness=1, outline=2)
+    # ── Left panel ────────────────────────────────────────────────────────
+    draw_panel(frame, lx1, body_y1, lx2, body_y2)
 
-    draw_centered_text(frame, sub, panel_y1 + _ix((panel_y2 - panel_y1) * 0.78),
-                       0.44, COL_TEXT_DIM, thickness=1, outline=2)
-
-    # --- Status panel ---
-    status_y1 = _ix(h * 0.78)
-    status_y2 = _ix(h * 0.93)
-    draw_panel(frame, _ix(w * 0.08), status_y1, _ix(w * 0.92), status_y2,
-               fill=(8, 8, 18), alpha=0.88, border=COL_BORDER_HAIR, border_thickness=1)
-
-    if voice_mode:
-        # Voice mode status panel - show listening indicator and word heard
-        if step_id in ("rock", "paper", "scissors"):
-            # Pulsing "listening" indicator
-            t = time.monotonic()
-            pulse = 0.5 + 0.5 * math.sin(t * 4)
-            mic_color = tuple(int(c * pulse) for c in (80, 255, 180))
-            draw_outlined_text(frame, "Listening...", _ix(w * 0.12),
-                               status_y1 + _ix((status_y2 - status_y1) * 0.45),
-                               0.52, mic_color, thickness=1, outline=2)
-            if detected and detected != "Unknown":
-                det_color = border_col if detected == step.get("target_gesture") else COL_ORANGE
-                draw_outlined_text(frame, f"Heard: {detected}", _ix(w * 0.55),
-                                   status_y1 + _ix((status_y2 - status_y1) * 0.45),
-                                   0.52, det_color, thickness=2, outline=3)
-
-        elif step_id == "pump":
-            # Show 3 countdown circles (ONE TWO THREE)
-            labels = ["ONE", "TWO", "THREE"]
-            draw_outlined_text(frame, "Words spoken:", _ix(w * 0.12),
-                               status_y1 + _ix((status_y2 - status_y1) * 0.45),
-                               0.44, COL_TEXT_DIM, thickness=1, outline=2)
-            for i, label in enumerate(labels):
-                cx = _ix(w * (0.55 + i * 0.12))
-                cy = status_y1 + _ix((status_y2 - status_y1) * 0.50)
-                r  = _ix(min(w, h) * 0.022)
-                active = i < pump_count
-                color  = (80, 255, 180) if active else (60, 60, 80)
-                thick  = -1 if active else 2
-                cv2.circle(frame, (cx, cy), r, color, thick)
-                cv2.putText(frame, label, (cx - _ix(w * 0.025), cy + r + _ix(h * 0.025)),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.30,
-                            (80, 255, 180) if active else (80, 80, 80), 1, cv2.LINE_AA)
-
-        elif step_id == "shoot":
-            t = time.monotonic()
-            pulse = 0.5 + 0.5 * math.sin(t * 4)
-            mic_color = tuple(int(c * pulse) for c in (80, 255, 180))
-            draw_outlined_text(frame, "Say your throw now...", _ix(w * 0.12),
-                               status_y1 + _ix((status_y2 - status_y1) * 0.45),
-                               0.52, mic_color, thickness=1, outline=2)
-
-        elif step_id == "done":
-            if shot:
-                draw_centered_text(frame, f'You said "{shot}"!',
-                                   status_y1 + _ix((status_y2 - status_y1) * 0.30),
-                                   0.52, get_gesture_color(shot), thickness=2, outline=3)
-            draw_centered_text(frame, 'Say "SELECT" to return to menu',
-                               status_y1 + _ix((status_y2 - status_y1) * 0.72),
-                               0.46, COL_TEXT_DIM, thickness=1, outline=2)
-
+    if step_id == "done":
+        draw_outlined_text(frame, "YOU'RE READY",
+                           _ix(w * 0.05), _ix(h * 0.32),
+                           SCALE_BODY, COL_ACCENT, thickness=1, outline=2)
+        draw_outlined_text(frame, "You know the basics.",
+                           _ix(w * 0.05), _ix(h * 0.44),
+                           SCALE_BODY, COL_TEXT_SECONDARY, thickness=1, outline=2)
+        draw_outlined_text(frame, "Press ENTER to return to the menu",
+                           _ix(w * 0.05), _ix(h * 0.58),
+                           SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
     else:
-        # Physical mode - original status panel logic
-        if step_id in ("rock", "paper", "scissors"):
-            target = step.get("target_gesture", "")
-            det_color = COL_GREEN if detected == target else COL_ORANGE
+        draw_outlined_text(frame, "NOW TRY",
+                           _ix(w * 0.05), _ix(h * 0.22),
+                           SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
+        font_d = cv2.FONT_HERSHEY_DUPLEX
+        cv2.putText(frame, gesture_name, (_ix(w * 0.05), _ix(h * 0.32)),
+                    font_d, SCALE_DISPLAY_L, (0, 0, 0), 4, cv2.LINE_AA)
+        cv2.putText(frame, gesture_name, (_ix(w * 0.05), _ix(h * 0.32)),
+                    font_d, SCALE_DISPLAY_L, COL_TEXT_PRIMARY, 2, cv2.LINE_AA)
+        sc_instr = get_fit_scale(instruction, lx2 - _ix(w * 0.07),
+                                 base_scale=SCALE_BODY, thickness=1, min_scale=0.28)
+        draw_outlined_text(frame, instruction,
+                           _ix(w * 0.05), _ix(h * 0.44),
+                           sc_instr, COL_TEXT_SECONDARY, thickness=1, outline=2)
+        if description:
+            sc_desc = get_fit_scale(description, lx2 - _ix(w * 0.07),
+                                    base_scale=SCALE_CAPTION, thickness=1, min_scale=0.24)
+            draw_outlined_text(frame, description,
+                               _ix(w * 0.05), _ix(h * 0.54),
+                               sc_desc, COL_TEXT_DIM, thickness=1, outline=2)
+        draw_outlined_text(frame, "Hold gesture to advance...",
+                           _ix(w * 0.05), _ix(h * 0.64),
+                           SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
 
-            draw_outlined_text(frame, f"Detected: {detected}", _ix(w * 0.12),
-                               status_y1 + _ix((status_y2 - status_y1) * 0.45),
-                               0.54, det_color, thickness=2, outline=3)
+    # ── Right panel — glyph panel (or empty on final step) ────────────────
+    draw_panel(frame, rx1, body_y1, rx2, body_y2)
 
-            bar_x    = _ix(w * 0.55)
-            bar_y    = status_y1 + _ix((status_y2 - status_y1) * 0.25)
-            bar_w    = _ix(w * 0.30)
-            bar_h_px = _ix((status_y2 - status_y1) * 0.35)
-            pct = min(hold / max(hold_needed, 1), 1.0)
-            _draw_bar(frame, bar_x, bar_y, bar_w, bar_h_px, pct, COL_GREEN)
+    if step_id != "done" and gesture_name:
+        glyph_cx   = _ix(w * 0.73)
+        glyph_cy   = _ix(h * 0.50)
+        panel_half = 120
+        draw_panel(frame,
+                   glyph_cx - panel_half, glyph_cy - panel_half,
+                   glyph_cx + panel_half, glyph_cy + panel_half,
+                   fill=COL_PANEL_BG, alpha=0.70,
+                   border=COL_BORDER_HAIR, border_thickness=1)
+        draw_gesture_glyph(frame, gesture_name,
+                           (glyph_cx - 70, glyph_cy - 70,
+                            glyph_cx + 70, glyph_cy + 70),
+                           COL_ACCENT)
 
-            if pct >= 1.0:
-                draw_outlined_text(frame, "NICE!", _ix(w * 0.58),
-                                   status_y1 + _ix((status_y2 - status_y1) * 0.82),
-                                   0.50, COL_GREEN, thickness=2, outline=3)
-            else:
-                draw_outlined_text(frame, f"Hold it...", _ix(w * 0.58),
-                                   status_y1 + _ix((status_y2 - status_y1) * 0.82),
-                                   0.42, COL_TEXT_DIM, thickness=1, outline=2)
+    # ── Detection badge centred at y=83% ──────────────────────────────────
+    badge_label = f"DETECTED  {detected.upper()}  {conf:.2f}"
+    font_s = cv2.FONT_HERSHEY_SIMPLEX
+    (tw, _), _ = cv2.getTextSize(badge_label, font_s, SCALE_CAPTION, 1)
+    badge_x = (w - tw - 60) // 2
+    draw_gesture_badge(frame, detected, conf, badge_x, _ix(h * 0.83))
 
-        elif step_id == "pump":
-            draw_outlined_text(frame, f"Pumps: {pump_count} / 4", _ix(w * 0.12),
-                               status_y1 + _ix((status_y2 - status_y1) * 0.45),
-                               0.54, COL_CYAN, thickness=2, outline=3)
-
-            for i in range(4):
-                cx = _ix(w * (0.58 + i * 0.08))
-                cy = status_y1 + _ix((status_y2 - status_y1) * 0.50)
-                r  = _ix(min(w, h) * 0.022)
-                active = i < pump_count
-                color  = COL_CYAN if active else (60, 60, 80)
-                thick  = -1 if active else 2
-                cv2.circle(frame, (cx, cy), r, color, thick)
-
-        elif step_id == "shoot":
-            det_color = get_gesture_color(detected)
-            draw_outlined_text(frame, f"Throw: {detected}", _ix(w * 0.12),
-                               status_y1 + _ix((status_y2 - status_y1) * 0.50),
-                               0.54, det_color, thickness=2, outline=3)
-
-            # Show countdown during the 2-second wait, then switch to prompt
-            shoot_since = tut_state.get("shoot_visible_since")
-            if shoot_since is not None:
-                elapsed = time.monotonic() - shoot_since
-                remaining = max(0.0, 2.0 - elapsed)
-                if remaining > 0.05:
-                    draw_outlined_text(frame, f"Get ready...  {remaining:.1f}s",
-                                       _ix(w * 0.55), status_y1 + _ix((status_y2 - status_y1) * 0.50),
-                                       0.44, COL_YELLOW, thickness=1, outline=2)
-                else:
-                    draw_outlined_text(frame, "THROW NOW!", _ix(w * 0.55),
-                                       status_y1 + _ix((status_y2 - status_y1) * 0.50),
-                                       0.48, COL_RED, thickness=2, outline=3)
-            else:
-                draw_outlined_text(frame, "Change from fist NOW!", _ix(w * 0.55),
-                                   status_y1 + _ix((status_y2 - status_y1) * 0.50),
-                                   0.44, COL_RED, thickness=1, outline=2)
-
-        elif step_id == "done":
-            if shot:
-                draw_centered_text(frame, f"You threw {shot}!",
-                                   status_y1 + _ix((status_y2 - status_y1) * 0.30),
-                                   0.52, get_gesture_color(shot), thickness=2, outline=3)
-
-            draw_centered_text(frame, "Press Enter to return to menu",
-                               status_y1 + _ix((status_y2 - status_y1) * 0.72),
-                               0.46, COL_TEXT_DIM, thickness=1, outline=2)
-
-    bottom_hint = (
-        'Say BACK to exit  |  Speak each word clearly'
-        if voice_mode
-        else "Your camera feed is live - try the gestures!  |  Say BACK to exit"
-    )
-    draw_bottom_bar(frame, bottom_hint)
+    draw_bottom_bar(frame, "Hold gesture to advance  *  ESC to skip")
 
 
 # ============================================================
@@ -1810,114 +1793,89 @@ def draw_gesture_nav_overlay(frame, cursor_info):
 
 def draw_login_screen(frame, login_text="", saved_name="", verified_players=None):
     """
-    Login screen  -  shown on first launch or when switching player.
-
-    - If saved_name is set: shows "Continue as <name>" option
-    - If verified_players exist: shows "Login via Fingerprint" option
-    - Always shows text input for typing a new name
+    Login / name-entry screen shown on first launch or player switch.
     """
-    import math
     import time as _time
 
-    w, h  = frame.shape[1], frame.shape[0]
-    t     = _time.monotonic()
-    cx, cy = w // 2, h // 2
+    w, h = frame.shape[1], frame.shape[0]
+    t    = _time.time()
 
-    verified = verified_players or []
+    recent = list(verified_players or [])
+    if saved_name and saved_name not in recent:
+        recent.insert(0, saved_name)
 
-    draw_top_bar(frame, "WELCOME", "Type your name and press ENTER")
+    draw_top_bar(frame, "R P S   R O B O T", "ENTER to confirm")
 
-    # Main panel
-    px1, px2 = _ix(w * 0.20), _ix(w * 0.80)
-    py1, py2 = _ix(h * 0.12), _ix(h * 0.88)
-    pw, ph   = px2 - px1, py2 - py1
-    draw_panel(frame, px1, py1, px2, py2,
-               fill=(6, 10, 22), alpha=0.96,
-               border=(60, 100, 140), border_thickness=2)
+    # ── Heading block centred at y=18% ───────────────────────────────────
+    draw_outlined_text(frame, "NICE TO MEET YOU",
+                       _ix(w * 0.50) - 120, _ix(h * 0.20),
+                       SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
+    heading = "What should we call you?"
+    font_d  = cv2.FONT_HERSHEY_DUPLEX
+    (hw, _), _ = cv2.getTextSize(heading, font_d, SCALE_DISPLAY_L, 2)
+    hx = (w - hw) // 2
+    cv2.putText(frame, heading, (hx, _ix(h * 0.30)),
+                font_d, SCALE_DISPLAY_L, (0, 0, 0), 4, cv2.LINE_AA)
+    cv2.putText(frame, heading, (hx, _ix(h * 0.30)),
+                font_d, SCALE_DISPLAY_L, COL_TEXT_PRIMARY, 2, cv2.LINE_AA)
+    caption = "Type your name and press ENTER"
+    sc_cap  = get_fit_scale(caption, _ix(w * 0.60), base_scale=SCALE_CAPTION,
+                            thickness=1, min_scale=0.24)
+    draw_centered_text(frame, caption, _ix(h * 0.37),
+                       sc_cap, COL_TEXT_DIM, thickness=1, outline=2)
 
-    # Title
-    draw_centered_text_in_rect(frame, "RPS Gesture Recogniser",
-        (px1, py1, px2, py1 + _ix(ph * 0.10)),
-        base_scale=0.52, color=(180, 190, 200), thickness=1, outline=2)
-
-    cv2.line(frame, (px1 + _ix(pw * 0.05), py1 + _ix(ph * 0.11)),
-             (px2 - _ix(pw * 0.05), py1 + _ix(ph * 0.11)), (40, 55, 75), 1)
-
-    section_y = py1 + _ix(ph * 0.14)
-
-    # ── Continue as saved player ────────────────────────────────────────
-    if saved_name:
-        draw_panel(frame, px1 + _ix(pw * 0.05), section_y,
-                   px2 - _ix(pw * 0.05), section_y + _ix(ph * 0.12),
-                   fill=(8, 24, 12), alpha=0.90,
-                   border=(60, 140, 80), border_thickness=2)
-        draw_centered_text_in_rect(frame,
-            f"Continue as  {saved_name}",
-            (px1 + _ix(pw * 0.05), section_y,
-             px2 - _ix(pw * 0.05), section_y + _ix(ph * 0.06)),
-            base_scale=0.46, color=(160, 220, 160), thickness=1, outline=2)
-        draw_centered_text_in_rect(frame,
-            "Press ENTER with empty box to continue",
-            (px1 + _ix(pw * 0.05), section_y + _ix(ph * 0.06),
-             px2 - _ix(pw * 0.05), section_y + _ix(ph * 0.12)),
-            base_scale=0.28, color=(100, 130, 100), thickness=1, outline=1)
-        section_y += _ix(ph * 0.16)
-
-    # ── Name input box ───────────────────────────────────────────────────
-    draw_outlined_text(frame, "Enter your name:",
-        px1 + _ix(pw * 0.07), section_y + _ix(ph * 0.02),
-        0.34, (160, 170, 185), thickness=1, outline=1)
-    section_y += _ix(ph * 0.07)
-
-    box_x1 = px1 + _ix(pw * 0.07)
-    box_x2 = px2 - _ix(pw * 0.07)
-    box_y1 = section_y
-    box_y2 = section_y + _ix(ph * 0.11)
+    # ── Input rectangle: x=22.7%, y=43%, w=54.6%, h=70px ────────────────
+    box_x1 = _ix(w * 0.227)
+    box_y1 = _ix(h * 0.43)
+    box_x2 = box_x1 + _ix(w * 0.546)
+    box_y2 = box_y1 + 70
     draw_panel(frame, box_x1, box_y1, box_x2, box_y2,
-               fill=(10, 14, 28), alpha=0.95,
-               border=(80, 120, 180), border_thickness=2)
+               fill=COL_PANEL_BG, alpha=0.70, border=COL_ACCENT, border_thickness=1)
 
-    # Cursor blink
-    cursor = "|" if int(t * 2) % 2 == 0 else ""
-    display_text = (login_text or "") + cursor
-    draw_centered_text_in_rect(frame, display_text or cursor,
-        (box_x1, box_y1, box_x2, box_y2),
-        base_scale=0.52, color=(220, 230, 255), thickness=1, outline=2)
-    section_y += _ix(ph * 0.15)
+    txt       = login_text or ""
+    font_d2   = cv2.FONT_HERSHEY_DUPLEX
+    (tw2, th2), _ = cv2.getTextSize(txt or "A", font_d2, SCALE_HEADING, 2)
+    ty        = box_y1 + (70 + th2) // 2
+    tx        = box_x1 + 14
+    if txt:
+        cv2.putText(frame, txt, (tx, ty), font_d2, SCALE_HEADING,
+                    (0, 0, 0), 4, cv2.LINE_AA)
+        cv2.putText(frame, txt, (tx, ty), font_d2, SCALE_HEADING,
+                    COL_TEXT_PRIMARY, 2, cv2.LINE_AA)
+    if int(t * 2) % 2 == 0:
+        (cw, _), _ = cv2.getTextSize(txt, font_d2, SCALE_HEADING, 2)
+        cur_x = tx + cw + 2
+        cv2.rectangle(frame, (cur_x, ty - th2 - 2), (cur_x + 2, ty + 4), COL_ACCENT, -1)
 
-    # ── Fingerprint login button ─────────────────────────────────────────
-    if verified:
-        cv2.line(frame,
-                 (px1 + _ix(pw * 0.05), section_y),
-                 (px2 - _ix(pw * 0.05), section_y),
-                 (40, 55, 75), 1)
-        section_y += _ix(ph * 0.04)
+    # ── Caption below input ───────────────────────────────────────────────
+    draw_centered_text(frame, "A-Z  *  1-12 characters  *  press ENTER when done",
+                       _ix(h * 0.60), SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
 
-        draw_panel(frame, px1 + _ix(pw * 0.05), section_y,
-                   px2 - _ix(pw * 0.05), section_y + _ix(ph * 0.12),
-                   fill=(8, 16, 28), alpha=0.90,
-                   border=(60, 100, 180), border_thickness=2)
-        pulse = 0.7 + 0.3 * abs(math.sin(t * math.pi * 0.8))
-        fp_col = tuple(min(255, int(c * pulse)) for c in (120, 180, 255))
-        draw_centered_text_in_rect(frame, "Login via Fingerprint  (TAB)",
-            (px1 + _ix(pw * 0.05), section_y,
-             px2 - _ix(pw * 0.05), section_y + _ix(ph * 0.07)),
-            base_scale=0.40, color=fp_col, thickness=1, outline=2)
-        names_str = "  ".join(verified[:3])
-        draw_centered_text_in_rect(frame,
-            f"Verified: {names_str}",
-            (px1 + _ix(pw * 0.05), section_y + _ix(ph * 0.07),
-             px2 - _ix(pw * 0.05), section_y + _ix(ph * 0.12)),
-            base_scale=0.26, color=(80, 110, 150), thickness=1, outline=1)
-        section_y += _ix(ph * 0.16)
+    # ── Recent players chips at y=68% ────────────────────────────────────
+    if recent:
+        draw_outlined_text(frame, "OR PICK A RECENT PLAYER",
+                           _ix(w * 0.10), _ix(h * 0.68),
+                           SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
+        chip_x = _ix(w * 0.10)
+        chip_y = _ix(h * 0.73)
+        for name in recent[:5]:
+            is_sel = (name == saved_name)
+            (nw, nh), _ = cv2.getTextSize(name, cv2.FONT_HERSHEY_SIMPLEX, SCALE_CAPTION, 1)
+            chip_w = nw + 32
+            chip_h = nh + 16
+            draw_panel(frame, chip_x, chip_y, chip_x + chip_w, chip_y + chip_h,
+                       fill=COL_PANEL_BG, alpha=0.85,
+                       border=COL_ACCENT if is_sel else COL_BORDER_HAIR,
+                       border_thickness=1)
+            draw_outlined_text(frame, name, chip_x + 16, chip_y + chip_h - 8,
+                               SCALE_CAPTION,
+                               COL_ACCENT if is_sel else COL_TEXT_SECONDARY,
+                               thickness=1, outline=2)
+            chip_x += chip_w + 8
+            if chip_x > _ix(w * 0.88):
+                break
 
-    # ── Helper tip ───────────────────────────────────────────────────────
-    draw_centered_text_in_rect(frame,
-        "New name = new profile created automatically",
-        (px1, py2 - _ix(ph * 0.07), px2, py2),
-        base_scale=0.28, color=(70, 85, 100), thickness=1, outline=1)
-
-    draw_bottom_bar(frame, "Type name  |  ENTER confirm  |  TAB fingerprint login")
+    draw_bottom_bar(frame, "Type name  *  ENTER Confirm  *  ESC Back")
 
 
 # ============================================================
@@ -1926,195 +1884,161 @@ def draw_login_screen(frame, login_text="", saved_name="", verified_players=None
 
 def draw_hardware_test_view(frame, diag_state):
     """
-    Dedicated full-screen hardware test UI for ESP32 serial communication.
-    Shows port selection, connection status, command log, and key hints.
+    Hardware test UI — left DEVICES panel, right COMMANDS panel.
     """
-    import time as _time
-    import cv2 as _cv2
-
     w, h = frame.shape[1], frame.shape[0]
 
-    pyserial_ok    = diag_state.get("pyserial_installed", False)
-    connected      = diag_state.get("connected",          False)
-    port_name      = diag_state.get("port",               None)
-    last_tx        = diag_state.get("last_tx",            None)
-    last_rx        = diag_state.get("last_rx",            None)
-    available      = diag_state.get("available_ports",    [])
-    selected_port  = diag_state.get("selected_port",      None)
-    sel_idx        = diag_state.get("selected_port_index", 0)
-    status_msg     = diag_state.get("status_message",     "")
+    pyserial_ok   = diag_state.get("pyserial_installed", False)
+    connected     = diag_state.get("connected",          False)
+    port_name     = diag_state.get("port",               None)
+    last_tx       = diag_state.get("last_tx",            None)
+    last_rx       = diag_state.get("last_rx",            None)
+    last_tx_age   = diag_state.get("last_tx_age_ms",     None)
+    available     = diag_state.get("available_ports",    [])
+    sel_idx       = diag_state.get("selected_port_index", 0)
+    status_msg    = diag_state.get("status_message",     "")
 
-    draw_top_bar(frame, "HARDWARE TEST  -  ESP32 SERIAL",
-                 "[ ] Select port  |  ENTER Connect  |  R/P/S Send  |  X Disconnect  |  ESC Back")
+    draw_top_bar(frame, "HARDWARE TEST",
+                 "[ ] Port  |  ENTER Connect  |  R/P/S Send  |  X Disconnect  |  ESC Back")
 
-    # ── pyserial warning ─────────────────────────────────────────────────
     if not pyserial_ok:
         draw_centered_text_in_rect(frame, "pyserial NOT INSTALLED",
             (0, _ix(h*0.30), w, _ix(h*0.42)),
-            base_scale=0.70, color=(220, 80, 80), thickness=1, outline=2)
-        draw_centered_text_in_rect(frame,
-            "Run:  pip install pyserial",
+            base_scale=0.70, color=COL_RED, thickness=1, outline=2)
+        draw_centered_text_in_rect(frame, "Run:  pip install pyserial",
             (0, _ix(h*0.44), w, _ix(h*0.54)),
-            base_scale=0.46, color=COL_YELLOW, thickness=1, outline=2)
-        draw_centered_text_in_rect(frame,
-            "Then restart the app.",
+            base_scale=0.46, color=COL_ACCENT, thickness=1, outline=2)
+        draw_centered_text_in_rect(frame, "Then restart the app.",
             (0, _ix(h*0.55), w, _ix(h*0.63)),
             base_scale=0.36, color=COL_TEXT_DIM, thickness=1, outline=1)
         draw_bottom_bar(frame, "ESC Back")
         return
 
-    # ── Layout: left panel (ports + status) | right panel (commands) ────
-    mid_x  = w // 2
-    pad    = _ix(w * 0.02)
-    top_y  = _ix(h * 0.11)
-    bot_y  = _ix(h * 0.90)
+    top_y = _ix(h * 0.105)
+    bot_y = _ix(h * 0.945)
+    pad   = _ix(w * 0.01)
 
-    # ── LEFT: Connection panel ───────────────────────────────────────────
-    lx1, lx2 = pad, mid_x - pad
+    # ── LEFT: Devices panel (x 3.6%, w 31%) ──────────────────────────────
+    lx1 = _ix(w * 0.036);  lx2 = lx1 + _ix(w * 0.31)
     draw_panel(frame, lx1, top_y, lx2, bot_y,
-               fill=(6, 8, 20), alpha=0.90,
-               border=COL_ACCENT if connected else COL_BORDER_HAIR,
-               border_thickness=1)
+               fill=COL_PANEL_BG, alpha=0.88, border=COL_BORDER_HAIR, border_thickness=1)
+    lph = bot_y - top_y
+    lpw = lx2 - lx1
 
-    ly = top_y + _ix(h * 0.03)
-    lh = _ix(h * 0.038)
+    title_h = 32
+    draw_outlined_text(frame, "DEVICES",
+                       lx1 + _ix(lpw * 0.05), top_y + _ix(title_h * 0.72),
+                       SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
+    cv2.line(frame, (lx1, top_y + title_h), (lx2, top_y + title_h), COL_BORDER_HAIR, 1)
 
-    # Connection status header
-    status_col = COL_GREEN if connected else (200, 80, 80)
-    status_str = f"CONNECTED  -  {port_name}" if connected else "DISCONNECTED"
-    draw_centered_text_in_rect(frame, status_str,
-        (lx1, ly, lx2, ly + lh),
-        base_scale=0.44, color=status_col, thickness=2, outline=3)
-    ly += lh + _ix(h * 0.01)
-
-    # Divider
-    cv2.line(frame, (lx1 + pad, ly), (lx2 - pad, ly), (40, 50, 70), 1)
-    ly += _ix(h * 0.015)
-
-    # Port list
-    draw_outlined_text(frame, "Available ports:", lx1 + pad, ly, 0.36,
-                       COL_TEXT_DIM, thickness=1, outline=1)
-    ly += _ix(h * 0.04)
-
+    row_h  = 68
+    row_y  = top_y + title_h
     if not available:
-        draw_outlined_text(frame, "  (none found  -  is ESP32 plugged in?)",
-                           lx1 + pad, ly, 0.32, (180, 100, 60),
-                           thickness=1, outline=1)
-        ly += _ix(h * 0.04)
+        draw_outlined_text(frame, "(no devices found)",
+                           lx1 + _ix(lpw * 0.05), row_y + 28,
+                           SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
     else:
         for i, port in enumerate(available):
+            ry1 = row_y + i * row_h
+            ry2 = ry1 + row_h
+            if ry2 > bot_y:
+                break
             is_sel = (i == sel_idx)
-            bg_col = (20, 40, 60) if is_sel else (8, 10, 20)
-            bdr    = COL_CYAN if is_sel else (40, 50, 70)
-            draw_panel(frame,
-                       lx1 + pad, ly - _ix(h*0.005),
-                       lx2 - pad, ly + _ix(h*0.032),
-                       fill=bg_col, alpha=0.90, border=bdr, border_thickness=1)
-            col = COL_CYAN if is_sel else COL_TEXT_DIM
+            if is_sel:
+                roi = frame[ry1:ry2, lx1:lx2]
+                if roi.size > 0:
+                    ov = roi.copy()
+                    cv2.rectangle(ov, (0, 0), (lx2 - lx1, row_h), COL_ACCENT, -1)
+                    cv2.addWeighted(ov, 0.06, roi, 0.94, 0, roi)
+                cv2.rectangle(frame, (lx1, ry1 + 2), (lx1 + 2, ry2 - 2), COL_ACCENT, -1)
+            row_pad = _ix(lpw * 0.05)
             draw_outlined_text(frame, port,
-                               lx1 + _ix(w*0.03), ly + _ix(h*0.022),
-                               SCALE_CAPTION, col, thickness=1, outline=2)
-            ly += _ix(h * 0.048)
+                               lx1 + row_pad, ry1 + 26,
+                               SCALE_BODY, COL_TEXT_PRIMARY, thickness=1, outline=2)
+            is_connected = connected and port == port_name
+            detail = "Active connection" if is_connected else "Available"
+            draw_outlined_text(frame, detail,
+                               lx1 + row_pad, ry1 + 48,
+                               SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
+            dot_col  = COL_GREEN if is_connected else COL_AMBER
+            dot_lbl  = "CONNECTED" if is_connected else "IDLE"
+            dot_x    = lx2 - _ix(lpw * 0.12)
+            dot_y_c  = ry1 + 30
+            cv2.circle(frame, (dot_x, dot_y_c), 4, dot_col, -1)
+            draw_outlined_text(frame, dot_lbl, dot_x + 8, dot_y_c + 4,
+                               SCALE_MICRO, dot_col, thickness=1, outline=2)
+            if i > 0:
+                cv2.line(frame, (lx1 + 3, ry1), (lx2 - 3, ry1), COL_BORDER_HAIR, 1)
 
-    ly += _ix(h * 0.01)
-    cv2.line(frame, (lx1 + pad, ly), (lx2 - pad, ly), (40, 50, 70), 1)
-    ly += _ix(h * 0.015)
-
-    # Last TX / RX
-    tx_col = COL_GREEN if last_tx else COL_TEXT_DIM
-    rx_col = COL_YELLOW if last_rx else COL_TEXT_DIM
-    draw_outlined_text(frame, f"TX: {last_tx or '(none)'}",
-                       lx1 + pad, ly, 0.34, tx_col, thickness=1, outline=1)
-    ly += _ix(h * 0.04)
-    draw_outlined_text(frame, f"RX: {last_rx or '(none)'}",
-                       lx1 + pad, ly, 0.34, rx_col, thickness=1, outline=1)
-    ly += _ix(h * 0.05)
-
-    # Status message
-    if status_msg:
-        draw_centered_text_in_rect(frame, status_msg,
-            (lx1, ly, lx2, ly + _ix(h*0.045)),
-            base_scale=0.32, color=COL_TEXT_ACCENT, thickness=1, outline=1)
-
-    # ── RIGHT: Command panel ─────────────────────────────────────────────
-    rx1, rx2 = mid_x + pad, w - pad
+    # ── RIGHT: Commands panel (x 36.4%, w 60%) ───────────────────────────
+    rx1 = _ix(w * 0.364);  rx2 = rx1 + _ix(w * 0.60)
     draw_panel(frame, rx1, top_y, rx2, bot_y,
-               fill=(6, 8, 20), alpha=0.90,
-               border=(80, 80, 100), border_thickness=1)
+               fill=COL_PANEL_BG, alpha=0.88, border=COL_BORDER_HAIR, border_thickness=1)
+    rph = bot_y - top_y
+    rpw = rx2 - rx1
 
-    ry = top_y + _ix(h * 0.03)
-    rh = _ix(h * 0.038)
-
-    draw_centered_text_in_rect(frame, "COMMANDS",
-        (rx1, ry, rx2, ry + rh),
-        base_scale=0.44, color=COL_TEXT_ACCENT, thickness=1, outline=2)
-    ry += rh + _ix(h * 0.015)
-
-    cv2.line(frame, (rx1 + pad, ry), (rx2 - pad, ry), (40, 50, 70), 1)
-    ry += _ix(h * 0.02)
+    draw_outlined_text(frame, "COMMANDS",
+                       rx1 + _ix(rpw * 0.03), top_y + _ix(title_h * 0.72),
+                       SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
+    cv2.line(frame, (rx1, top_y + title_h), (rx2, top_y + title_h), COL_BORDER_HAIR, 1)
 
     commands = [
-        ("R", "ROCK",     COL_CYAN),
-        ("P", "PAPER",    COL_GREEN),
-        ("S", "SCISSORS", COL_MAGENTA),
-        ("O", "OPEN",     (180, 180, 80)),
-        ("C", "CLOSE",    (120, 120, 180)),
-        ("T", "PING",     COL_TEXT_DIM),
+        ("R", "ROCK"),
+        ("P", "PAPER"),
+        ("S", "SCISSORS"),
+        ("O", "OPEN"),
+        ("C", "CLOSE"),
+        ("T", "PING"),
     ]
+    n_cols   = 2
+    tile_w   = rpw // n_cols
+    tile_h   = _ix(rph * 0.12)
+    tile_y0  = top_y + title_h + 4
 
-    cmd_h = _ix(h * 0.068)
-    for key_char, cmd, col in commands:
+    for i, (key_char, cmd) in enumerate(commands):
+        col_i = i % n_cols
+        row_i = i // n_cols
+        tx1   = rx1 + col_i * tile_w + 4
+        tx2   = tx1 + tile_w - 8
+        ty1   = tile_y0 + row_i * tile_h + 2
+        ty2   = ty1 + tile_h - 4
         active = last_tx == f"CMD|{cmd}"
-        bg = (15, 30, 15) if active else (8, 10, 20)
-        bdr = COL_GREEN if active else (40, 50, 70)
-        draw_panel(frame,
-                   rx1 + pad, ry,
-                   rx2 - pad, ry + cmd_h - 4,
-                   fill=bg, alpha=0.92, border=bdr, border_thickness=1)
-        # Key badge
-        kx = rx1 + _ix(w*0.03)
-        draw_panel(frame, kx, ry + 4, kx + _ix(w*0.04), ry + cmd_h - 8,
-                   fill=(20, 35, 55), alpha=0.95, border=col, border_thickness=1)
+        draw_panel(frame, tx1, ty1, tx2, ty2,
+                   fill=COL_PANEL_BG, alpha=0.85,
+                   border=COL_ACCENT if active else COL_BORDER_HAIR, border_thickness=1)
+        kx1 = tx1 + 6;  kx2 = kx1 + _ix(tile_h * 0.60)
+        draw_panel(frame, kx1, ty1 + 6, kx2, ty2 - 6,
+                   fill=COL_PANEL_BG, alpha=0.92, border=COL_ACCENT, border_thickness=1)
         draw_centered_text_in_rect(frame, key_char,
-            (kx, ry + 4, kx + _ix(w*0.04), ry + cmd_h - 8),
-            base_scale=0.42, color=col, thickness=2, outline=2)
-        # Command name
+            (kx1, ty1 + 6, kx2, ty2 - 6),
+            base_scale=SCALE_CAPTION, color=COL_ACCENT, thickness=1, outline=2)
         draw_outlined_text(frame, f"CMD|{cmd}",
-                           kx + _ix(w*0.05), ry + _ix(h*0.038),
-                           0.38, col if active else COL_TEXT_DIM,
+                           kx2 + 8, ty1 + _ix(tile_h * 0.60),
+                           SCALE_CAPTION, COL_TEXT_PRIMARY if active else COL_TEXT_SECONDARY,
                            thickness=1, outline=2)
         if active:
             draw_outlined_text(frame, "SENT",
-                               rx2 - _ix(w*0.09), ry + _ix(h*0.038),
-                               0.30, COL_GREEN, thickness=1, outline=1)
-        ry += cmd_h
+                               tx2 - _ix(rpw * 0.08), ty1 + _ix(tile_h * 0.60),
+                               SCALE_MICRO, COL_GREEN, thickness=1, outline=2)
 
-    ry += _ix(h * 0.01)
-    cv2.line(frame, (rx1 + pad, ry), (rx2 - pad, ry), (40, 50, 70), 1)
-    ry += _ix(h * 0.02)
-
-    # Connection instructions
-    if not connected:
-        hint_lines = [
-            "1. Plug in ESP32 via USB",
-            "2. Press [ ] to select port",
-            "3. Press ENTER to connect",
-            "4. Use R / P / S to test",
-        ]
-    else:
-        hint_lines = [
-            "Connected! Test with R / P / S",
-            "T = PING (connection test)",
-            "X = Disconnect",
-        ]
-    for line in hint_lines:
-        col = COL_TEXT_ACCENT if connected else COL_TEXT_DIM
-        draw_outlined_text(frame, line, rx1 + pad, ry, 0.32, col,
-                           thickness=1, outline=1)
-        ry += _ix(h * 0.038)
+    # Footer log at panel inner-bottom
+    log_y = bot_y - _ix(rph * 0.12)
+    cv2.line(frame, (rx1 + 4, log_y), (rx2 - 4, log_y), COL_BORDER_HAIR, 1)
+    if last_tx:
+        age_str = f"{last_tx_age}ms ago" if last_tx_age else ""
+        ack_str = "ACK received" if last_rx else ""
+        parts   = [p for p in ["LAST  *  sent", last_tx, age_str, ack_str] if p]
+        log_txt = "  *  ".join(parts)
+        sc_log  = get_fit_scale(log_txt, rpw - 12, base_scale=SCALE_MICRO,
+                                thickness=1, min_scale=0.24)
+        draw_outlined_text(frame, log_txt, rx1 + 6, log_y + _ix(rph * 0.06),
+                           sc_log, COL_TEXT_SECONDARY, thickness=1, outline=2)
+    elif status_msg:
+        draw_outlined_text(frame, status_msg, rx1 + 6, log_y + _ix(rph * 0.06),
+                           SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
 
     draw_bottom_bar(frame,
-        "[ ] Cycle ports  |  ENTER Connect  |  R Rock  P Paper  S Scissors  |  T Ping  |  X Disconnect  |  ESC Back")
+        "[ ] Cycle ports  *  ENTER Connect  *  R/P/S Send  *  T Ping  *  X Disconnect  *  ESC Back")
 
 
 # ============================================================
@@ -2232,149 +2156,90 @@ def draw_notes_screen(frame, text_buffer, submitted=False, saved_path="", return
 def draw_consent_screen(frame, selected=0):
     """
     First-run privacy consent screen.
-    Shown once before the player enters their name.
     selected: 0 = Accept, 1 = Decline
     """
-    import math as _math
-    import time as _time
-
     w, h = frame.shape[1], frame.shape[0]
-    t    = _time.monotonic()
 
-    draw_top_bar(frame, "RPS ROBOT", "Privacy Notice")
+    draw_top_bar(frame, "BEFORE YOU PLAY", "W/S Navigate  *  ENTER Select")
 
-    # ── Title ────────────────────────────────────────────────────────────
-    title_y1 = _ix(h * 0.08)
-    title_y2 = _ix(h * 0.16)
-    draw_centered_text_in_rect(frame, "BEFORE YOU PLAY",
-        (0, title_y1, w, title_y2),
-        base_scale=0.65, color=COL_CYAN, thickness=1, outline=2)
-
-    # ── Content panel — occupies middle section ──────────────────────────
-    px1 = _ix(w * 0.07)
-    px2 = _ix(w * 0.93)
-    py1 = _ix(h * 0.17)
-    py2 = _ix(h * 0.70)
+    # ── Content panel ────────────────────────────────────────────────────
+    px1 = _ix(w * 0.10);  px2 = _ix(w * 0.90)
+    py1 = _ix(h * 0.12);  py2 = _ix(h * 0.72)
     pw  = px2 - px1
     ph  = py2 - py1
-
     draw_panel(frame, px1, py1, px2, py2,
-               fill=(6, 10, 24), alpha=0.94,
-               border=(50, 70, 100), border_thickness=1)
+               fill=COL_PANEL_BG, alpha=0.88, border=COL_BORDER_HAIR, border_thickness=1)
 
-    # Content rows — fixed pixel positions, not cumulative offsets
-    # This prevents any overflow regardless of line count
-    pad  = _ix(w * 0.035)
-    tx   = px1 + pad
-    rows = [
-        # (y_fraction_of_panel, text, color, scale)
-        (0.06,  "To help improve RPS Robot, the app can optionally send:",
-                (160, 190, 220), 0.36),
-
-        (0.20,  "CRASH REPORTS  (automatic, if the app stops unexpectedly)",
-                (100, 210, 120), 0.34),
-        (0.28,  "   Includes: error message, OS version, Python version, app version.",
-                (100, 130, 110), 0.28),
-        (0.34,  "   Never includes: gameplay data, camera feed, or personal info.",
-                (100, 130, 110), 0.28),
-
-        (0.48,  "FEEDBACK  (only when you press ENTER to submit a note)",
-                (100, 210, 120), 0.34),
-        (0.56,  "   Includes: your player name, the message you typed, timestamp.",
-                (100, 130, 110), 0.28),
-
-        (0.70,  "NOTHING ELSE is ever sent. No camera. No location. No tracking.",
-                (220, 200, 100), 0.32),
-
-        (0.82,  "All data goes to a private developer Discord channel only.",
-                (100, 110, 130), 0.27),
-        (0.90,  "You can change this choice at any time in Settings > Privacy.",
-                (100, 110, 130), 0.27),
+    lx = px1 + _ix(pw * 0.08)
+    rx = px1 + _ix(pw * 0.28)
+    row_gap = _ix(ph * 0.22)
+    data_rows = [
+        ("CAMERA",    "We use your camera to detect hand gestures only."),
+        ("HAND DATA", "Hand tracking is local and not stored or sent."),
+        ("NAMES",     "Your player name is saved on this device only."),
+        ("NO ACCOUNT","No login, no tracking, no cloud required."),
     ]
+    for i, (tag, body) in enumerate(data_rows):
+        ry = py1 + _ix(ph * 0.10) + i * row_gap
+        draw_outlined_text(frame, tag, lx, ry,
+                           SCALE_CAPTION, COL_ACCENT, thickness=1, outline=2)
+        sc_b = get_fit_scale(body, px2 - rx - _ix(pw * 0.04),
+                             base_scale=SCALE_BODY, thickness=1, min_scale=0.28)
+        draw_outlined_text(frame, body, rx, ry,
+                           sc_b, COL_TEXT_SECONDARY, thickness=1, outline=2)
+        if i < len(data_rows) - 1:
+            cv2.line(frame, (lx, ry + _ix(ph * 0.14)), (px2 - _ix(pw * 0.04), ry + _ix(ph * 0.14)),
+                     COL_BORDER_HAIR, 1)
 
-    for frac, text, col, scale in rows:
-        ty = py1 + int(ph * frac)
-        draw_outlined_text(frame, text, tx, ty, scale, col,
-                           thickness=1, outline=2)
-
-    # ── Buttons ──────────────────────────────────────────────────────────
-    # Fixed positions — never overlap the content panel
-    btn_y1  = _ix(h * 0.73)
-    btn_y2  = _ix(h * 0.89)
+    # ── Button cards at y=80-93% ─────────────────────────────────────────
+    btn_y1  = _ix(h * 0.80);  btn_y2 = _ix(h * 0.93)
     btn_h   = btn_y2 - btn_y1
-    btn_mid = w // 2
-    btn_gap = _ix(w * 0.025)
+    btn_gap = _ix(w * 0.02)
+    ac_x1   = _ix(w * 0.10);  ac_x2 = w // 2 - btn_gap
+    dc_x1   = w // 2 + btn_gap; dc_x2 = _ix(w * 0.90)
 
-    # -- Accept --
-    ac_x1 = _ix(w * 0.07)
-    ac_x2 = btn_mid - btn_gap
+    # Accept card
+    acc_sel = (selected == 0)
+    draw_panel(frame, ac_x1, btn_y1, ac_x2, btn_y2,
+               fill=COL_PANEL_BG, alpha=0.85,
+               border=COL_ACCENT if acc_sel else COL_BORDER_HAIR, border_thickness=1)
+    if acc_sel:
+        cv2.rectangle(frame, (ac_x1, btn_y1 + 2), (ac_x1 + 2, btn_y2 - 2), COL_ACCENT, -1)
+    draw_centered_text_in_rect(frame, "Accept",
+        (ac_x1, btn_y1, ac_x2, btn_y1 + _ix(btn_h * 0.52)),
+        base_scale=SCALE_HEADING,
+        color=COL_TEXT_PRIMARY if acc_sel else COL_TEXT_SECONDARY,
+        thickness=1, outline=2)
+    draw_centered_text_in_rect(frame, "I agree to camera use",
+        (ac_x1, btn_y1 + _ix(btn_h * 0.55), ac_x2, btn_y2 - _ix(btn_h * 0.08)),
+        base_scale=SCALE_CAPTION,
+        color=COL_TEXT_DIM if acc_sel else COL_TEXT_DIM,
+        thickness=1, outline=2)
+    if acc_sel:
+        hint_str = "ENTER CONFIRM"
+        (hw, _), _ = cv2.getTextSize(hint_str, cv2.FONT_HERSHEY_SIMPLEX, SCALE_MICRO, 1)
+        draw_outlined_text(frame, hint_str, ac_x2 - hw - _ix(pw * 0.04),
+                           btn_y2 - _ix(btn_h * 0.14),
+                           SCALE_MICRO, COL_ACCENT, thickness=1, outline=2)
 
-    if selected == 0:
-        # Selected: dark background, bright cyan border, white text
-        draw_panel(frame, ac_x1, btn_y1, ac_x2, btn_y2,
-                   fill=(8, 28, 18), alpha=0.96,
-                   border=(60, 220, 120), border_thickness=3)
-        # Label
-        draw_centered_text_in_rect(frame, "ACCEPT",
-            (ac_x1, btn_y1, ac_x2, btn_y1 + int(btn_h * 0.55)),
-            base_scale=0.54, color=(60, 230, 130), thickness=2, outline=3)
-        # Subtitle
-        draw_centered_text_in_rect(frame, "Send crash reports + feedback",
-            (ac_x1, btn_y1 + int(btn_h * 0.58), ac_x2, btn_y2),
-            base_scale=0.27, color=(60, 160, 90), thickness=1, outline=2)
-    else:
-        # Unselected: very dark, dim text
-        draw_panel(frame, ac_x1, btn_y1, ac_x2, btn_y2,
-                   fill=(6, 14, 10), alpha=0.90,
-                   border=(30, 80, 50), border_thickness=1)
-        draw_centered_text_in_rect(frame, "ACCEPT",
-            (ac_x1, btn_y1, ac_x2, btn_y1 + int(btn_h * 0.55)),
-            base_scale=0.54, color=(40, 120, 70), thickness=1, outline=2)
-        draw_centered_text_in_rect(frame, "Send crash reports + feedback",
-            (ac_x1, btn_y1 + int(btn_h * 0.58), ac_x2, btn_y2),
-            base_scale=0.27, color=(30, 80, 50), thickness=1, outline=1)
+    # No Thanks card
+    dec_sel = (selected == 1)
+    draw_panel(frame, dc_x1, btn_y1, dc_x2, btn_y2,
+               fill=COL_PANEL_BG, alpha=0.85,
+               border=COL_BORDER_HAIR, border_thickness=1)
+    if dec_sel:
+        cv2.rectangle(frame, (dc_x1, btn_y1 + 2), (dc_x1 + 2, btn_y2 - 2),
+                      COL_TEXT_PRIMARY, -1)
+    draw_centered_text_in_rect(frame, "No thanks",
+        (dc_x1, btn_y1, dc_x2, btn_y1 + _ix(btn_h * 0.52)),
+        base_scale=SCALE_HEADING,
+        color=COL_TEXT_PRIMARY if dec_sel else COL_TEXT_SECONDARY,
+        thickness=1, outline=2)
+    draw_centered_text_in_rect(frame, "Local data only",
+        (dc_x1, btn_y1 + _ix(btn_h * 0.55), dc_x2, btn_y2 - _ix(btn_h * 0.08)),
+        base_scale=SCALE_CAPTION, color=COL_TEXT_DIM, thickness=1, outline=2)
 
-    # -- No Thanks --
-    dc_x1 = btn_mid + btn_gap
-    dc_x2 = _ix(w * 0.93)
-
-    if selected == 1:
-        # Selected: dark background, red border, red text
-        draw_panel(frame, dc_x1, btn_y1, dc_x2, btn_y2,
-                   fill=(28, 8, 8), alpha=0.96,
-                   border=(220, 80, 80), border_thickness=3)
-        draw_centered_text_in_rect(frame, "NO THANKS",
-            (dc_x1, btn_y1, dc_x2, btn_y1 + int(btn_h * 0.55)),
-            base_scale=0.54, color=(230, 90, 90), thickness=2, outline=3)
-        draw_centered_text_in_rect(frame, "Save locally only",
-            (dc_x1, btn_y1 + int(btn_h * 0.58), dc_x2, btn_y2),
-            base_scale=0.27, color=(160, 70, 70), thickness=1, outline=2)
-    else:
-        # Unselected: very dark, dim text
-        draw_panel(frame, dc_x1, btn_y1, dc_x2, btn_y2,
-                   fill=(14, 6, 6), alpha=0.90,
-                   border=(80, 30, 30), border_thickness=1)
-        draw_centered_text_in_rect(frame, "NO THANKS",
-            (dc_x1, btn_y1, dc_x2, btn_y1 + int(btn_h * 0.55)),
-            base_scale=0.54, color=(120, 50, 50), thickness=1, outline=2)
-        draw_centered_text_in_rect(frame, "Save locally only",
-            (dc_x1, btn_y1 + int(btn_h * 0.58), dc_x2, btn_y2),
-            base_scale=0.27, color=(80, 35, 35), thickness=1, outline=1)
-
-    # Selection indicator arrow above active button
-    pulse = 0.6 + 0.4 * abs(_math.sin(t * _math.pi * 1.5))
-    arr_col = tuple(min(255, int(c * pulse)) for c in
-                    ((60, 220, 120) if selected == 0 else (220, 80, 80)))
-    arr_cx = (ac_x1 + ac_x2) // 2 if selected == 0 else (dc_x1 + dc_x2) // 2
-    arr_y  = btn_y1 - _ix(h * 0.015)
-    cv2.fillPoly(frame, [__import__('numpy').array([
-        [arr_cx,          arr_y],
-        [arr_cx - _ix(w*0.015), arr_y - _ix(h*0.025)],
-        [arr_cx + _ix(w*0.015), arr_y - _ix(h*0.025)],
-    ], dtype=__import__('numpy').int32)], arr_col)
-
-    draw_bottom_bar(frame,
-        "LEFT / RIGHT  -  choose  |  ENTER  -  confirm  |  TAB  -  toggle")
+    draw_bottom_bar(frame, "W/S Navigate  *  ENTER Select  *  ESC Back")
 
 
 # ============================================================
@@ -2405,8 +2270,10 @@ def draw_calibration_view(frame, cal_state, hand_state=None):
     hand_visible  = cal_state.get("hand_visible",   False)
     accuracy      = cal_state.get("training_result",None)
 
-    draw_top_bar(frame, "GESTURE CALIBRATION",
-                 "Recommended for best accuracy  |  ESC to skip  |  U to update")
+    g_idx_label = f"{gesture_idx + 1} OF {gesture_count}"
+    var_label   = variation if variation else ""
+    top_right   = f"VARIATION {var_label}  |  ESC to skip" if var_label else "ESC to skip"
+    draw_top_bar(frame, f"CALIBRATION  *  {g_idx_label}", top_right)
 
     # ── INTRO ────────────────────────────────────────────────────────────
     if phase == "INTRO":
@@ -2446,93 +2313,101 @@ def draw_calibration_view(frame, cal_state, hand_state=None):
 
     # ── COLLECTING ───────────────────────────────────────────────────────
     elif phase == "COLLECTING":
-        # Header with gesture name
-        g_col = {"Rock": COL_CYAN, "Paper": COL_GREEN,
-                 "Scissors": COL_MAGENTA}.get(gesture, COL_TEXT_ACCENT)
-        draw_centered_text_in_rect(frame, f"Show:  {gesture.upper()}",
-            (0, _ix(h*0.08), w, _ix(h*0.18)),
-            base_scale=0.75, color=g_col, thickness=1, outline=2)
+        pct_done = min(1.0, samples_this / max(samples_need, 1))
+        gesture_names_all = ["Rock", "Paper", "Scissors"]
 
-        # Instruction
-        draw_centered_text_in_rect(frame, instruction,
-            (0, _ix(h*0.20), w, _ix(h*0.28)),
-            base_scale=0.36, color=COL_TEXT_ACCENT, thickness=1, outline=2)
-
-        # Progress bar for this gesture
-        bx1 = _ix(w*0.10)
-        bx2 = _ix(w*0.90)
-        by  = _ix(h*0.32)
-        bh  = _ix(h*0.040)
-        cv2.rectangle(frame, (bx1, by), (bx2, by+bh), (20,25,40), -1)
-        pct = min(1.0, samples_this / max(samples_need, 1))
-        fx  = bx1 + int((bx2-bx1) * pct)
-        if fx > bx1:
-            cv2.rectangle(frame, (bx1, by), (fx, by+bh), g_col, -1)
-        cv2.rectangle(frame, (bx1, by), (bx2, by+bh), (50,65,90), 1)
-        draw_centered_text_in_rect(frame,
-            f"{samples_this} / {samples_need} samples",
-            (bx1, by, bx2, by+bh),
-            base_scale=0.32, color=(10,10,10) if pct > 0.3 else COL_TEXT_DIM,
-            thickness=1, outline=1)
-
-        # Gesture progress dots (Rock / Paper / Scissors)
-        dot_y = _ix(h * 0.41)
-        dot_spacing = w // (gesture_count + 1)
-        gesture_names = ["Rock", "Paper", "Scissors"]
-        for i, g in enumerate(gesture_names):
-            dx = (i + 1) * dot_spacing
-            done = i < gesture_idx
+        # Per-gesture progress strip at y=12%
+        card_w  = _ix(w * 0.30)
+        card_h  = 80
+        card_y1 = _ix(h * 0.12)
+        card_y2 = card_y1 + card_h
+        for i, gn in enumerate(gesture_names_all):
+            cx1 = _ix(w * (0.03 + i * 0.32))
+            cx2 = cx1 + card_w
+            done    = i < gesture_idx
             current = i == gesture_idx
-            c_counts = counts.get(g, 0)
             if done:
-                col = COL_GREEN
-                cv2.circle(frame, (dx, dot_y), _ix(h*0.022), col, -1)
+                card_border = COL_GREEN
+                label_col   = COL_GREEN
             elif current:
-                pulse2 = 0.7 + 0.3 * abs(_math.sin(t * _math.pi * 2.0))
-                col = tuple(min(255, int(c * pulse2)) for c in g_col)
-                cv2.circle(frame, (dx, dot_y), _ix(h*0.022), col, 2)
+                card_border = COL_ACCENT
+                label_col   = COL_ACCENT
             else:
-                col = (40, 50, 70)
-                cv2.circle(frame, (dx, dot_y), _ix(h*0.018), col, 1)
-            draw_centered_text_in_rect(frame, g,
-                (dx - _ix(w*0.07), dot_y + _ix(h*0.03),
-                 dx + _ix(w*0.07), dot_y + _ix(h*0.065)),
-                base_scale=0.30,
-                color=COL_GREEN if done else (col if current else (40,50,70)),
-                thickness=1, outline=1)
+                card_border = COL_BORDER_HAIR
+                label_col   = COL_TEXT_DIM
+            draw_panel(frame, cx1, card_y1, cx2, card_y2,
+                       fill=COL_PANEL_BG, alpha=0.85 if not current else 0.92,
+                       border=card_border, border_thickness=1)
+            if current:
+                roi = frame[card_y1:card_y2, cx1:cx2]
+                if roi.size > 0:
+                    ov = roi.copy()
+                    cv2.rectangle(ov, (0, 0), (cx2 - cx1, card_h), COL_ACCENT, -1)
+                    cv2.addWeighted(ov, 0.08, roi, 0.92, 0, roi)
+            glyph_sz = 24
+            gcx = cx1 + card_w // 2
+            gcy = card_y1 + 28
+            draw_gesture_glyph(frame, gn,
+                               (gcx - glyph_sz, gcy - glyph_sz,
+                                gcx + glyph_sz, gcy + glyph_sz),
+                               label_col)
+            draw_centered_text_in_rect(frame, gn,
+                (cx1, gcy + glyph_sz + 2, cx2, gcy + glyph_sz + 18),
+                base_scale=SCALE_CAPTION, color=label_col, thickness=1, outline=2)
+            if done:
+                status_cap = "Done"
+            elif current:
+                status_cap = f"{samples_this} / {samples_need}"
+            else:
+                status_cap = "Waiting"
+            draw_centered_text_in_rect(frame, status_cap,
+                (cx1, gcy + glyph_sz + 18, cx2, card_y2 - 6),
+                base_scale=SCALE_MICRO, color=label_col, thickness=1, outline=2)
+            if current:
+                bar_y = card_y2 - 5
+                cv2.rectangle(frame, (cx1 + 2, bar_y), (cx2 - 2, bar_y + 3), (28, 28, 28), -1)
+                fx = cx1 + 2 + _ix((cx2 - cx1 - 4) * pct_done)
+                if fx > cx1 + 2:
+                    cv2.rectangle(frame, (cx1 + 2, bar_y), (fx, bar_y + 3), COL_ACCENT, -1)
 
-        # Hand visibility indicator
-        hv_y = _ix(h * 0.52)
-        if hand_visible:
-            hv_col, hv_msg = (80,200,80), "Hand detected  -  press SPACE to capture"
+        # Centre block at y=38%
+        draw_outlined_text(frame, "HOLD STILL",
+                           _ix(w * 0.05), _ix(h * 0.38),
+                           SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
+        font_d = cv2.FONT_HERSHEY_DUPLEX
+        cv2.putText(frame, gesture, (_ix(w * 0.05), _ix(h * 0.48)),
+                    font_d, SCALE_DISPLAY_L, (0, 0, 0), 4, cv2.LINE_AA)
+        cv2.putText(frame, gesture, (_ix(w * 0.05), _ix(h * 0.48)),
+                    font_d, SCALE_DISPLAY_L, COL_TEXT_PRIMARY, 2, cv2.LINE_AA)
+        sc_instr = get_fit_scale(instruction, _ix(w * 0.85),
+                                 base_scale=SCALE_BODY, thickness=1, min_scale=0.26)
+        draw_outlined_text(frame, instruction,
+                           _ix(w * 0.05), _ix(h * 0.58),
+                           sc_instr, COL_TEXT_SECONDARY, thickness=1, outline=2)
+
+        # Footer at y=83%
+        if hand_state is not None:
+            detected_g = getattr(hand_state, 'gesture', '') or ''
+            g_conf = getattr(hand_state, 'confidence', 0.0) or 0.0
         else:
-            hv_col, hv_msg = (200,120,50), "No hand detected  -  hold your hand up"
-        draw_centered_text_in_rect(frame, hv_msg,
-            (0, hv_y, w, hv_y + _ix(h*0.06)),
-            base_scale=0.38, color=hv_col, thickness=1, outline=2)
+            detected_g = gesture if hand_visible else "Unknown"
+            g_conf = 0.85 if hand_visible else 0.0
+        draw_gesture_badge(frame, detected_g, g_conf, _ix(w * 0.04), _ix(h * 0.83))
 
-        # Status message
-        if status_msg:
-            draw_centered_text_in_rect(frame, status_msg,
-                (0, _ix(h*0.60), w, _ix(h*0.68)),
-                base_scale=0.36, color=COL_YELLOW, thickness=1, outline=2)
-
-        # Capture button hint
-        pulse3 = 0.6 + 0.4 * abs(_math.sin(t * _math.pi * 1.5))
-        pc2 = tuple(min(255, int(c * pulse3)) for c in g_col)
-        # Variation hint - tells user how to vary their pose
-        if variation and samples_this > 0:
-            draw_centered_text_in_rect(frame, f"Next: {variation}",
-                (0, _ix(h*0.67), w, _ix(h*0.73)),
-                base_scale=0.30, color=(120,160,120), thickness=1, outline=1)
-
-        draw_centered_text_in_rect(frame,
-            "SPACE  -  capture this frame",
-            (0, _ix(h*0.74), w, _ix(h*0.82)),
-            base_scale=0.46, color=pc2, thickness=2, outline=3)
+        pill_lbl = "SPACE TO CAPTURE"
+        (plw, plh), _ = cv2.getTextSize(pill_lbl, cv2.FONT_HERSHEY_SIMPLEX, SCALE_MICRO, 1)
+        pill_pad_x = 14;  pill_pad_y = 4
+        pill_x2 = _ix(w * 0.96)
+        pill_x1 = pill_x2 - plw - pill_pad_x * 2
+        pill_y1 = _ix(h * 0.83)
+        pill_y2 = pill_y1 + plh + pill_pad_y * 2
+        draw_panel(frame, pill_x1, pill_y1, pill_x2, pill_y2,
+                   fill=COL_PANEL_BG, alpha=0.85, border=COL_ACCENT, border_thickness=1)
+        draw_outlined_text(frame, pill_lbl, pill_x1 + pill_pad_x, pill_y2 - pill_pad_y,
+                           SCALE_MICRO, COL_ACCENT, thickness=1, outline=2)
 
         draw_bottom_bar(frame,
-            f"Capturing: {gesture}  |  SPACE capture  |  {samples_this}/{samples_need} done")
+            f"Capturing: {gesture}  *  SPACE capture  *  {samples_this}/{samples_need} done")
 
     # ── TRAINING ─────────────────────────────────────────────────────────
     elif phase == "TRAINING":
