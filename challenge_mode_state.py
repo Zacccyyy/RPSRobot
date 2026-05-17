@@ -120,6 +120,10 @@ class ChallengeController:
         self.tracker_reset_requested = False
         self.gesture_assumed = False
 
+        self._last_round_player_gest = None
+        self._last_round_robot_gest  = None
+        self._last_round_banner      = ""
+
         if self.robot_output is not None:
             self.robot_output.clear_pending_locked()
 
@@ -288,6 +292,9 @@ class ChallengeController:
         self.player_gesture = player_gesture
         self.computer_gesture = self.robot_locked_move
 
+        self._last_round_player_gest = player_gesture
+        self._last_round_robot_gest  = self.robot_locked_move or "Unknown"
+
         outcome = compare_rps(self.player_gesture, self.computer_gesture)
 
         if outcome == "win":
@@ -322,6 +329,7 @@ class ChallengeController:
             self._log_round(round_result, reaction_time_ms=reaction_time_ms)
 
             self.last_round_result = round_result
+            self._last_round_banner = self.result_banner
             self.state = "ROUND_RESULT"
             self.result_until = now + self.round_result_seconds
             return
@@ -356,6 +364,7 @@ class ChallengeController:
             self._log_round(round_result, reaction_time_ms=reaction_time_ms)
 
             self.last_round_result = round_result
+            self._last_round_banner = self.result_banner
             self.state = "ROUND_RESULT"
             self.result_until = now + self.round_result_seconds
             return
@@ -396,6 +405,7 @@ class ChallengeController:
             )
 
         self.last_round_result = round_result
+        self._last_round_banner = self.result_banner
         self.match_result_banner = "GAME OVER"
         self.state = "MATCH_RESULT"
         self.match_until = now + self.game_over_seconds
@@ -420,6 +430,9 @@ class ChallengeController:
             "robot_score": self.high_score,
             "request_tracker_reset": self.tracker_reset_requested,
             "gesture_assumed": getattr(self, "gesture_assumed", False),
+            "last_player_gesture": getattr(self, "_last_round_player_gest", None),
+            "last_robot_gesture":  getattr(self, "_last_round_robot_gest",  None),
+            "last_banner":         getattr(self, "_last_round_banner", ""),
         }
 
         if self.state == "ROUND_INTRO":

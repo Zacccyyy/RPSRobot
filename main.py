@@ -1592,8 +1592,6 @@ def handle_voice_nav(app_state, action):
             open_settings(app_state)
         elif action == "features":
             open_features(app_state)
-        elif action == "simulations":
-            app_state["app_screen"] = "SIMULATIONS"
         elif action == "snake":
             start_game(app_state, "ArcadeSnake")
         elif action == "squid":
@@ -1640,10 +1638,10 @@ def handle_voice_nav(app_state, action):
             else:
                 cat  = GAME_CATEGORIES[app_state["game_category_index"]]
                 mode = cat["modes"][app_state["game_mode_index"]]
-                if mode.get("key") == "RPSLS":
+                if mode[1] == "RPSLS":
                     app_state["app_screen"] = "RPSLS_SIDE_NOTICE"
                 else:
-                    start_game(app_state, mode["key"], from_category=True)
+                    start_game(app_state, mode[1], from_category=True)
         # Direct game name shortcuts inside category screen too
         elif action in ("snake", "squid", "simon", "bluff",
                         "reflex", "rehab", "race", "rpsls"):

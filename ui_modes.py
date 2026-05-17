@@ -732,7 +732,7 @@ def draw_bluff_mode_view(frame, game_state, tracker_state=None, hand_state=None,
                        SCALE_MICRO, COL_AMBER, thickness=1, outline=2)
 
     # Show declaration from COUNTDOWN onward
-    show_decl = cur_state in ("COUNTDOWN", "SHOOT_WINDOW", "ROUND_RESULT", "MATCH_RESULT")
+    show_decl = cur_state in ("DECLARATION", "COUNTDOWN", "SHOOT_WINDOW", "ROUND_RESULT", "MATCH_RESULT")
     if show_decl and declared and declared != "?":
         icon_rect = (cx1 + _ix(panel_w * 0.10),
                      pan_y1 + _ix(ph * 0.14),

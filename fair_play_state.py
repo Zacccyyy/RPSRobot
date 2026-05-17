@@ -1,4 +1,5 @@
 import time
+from collections import Counter
 
 from fair_play_ai import FairPlayAI
 
@@ -421,7 +422,6 @@ class FairPlayController:
             rt_list = getattr(self, "_session_reaction_times", [])
             avg_rt = round(sum(rt_list) / len(rt_list)) if rt_list else None
             gestures = getattr(self, "_session_gestures", [])
-            from collections import Counter
             gest_counts = Counter(gestures)
             top_gest = gest_counts.most_common(1)[0][0] if gest_counts else "?"
             total_rounds = self.round_number
