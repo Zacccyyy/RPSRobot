@@ -16,6 +16,7 @@ Profile data includes:
     - Overall gesture frequencies
 """
 
+import csv
 import json
 import os
 from datetime import datetime
@@ -613,9 +614,6 @@ class PlayerProfileStore:
         Export a player's round history to CSV.
         Returns the path written, or None on failure.
         """
-        import csv
-        from pathlib import Path
-
         profile = self.load_profile(player_name)
         if not profile:
             return None
@@ -733,7 +731,6 @@ class PlayerProfileStore:
         Returns list of session dicts:
           {date, mode, rounds_played, wins, losses, draws, win_rate, avg_reaction_ms}
         """
-        from datetime import datetime as _dt
         profile = self.load_profile(name)
         if profile is None or not profile["rounds"]:
             return []
@@ -751,8 +748,8 @@ class PlayerProfileStore:
             # Detect session break: round_number reset or >10 min gap
             gap_mins = 0
             try:
-                t1 = _dt.fromisoformat(prev.get("timestamp", ""))
-                t2 = _dt.fromisoformat(r.get("timestamp", ""))
+                t1 = datetime.fromisoformat(prev.get("timestamp", ""))
+                t2 = datetime.fromisoformat(r.get("timestamp", ""))
                 gap_mins = (t2 - t1).total_seconds() / 60
             except Exception:
                 pass
@@ -778,7 +775,7 @@ class PlayerProfileStore:
             mode   = sess[0].get("game_mode", "?")
             ts     = sess[0].get("timestamp", "")
             try:
-                date_str = _dt.fromisoformat(ts).strftime("%d %b  %H:%M")
+                date_str = datetime.fromisoformat(ts).strftime("%d %b  %H:%M")
             except Exception:
                 date_str = ts[:16] if ts else "Unknown"
 

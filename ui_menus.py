@@ -1078,7 +1078,7 @@ def draw_clone_setup_screen(frame, clone_state):
             draw_centered_text(frame, msg, py2 + 14, SCALE_CAPTION,
                                COL_AMBER, thickness=1, outline=2)
 
-        draw_bottom_bar(frame, "UP/DOWN Navigate  *  ENTER Fight  *  ESC Back")
+        draw_bottom_bar(frame, "UP/DOWN Navigate  |  ENTER Fight  |  ESC Back")
 
     elif step == "no_profiles":
         draw_top_bar(frame, "C L O N E   M O D E", "Enter/ESC to go back")
@@ -1584,7 +1584,7 @@ def draw_tutorial_screen(frame, tut_state):
     badge_x = (w - tw - 60) // 2
     draw_gesture_badge(frame, detected, conf, badge_x, _ix(h * 0.83))
 
-    draw_bottom_bar(frame, "Hold gesture to advance  *  ESC to skip")
+    draw_bottom_bar(frame, "Hold gesture to advance  |  ESC to skip")
 
 
 # ============================================================
@@ -1952,7 +1952,7 @@ def draw_login_screen(frame, login_text="", saved_name="", verified_players=None
             if chip_x > _ix(w * 0.88):
                 break
 
-    draw_bottom_bar(frame, "Type name  *  ENTER Confirm  *  ESC Back")
+    draw_bottom_bar(frame, "Type name  |  ENTER Confirm  |  ESC Back")
 
 
 # ============================================================
@@ -2316,7 +2316,7 @@ def draw_consent_screen(frame, selected=0):
         (dc_x1, btn_y1 + _ix(btn_h * 0.55), dc_x2, btn_y2 - _ix(btn_h * 0.08)),
         base_scale=SCALE_CAPTION, color=COL_TEXT_DIM, thickness=1, outline=2)
 
-    draw_bottom_bar(frame, "W/S Navigate  *  ENTER Select  *  ESC Back")
+    draw_bottom_bar(frame, "W/S Navigate  |  ENTER Select  |  ESC Back")
 
 
 # ============================================================

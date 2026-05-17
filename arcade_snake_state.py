@@ -13,6 +13,8 @@ Persistent high score saved to ~/Desktop/CapStone/snake_highscore.json
 import time
 import json
 import random
+import datetime
+import threading
 from collections import deque, Counter
 from pathlib import Path
 
@@ -97,14 +99,15 @@ class ArcadeSnakeController:
         self._is_new_record = score > self._persistent_hs
         if self._is_new_record:
             self._persistent_hs = score
-        # Add to leaderboard entries
-        import datetime
         entry = {"score": score, "date": datetime.date.today().isoformat()}
         self._leaderboard.append(entry)
         # Keep top 5 unique scores
         self._leaderboard = sorted(
             self._leaderboard, key=lambda e: -e["score"])[:5]
-        _save_high_score(self._persistent_hs, self._leaderboard)
+        # Write off the render thread to avoid blocking the camera loop
+        _hs, _lb = self._persistent_hs, list(self._leaderboard)
+        threading.Thread(target=_save_high_score, args=(_hs, _lb),
+                         daemon=True).start()
 
     def _resolve_voted_gesture(self):
         if not self._vote_buffer:

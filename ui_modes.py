@@ -266,7 +266,7 @@ def draw_pvpvai_view(frame, game_state,
                                    COL_RED, thickness=2, outline=3)
 
         # Result banner across full width below panels
-        b_col = COL_YELLOW if "DRAW" in banner.upper() else \
+        b_col = COL_TEXT_PRIMARY if "DRAW" in banner.upper() else \
                 (COL_GREEN if "PLAYER" in banner.upper() else COL_RED)
         draw_centered_text(frame, banner,
                            pan_y2 + _ix(h * 0.005), 0.48, b_col,
@@ -469,7 +469,7 @@ def draw_personality_settings(frame, selected_name, descriptions):
         cv2.rectangle(frame, (bar_x1, py), (bar_x2, py + bar_h), (25, 25, 35), -1)
         # Bar fill
         fill_end = bar_x1 + int((bar_x2 - bar_x1) * val)
-        bar_col  = sel_col if val >= 0.6 else (COL_YELLOW if val >= 0.3 else (80, 80, 100))
+        bar_col  = sel_col if val >= 0.6 else (COL_YELLOW if val >= 0.3 else COL_INACTIVE)
         if fill_end > bar_x1:
             cv2.rectangle(frame, (bar_x1, py), (fill_end, py + bar_h), bar_col, -1)
         # Bar border
@@ -2910,7 +2910,7 @@ def draw_hand_enroll_view(frame, game_state, hand_state=None):
         l_col   = COL_CYAN
     else:
         pct     = fp_stab
-        bar_col = COL_YELLOW if fp_stab > 0.5 else (80, 80, 100)
+        bar_col = COL_YELLOW if fp_stab > 0.5 else COL_INACTIVE
         label   = f"Stability  -  {fp_round}/{fp_rounds_tgt} rounds done  -  hold still to scan"
         l_col   = COL_TEXT_ACCENT
 
