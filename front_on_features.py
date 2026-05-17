@@ -125,7 +125,7 @@ def extract_features(hand_landmarks):
             feats.extend([curl, mcp_angle, pip_angle, tip_angle])
 
         # ── Thumb ───────────────────────────────────────────────────────────
-        thumb_curl   = _curl_ratio(lm, THUMB_MCP, THUMB_IP, THUMB_IP, THUMB_TIP)
+        thumb_curl   = _curl_ratio(lm, THUMB_CMC, THUMB_MCP, THUMB_IP, THUMB_TIP)
         # Thumb spread: angle between thumb tip and index MCP, relative to wrist
         spread       = _angle_3pts(lm, THUMB_TIP, WRIST, INDEX_MCP) / math.pi
         ip_angle     = _angle_3pts(lm, THUMB_MCP, THUMB_IP, THUMB_TIP) / math.pi

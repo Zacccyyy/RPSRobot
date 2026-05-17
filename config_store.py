@@ -73,10 +73,16 @@ def _normalise_config(config):
     if not isinstance(merged.get("colourblind_mode"), bool):
         merged["colourblind_mode"] = False
 
-    merged["shoot_window_seconds"] = max(0.35, min(2.0, float(merged["shoot_window_seconds"])))
-    merged["rock_assume_seconds"] = max(0.08, min(0.25, float(merged["rock_assume_seconds"])))
-    merged["beat_cooldown"] = max(0.10, min(0.35, float(merged["beat_cooldown"])))
-    merged["handedness_threshold"] = max(0.50, min(0.95, float(merged["handedness_threshold"])))
+    for _key, _lo, _hi in [
+        ("shoot_window_seconds", 0.35, 2.0),
+        ("rock_assume_seconds",  0.08, 0.25),
+        ("beat_cooldown",        0.10, 0.35),
+        ("handedness_threshold", 0.50, 0.95),
+    ]:
+        try:
+            merged[_key] = max(_lo, min(_hi, float(merged[_key])))
+        except (ValueError, TypeError, KeyError):
+            merged[_key] = DEFAULT_CONFIG[_key]
 
     return merged
 

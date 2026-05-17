@@ -680,7 +680,7 @@ def update_report(
         )
         if ch:
             content = _replace_table(
-                content, "**Metric** | **Zac",
+                content, f"**Metric** | **{p['player_name']}",
                 _table5b_rows(p, ch),
             )
 

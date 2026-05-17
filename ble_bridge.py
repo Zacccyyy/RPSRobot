@@ -292,21 +292,21 @@ class BLEBridge:
         Buffers incoming bytes and queues complete lines.
         """
         text = data.decode("utf-8", errors="replace")
+        lines_to_print = []
         with self._lock:
             self._read_buffer += text
-
-        while "\n" in self._read_buffer:
-            with self._lock:
+            while "\n" in self._read_buffer:
                 line, self._read_buffer = self._read_buffer.split("\n", 1)
-            line = line.strip()
-            if line:
-                now = time.monotonic()
-                with self._lock:
+                line = line.strip()
+                if line:
+                    now = time.monotonic()
                     self.last_response      = line
                     self.last_response_time = now
                     self.command_log.append(("RX", line, now))
                     self._response_queue.append(line)
-                print(f"[BLE] RX <- {line}")
+                    lines_to_print.append(line)
+        for line in lines_to_print:
+            print(f"[BLE] RX <- {line}")
 
     def read_response(self):
         """

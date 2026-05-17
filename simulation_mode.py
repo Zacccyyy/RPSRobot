@@ -320,6 +320,7 @@ def run_single_game(player_strategy, ai_type, num_rounds):
             player_outcome = "lose"
         else:
             draws += 1
+            streak = 0
             player_outcome = "draw"
 
         # Derive response type.

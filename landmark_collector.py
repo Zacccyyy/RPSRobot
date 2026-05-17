@@ -125,6 +125,8 @@ class LandmarkCollector:
 
         if features is None:
             return False, None, "Could not extract features"
+        if len(features) != FEATURE_DIM:
+            return False, None, f"Feature dimension mismatch: {len(features)} != {FEATURE_DIM}"
 
         try:
             with open(self.csv_path, "a", newline="") as f:
