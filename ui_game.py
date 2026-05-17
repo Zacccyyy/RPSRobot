@@ -232,14 +232,14 @@ def draw_info_panel(frame, tracker_state, game_state, count_text, status_text,
     draw_panel(frame, x1, y1, x2, y2,
                fill=COL_PANEL_BG, alpha=0.88, border=COL_ACCENT, border_thickness=1)
 
-    raw_gesture       = tracker_state["raw_gesture"]
-    stable_gesture    = tracker_state["stable_gesture"]
-    confirmed_gesture = tracker_state["confirmed_gesture"]
-    robot_ready       = tracker_state["robot_ready"]
-    command_text      = tracker_state["command"]
-    stable_streak     = tracker_state["stable_streak"]
-    history_size      = tracker_state["history_size"]
-    play_mode_label   = game_state["play_mode_label"]
+    raw_gesture       = tracker_state.get("raw_gesture",       "—")
+    stable_gesture    = tracker_state.get("stable_gesture",    "—")
+    confirmed_gesture = tracker_state.get("confirmed_gesture", "—")
+    robot_ready       = tracker_state.get("robot_ready",       False)
+    command_text      = tracker_state.get("command",           "")
+    stable_streak     = tracker_state.get("stable_streak",     0)
+    history_size      = tracker_state.get("history_size",      0)
+    play_mode_label   = game_state.get("play_mode_label",      "")
 
     fps_line = []
     if fps is not None:
@@ -312,7 +312,7 @@ def draw_diagnostic_game_panel(frame, game_state):
     line2 = f"Beats: {beat_count}/4"
     if round_text: line2 += f"   {round_text}"
     if score_text: line2 += f"   {score_text}"
-    if game_state["state"] == "SHOOT_WINDOW":
+    if game_state.get("state") == "SHOOT_WINDOW":
         line2 += f"   {time_left:.2f}s"
     draw_outlined_text(frame, line2, x1 + _ix(w * 0.022), y1 + _ix(h * 0.095),
                        SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
@@ -333,10 +333,10 @@ def draw_arcade_hero(frame, game_state, voice_mode_active=False):
     layout     = _game_layout(frame)
     w, h       = layout["w"], layout["h"]
     x1, y1, x2, y2 = layout["hero"]
-    state      = game_state["state"]
-    main_text  = game_state["main_text"]
-    sub_text   = game_state["sub_text"]
-    time_left  = game_state["time_left"]
+    state      = game_state.get("state",     "")
+    main_text  = game_state.get("main_text", "")
+    sub_text   = game_state.get("sub_text",  "")
+    time_left  = game_state.get("time_left", 0.0)
     beat_count = game_state.get("beat_count", 0)
 
     # Border colour reflects win/loss state during result (kept for overlay callers)
@@ -545,8 +545,10 @@ def draw_result_screen(frame, game_state, colourblind=False):
         'lizard':   ( 80, 160,  80),
         'spock':    (200, 100, 200),
     }
-    p_base  = _GESTURE_COLS.get(game_state["player_gesture"].lower(),   COL_TEXT_SECONDARY)
-    ai_base = _GESTURE_COLS.get(game_state["computer_gesture"].lower(), COL_TEXT_SECONDARY)
+    p_gest  = game_state.get("player_gesture",   "")
+    ai_gest = game_state.get("computer_gesture", "")
+    p_base  = _GESTURE_COLS.get(p_gest.lower(),  COL_TEXT_SECONDARY)
+    ai_base = _GESTURE_COLS.get(ai_gest.lower(), COL_TEXT_SECONDARY)
     b_up = banner.upper()
     if any(w in b_up for w in ('YOU WIN', 'YOU TAKE', 'SURVIVE')):
         p_col, ai_col = COL_GREEN, COL_RED
@@ -558,21 +560,23 @@ def draw_result_screen(frame, game_state, colourblind=False):
     pgx  = (left[0]  + left[2])  // 2
     pcy  = left[1]  + _ix((left[3]  - left[1])  * 0.48)
     p_sz = _ix(min(left[2]  - left[0],  left[3]  - left[1])  * 0.20)
-    draw_gesture_glyph(frame, game_state["player_gesture"],
+    draw_gesture_glyph(frame, p_gest,
                        (pgx - p_sz, pcy - p_sz, pgx + p_sz, pcy + p_sz), p_col)
 
     agx  = (right[0] + right[2]) // 2
     acy  = right[1] + _ix((right[3] - right[1]) * 0.48)
     a_sz = _ix(min(right[2] - right[0], right[3] - right[1]) * 0.20)
-    draw_gesture_glyph(frame, game_state["computer_gesture"],
+    draw_gesture_glyph(frame, ai_gest,
                        (agx - a_sz, acy - a_sz, agx + a_sz, acy + a_sz), ai_col)
 
-    draw_centered_text_in_rect(frame, game_state["player_gesture"].upper(),
-        (left[0], left[1] + _ix((left[3] - left[1]) * 0.74), left[2], left[3] - 4),
-        base_scale=SCALE_CAPTION, color=p_col, thickness=1, outline=2)
-    draw_centered_text_in_rect(frame, game_state["computer_gesture"].upper(),
-        (right[0], right[1] + _ix((right[3] - right[1]) * 0.74), right[2], right[3] - 4),
-        base_scale=SCALE_CAPTION, color=ai_col, thickness=1, outline=2)
+    if p_gest:
+        draw_centered_text_in_rect(frame, p_gest.upper(),
+            (left[0], left[1] + _ix((left[3] - left[1]) * 0.74), left[2], left[3] - 4),
+            base_scale=SCALE_CAPTION, color=p_col, thickness=1, outline=2)
+    if ai_gest:
+        draw_centered_text_in_rect(frame, ai_gest.upper(),
+            (right[0], right[1] + _ix((right[3] - right[1]) * 0.74), right[2], right[3] - 4),
+            base_scale=SCALE_CAPTION, color=ai_col, thickness=1, outline=2)
 
     # Colourblind stamp only (centre column otherwise empty)
     if colourblind:
@@ -704,7 +708,7 @@ def draw_game_mode_view(frame, game_state, emotion_state=None, voice_mode_active
 
     draw_game_status_strip(frame, game_state)
 
-    cur_state = game_state["state"]
+    cur_state = game_state.get("state", "")
 
     if cur_state in {"ROUND_RESULT", "MATCH_RESULT"}:
         if cur_state == "MATCH_RESULT" and show_session_summary:
@@ -731,8 +735,8 @@ def draw_game_mode_view(frame, game_state, emotion_state=None, voice_mode_active
         else:
             draw_arcade_hero(frame, game_state,
                              voice_mode_active=voice_mode_active)
-        display_beat = 0 if cur_state == "WAITING_FOR_ROCK" else game_state["beat_count"]
-        draw_arcade_beat_track(frame, display_beat, game_state["state"],
+        display_beat = 0 if cur_state == "WAITING_FOR_ROCK" else game_state.get("beat_count", 0)
+        draw_arcade_beat_track(frame, display_beat, cur_state,
                                voice_mode_active=voice_mode_active)
 
     w, h = _frame_size(frame)
