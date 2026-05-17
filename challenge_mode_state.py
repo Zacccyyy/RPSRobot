@@ -253,6 +253,8 @@ class ChallengeController:
                 player_response_type = "upgrade"
             elif DOWNGRADE_MOVE.get(previous_player_gesture) == current_gesture:
                 player_response_type = "downgrade"
+            else:
+                player_response_type = "lateral"
 
         # --- AI prediction metadata ---
         prediction = self.ai.last_prediction or {}

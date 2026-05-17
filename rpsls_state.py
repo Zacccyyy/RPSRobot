@@ -53,10 +53,11 @@ BEAT_VERBS = {
     ("Spock",    "Rock"):    "Spock vaporizes Rock",
 }
 
-COUNTER_RPSLS = {}
-for winner, losers in BEATS.items():
-    for loser in losers:
-        COUNTER_RPSLS[loser] = winner   # keeps last set; fine for symmetry
+# Maps each gesture to ALL gestures that beat it (each gesture loses to exactly 2 others)
+COUNTER_RPSLS: dict[str, list[str]] = {}
+for _winner, _losers in BEATS.items():
+    for _loser in _losers:
+        COUNTER_RPSLS.setdefault(_loser, []).append(_winner)
 
 
 def compare_rpsls(p, c):
@@ -148,14 +149,13 @@ class RPSLSController:
 
     def _ai_choose(self):
         """
-        Simple RPSLS AI: use frequency + transition patterns from history,
-        then pick the gesture that beats the predicted player move.
-        Falls back to FairPlayAI in the 3-gesture subspace when history is thin.
+        Simple RPSLS AI: frequency bias over last 10 rounds, then randomly
+        pick one of the (up to 2) gestures that beat the predicted move.
         """
         if len(self.history) < 4:
             return random.choice(VALID_RPSLS)
 
-        # Frequency bias
+        # Frequency bias over recent history
         freq = {g: 0 for g in VALID_RPSLS}
         for r in self.history[-10:]:
             g = r.get("player_gesture")
@@ -163,10 +163,10 @@ class RPSLSController:
                 freq[g] += 1
         predicted = max(freq, key=freq.get)
 
-        # Pick a move that beats the predicted gesture
-        for winner, losers in BEATS.items():
-            if predicted in losers:
-                return winner
+        # Randomly pick from ALL gestures that beat the predicted move
+        counters = COUNTER_RPSLS.get(predicted, [])
+        if counters:
+            return random.choice(counters)
         return random.choice(VALID_RPSLS)
 
     def _update_beat(self, wrist_y, confirmed, now):

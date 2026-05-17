@@ -26,6 +26,7 @@ from simon_highscore_store import SimonHighscoreStore
 
 VALID_GESTURES   = ["Rock", "Paper", "Scissors"]
 TIME_PER_STEP    = 2.0       # seconds per gesture step (lock-in window)
+UNKNOWN_GRACE    = 0.30      # seconds of Unknown before dwell timer resets
 INTRO_SECS       = 2.0
 RESULT_SECS      = 1.80
 GAME_OVER_SECS   = 4.0
@@ -65,6 +66,7 @@ class SimonSaysSoloController:
         self.last_result     = ""
         self.fail_at_step    = -1
         self._held_gesture   = ""   # which gesture is currently being held
+        self._unknown_since  = 0.0  # time Unknown started; 0 = not in Unknown
         self._is_new_best    = False
         self._run_rank       = 0
         self._generate_sequence()
@@ -163,6 +165,7 @@ class SimonSaysSoloController:
             # This prevents transitional fist poses from firing instantly.
 
             if confirmed in VALID_GESTURES:
+                self._unknown_since = 0.0
                 if confirmed != self._held_gesture:
                     # Gesture changed — reset dwell timer
                     self._held_gesture = confirmed
@@ -182,10 +185,13 @@ class SimonSaysSoloController:
                             self.state            = "GAME_OVER"
                             self._game_over_until = now + GAME_OVER_SECS
             else:
-                # Unknown / no gesture — reset the dwell timer (pauses it)
-                if self._held_gesture != "":
-                    self._held_gesture = ""
-                    self._step_start   = now
+                # Unknown / no gesture — only reset dwell after UNKNOWN_GRACE seconds.
+                # Brief Unknown frames (hand transition) don't interrupt a held gesture.
+                if self._unknown_since == 0.0:
+                    self._unknown_since = now
+                elif now - self._unknown_since >= UNKNOWN_GRACE:
+                    self._held_gesture  = ""
+                    self._unknown_since = 0.0
 
         return self._build_output(now)
 
@@ -237,6 +243,7 @@ class SimonSaysTwoPlayerController:
         self._playback_start  = 0.0
         self._game_over_until = 0.0
         self._held_gesture    = ""
+        self._unknown_since   = 0.0
         self._waiting_for_neutral = False
         self._tracker_reset_req   = False
         self.last_result      = ""
@@ -364,6 +371,7 @@ class SimonSaysTwoPlayerController:
                 return self._build_output(now)
 
             if confirmed in VALID_GESTURES:
+                self._unknown_since = 0.0
                 if confirmed != self._held_gesture:
                     self._held_gesture = confirmed
                     self._step_start   = now
@@ -379,7 +387,12 @@ class SimonSaysTwoPlayerController:
                             self.state            = "GAME_OVER"
                             self._game_over_until = now + GAME_OVER_SECS
             else:
-                self._held_gesture = ""
+                # Only reset dwell after UNKNOWN_GRACE seconds of no valid gesture
+                if self._unknown_since == 0.0:
+                    self._unknown_since = now
+                elif now - self._unknown_since >= UNKNOWN_GRACE:
+                    self._held_gesture  = ""
+                    self._unknown_since = 0.0
 
         return self._build_output(now)
 

@@ -19,6 +19,7 @@ VALID_GESTURES  = ["Rock", "Paper", "Scissors"]
 HOLD_SECS       = 3.0    # hold time per gesture
 REST_SECS       = 0.8    # brief rest between gestures
 REPS_PER_GEST   = 3      # how many times each gesture is requested
+UNKNOWN_GRACE   = 0.30   # seconds of Unknown before dwell timer resets
 
 
 class GestureRehabController:
@@ -38,6 +39,7 @@ class GestureRehabController:
         self._dwell_start   = None
         self._rest_until    = 0.0
         self._held_gesture  = ""
+        self._unknown_since = 0.0
         self.completed      = 0
         self.missed         = 0
         self.session_log    = []
@@ -107,6 +109,7 @@ class GestureRehabController:
             target = self._sequence[self._seq_idx]
 
             if confirmed in VALID_GESTURES:
+                self._unknown_since = 0.0
                 if confirmed != self._held_gesture:
                     # Gesture changed — reset dwell
                     self._held_gesture = confirmed
@@ -132,9 +135,14 @@ class GestureRehabController:
                         self.state         = "REST"
                         self._rest_until   = now + REST_SECS
             else:
-                # No gesture — reset dwell
-                if self._held_gesture:
-                    self._held_gesture = ""
-                    self._dwell_start  = None
+                # No gesture — only reset dwell after UNKNOWN_GRACE seconds.
+                # Brief Unknown frames (hand transitioning between gestures)
+                # don't interrupt an active hold.
+                if self._unknown_since == 0.0:
+                    self._unknown_since = now
+                elif now - self._unknown_since >= UNKNOWN_GRACE:
+                    self._held_gesture  = ""
+                    self._dwell_start   = None
+                    self._unknown_since = 0.0
 
         return self._build_output(now)

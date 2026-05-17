@@ -264,7 +264,7 @@ class ReflexTwoPlayerController:
             if elapsed >= TARGET_TIMEOUT:
                 self.state        = "RESULT_FLASH"
                 self.result_until = now + RESULT_FLASH_2P
-                self.last_winner  = "—"
+                self.last_winner  = "NONE"
                 return self._build_output(now)
 
             # Check both players simultaneously; P1 wins ties

@@ -97,7 +97,9 @@ class FairPlayController:
         self._session_gestures       = []
         self._last_round_player_gest = None
         self._last_round_robot_gest  = None
-        self._last_round_banner      = ""
+        # _last_round_banner intentionally NOT reset here — preserving it across
+        # the next round's countdown lets the ESC overlay and replay display
+        # show the previous outcome.  Only reset_match() clears it.
 
         self._reset_round_motion()
         self.state = "ROUND_INTRO"
@@ -260,7 +262,6 @@ class FairPlayController:
         # Store last round gestures for replay display
         self._last_round_player_gest = player_gesture
         self._last_round_robot_gest  = self.robot_locked_move
-        self._last_round_banner      = ""  # filled in below
 
         self.player_gesture = player_gesture
         self.computer_gesture = self.robot_locked_move
@@ -313,10 +314,9 @@ class FairPlayController:
                 }
             )
 
-        self.last_round_result = round_result
-        if hasattr(self, "_last_round_banner"):
-            self._last_round_banner = self.result_banner
-        self._last_reaction_ms = reaction_ms
+        self.last_round_result  = round_result
+        self._last_round_banner = self.result_banner
+        self._last_reaction_ms  = reaction_ms
         self.state = "ROUND_RESULT"
         self.result_until = now + self.round_result_seconds
 

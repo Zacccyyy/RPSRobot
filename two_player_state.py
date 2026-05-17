@@ -109,8 +109,8 @@ class _BeatMixin:
         Update beat counter.  Both hands must independently pump within
         SYNC_WINDOW seconds of each other to advance the beat count.
         """
-        p1_active = wrist_y1 is not None and confirmed1 in ("Rock", "Unknown")
-        p2_active = wrist_y2 is not None and confirmed2 in ("Rock", "Unknown")
+        p1_active = wrist_y1 is not None and confirmed1 == "Rock"
+        p2_active = wrist_y2 is not None and confirmed2 == "Rock"
 
         rock_held = confirmed1 == "Rock" or confirmed2 == "Rock"
         if rock_held:
@@ -210,6 +210,8 @@ class TwoPlayerPvPController(_BeatMixin):
         self._init_beat()
         self.p1_gesture = "Unknown"
         self.p2_gesture = "Unknown"
+        self._p1_shoot_locked = None   # gesture locked during SHOOT_WINDOW, or None
+        self._p2_shoot_locked = None
         self.result_banner = ""
         self.last_round_result = None
         self.result_until = None
@@ -281,6 +283,9 @@ class TwoPlayerPvPController(_BeatMixin):
             "p2_name":                "PLAYER 2",
             "two_player":             True,
             "coop_mode":              False,
+            # Per-player throw status during SHOOT_WINDOW (None = not yet thrown)
+            "p1_shoot_locked":        getattr(self, "_p1_shoot_locked", None),
+            "p2_shoot_locked":        getattr(self, "_p2_shoot_locked", None),
         }
 
         if self.state == "ROUND_INTRO":
@@ -383,11 +388,17 @@ class TwoPlayerPvPController(_BeatMixin):
             p2_thrown = p2_conf if p2_conf in VALID_GESTURES else \
                         (p2_stab if p2_stab in VALID_GESTURES else None)
 
+            # Lock in each player's throw as soon as it's detected
+            if p1_thrown and self._p1_shoot_locked is None:
+                self._p1_shoot_locked = p1_thrown
+            if p2_thrown and self._p2_shoot_locked is None:
+                self._p2_shoot_locked = p2_thrown
+
             # Both thrown or window expired
             time_up = now >= self.shoot_close_time
-            if time_up or (p1_thrown and p2_thrown):
-                p1g = p1_thrown or "Rock"
-                p2g = p2_thrown or "Rock"
+            if time_up or (self._p1_shoot_locked and self._p2_shoot_locked):
+                p1g = self._p1_shoot_locked or "Rock"
+                p2g = self._p2_shoot_locked or "Rock"
                 self._resolve_round(p1g, p2g, now)
             return self._build_output(now)
 
