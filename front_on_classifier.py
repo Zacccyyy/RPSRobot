@@ -241,7 +241,8 @@ def _ml_classify(hand_landmarks):
         probabilities = model.predict_proba(X)[0]
 
         gesture = int_to_label.get(prediction, "Unknown")
-        confidence = float(probabilities[prediction])
+        class_idx = list(model.classes_).index(prediction)
+        confidence = float(probabilities[class_idx])
 
         sorted_probs = sorted(
             [(int_to_label[i], p) for i, p in enumerate(probabilities)],

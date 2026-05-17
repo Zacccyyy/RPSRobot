@@ -20,6 +20,7 @@ Phases:
 """
 
 import time
+import threading
 from pathlib import Path
 
 try:
@@ -104,7 +105,7 @@ class CalibrationController:
         self._last_landmarks = lm
 
         if self.phase == "TRAINING":
-            self._do_train()
+            self._start_training()
 
         return self._build_output(now)
 
@@ -171,8 +172,14 @@ class CalibrationController:
         else:
             self._status_msg = msg or "Try again"
 
+    def _start_training(self):
+        if getattr(self, "_training_in_progress", False):
+            return
+        self._training_in_progress = True
+        threading.Thread(target=self._do_train, daemon=True).start()
+
     def _do_train(self):
-        """Train the model from collected data."""
+        """Train the model from collected data (runs in background thread)."""
         try:
             from front_on_trainer import train_and_save
             accuracy = train_and_save()
@@ -184,6 +191,8 @@ class CalibrationController:
         except Exception as e:
             print(f"[Calibration] Training error: {e}")
             self.phase = "FAILED"
+        finally:
+            self._training_in_progress = False
 
     def _reset(self):
         """Reset to try again from scratch."""

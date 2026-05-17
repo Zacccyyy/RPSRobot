@@ -900,14 +900,14 @@ def _run_gesture_nav(app_state, hand_state, now, item_count, set_index_fn,
                      content_top=0.44, content_bottom=0.83,
                      adjust_items=None, adjust_fn=None):
     sp     = app_state.get("sound_player")
-    result = None
+    result   = None
+    prev_idx = app_state["gesture_nav"]._last_item_idx
     for ev in app_state["gesture_nav"].update(
         hand_state, now, item_count,
         content_top=content_top, content_bottom=content_bottom,
         adjust_items=adjust_items,
     ):
         if ev["type"] == "hover":
-            prev_idx = app_state["gesture_nav"]._last_item_idx
             set_index_fn(ev["item_index"])
             if prev_idx != -1 and ev["item_index"] != prev_idx and sp:
                 sp.play("menu_move")
