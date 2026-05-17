@@ -43,7 +43,6 @@ class RPSGameController:
         self.reset_round()
 
     def reset(self):
-        self._voice_mode = False
         self.reset_round()
 
     def set_voice_mode(self, enabled):

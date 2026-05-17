@@ -3145,7 +3145,7 @@ def run():
 
                     draw_top_bar(
                         frame,
-                        f"DIAGNOSTIC | {game_state['play_mode_label'].upper()}",
+                        f"DIAGNOSTIC | {game_state.get('play_mode_label', '').upper()}",
                         top_right
                     )
 

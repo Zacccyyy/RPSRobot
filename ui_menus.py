@@ -5,6 +5,7 @@ import cv2
 import math
 import time
 from ui_base import *
+from fair_play_ai import PERSONALITIES
 
 # MENU SCREEN
 # ============================================================
@@ -628,7 +629,6 @@ def draw_features_screen(frame, features_schema, selected_index, config,
                                    0.46, COL_TEXT_ACCENT, thickness=1, outline=2)
             elif key == "__personalities__":
                 # Show current personality name + [>] indicator (opens sub-screen)
-                from fair_play_ai import PERSONALITIES
                 cur_name   = config.get("ai_personality", "Normal")
                 cur_label  = PERSONALITIES.get(cur_name, {}).get("label", cur_name)
                 arrow_col  = COL_MAGENTA if selected else (100, 40, 120)
@@ -976,7 +976,6 @@ def draw_simulations_hub_screen(frame, selected_index=0, sim_state=None):
 # ============================================================
 
 def draw_clone_setup_screen(frame, clone_state):
-    import time as _time
     w, h = frame.shape[1], frame.shape[0]
     step = clone_state.get("step", "enter_name")
     msg  = clone_state.get("message", "")
@@ -1014,7 +1013,7 @@ def draw_clone_setup_screen(frame, clone_state):
                         (0, 0, 0), 4, cv2.LINE_AA)
             cv2.putText(frame, name_text, (tx, ty), font_d2, SCALE_HEADING,
                         COL_TEXT_PRIMARY, 2, cv2.LINE_AA)
-        t = _time.time()
+        t = time.time()
         if int(t * 2) % 2 == 0:
             (cw, _), _ = cv2.getTextSize(name_text, font_d2, SCALE_HEADING, 2)
             cur_x = tx + cw + 2
@@ -1820,8 +1819,7 @@ def draw_gesture_nav_overlay(frame, cursor_info):
             cv2.ellipse(frame, (px, py), (22, 22), -90, 0, angle, (b, g, r), 3)
 
     elif warming_up:
-        import time as _t
-        pulse    = 0.4 + 0.6 * (_t.monotonic() % 1.0)
+        pulse    = 0.4 + 0.6 * (time.monotonic() % 1.0)
         ring_col = tuple(int(c * pulse) for c in (200, 200, 200))
         cv2.circle(frame, (px, py), 16, ring_col, 2)
         if warmup_pct > 0:
@@ -1865,10 +1863,8 @@ def draw_login_screen(frame, login_text="", saved_name="", verified_players=None
     """
     Login / name-entry screen shown on first launch or player switch.
     """
-    import time as _time
-
     w, h = frame.shape[1], frame.shape[0]
-    t    = _time.time()
+    t    = time.time()
 
     recent = list(verified_players or [])
     if saved_name and saved_name not in recent:
@@ -2115,7 +2111,7 @@ def draw_hardware_test_view(frame, diag_state):
                            SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
 
     draw_bottom_bar(frame,
-        "[ ] Cycle ports  *  ENTER Connect  *  R/P/S Send  *  T Ping  *  X Disconnect  *  ESC Back")
+        "[ ] Cycle ports  |  ENTER Connect  |  R/P/S Send  |  T Ping  |  X Disconnect  |  ESC Back")
 
 
 # ============================================================
@@ -2127,18 +2123,15 @@ def draw_notes_screen(frame, text_buffer, submitted=False, saved_path="", return
     Full-screen note-taking screen.
     Player types a suggestion/feedback and presses ENTER to submit.
     """
-    import time as _time
-    import math as _math
-
     w, h = frame.shape[1], frame.shape[0]
-    t    = _time.monotonic()
+    t    = time.monotonic()
 
     draw_top_bar(frame, "PLAYER FEEDBACK",
                  "Type your suggestion and press ENTER  |  ESC Cancel")
 
     if submitted:
         # Confirmation screen
-        pulse = 0.85 + 0.15 * abs(_math.sin(t * _math.pi * 1.5))
+        pulse = 0.85 + 0.15 * abs(math.sin(t * math.pi * 1.5))
         col   = tuple(min(255, int(c * pulse)) for c in COL_GREEN)
         draw_centered_text_in_rect(frame, "FEEDBACK SUBMITTED",
             (0, _ix(h*0.28), w, _ix(h*0.42)),
@@ -2201,7 +2194,7 @@ def draw_notes_screen(frame, text_buffer, submitted=False, saved_path="", return
                            0.36, COL_TEXT, thickness=1, outline=2)
 
     # Blinking cursor on last line
-    if abs(_math.sin(t * _math.pi * 1.5)) > 0.5:
+    if abs(math.sin(t * math.pi * 1.5)) > 0.5:
         last_line = visible[-1] if visible else ""
         tw, _     = cv2.getTextSize(last_line, cv2.FONT_HERSHEY_SIMPLEX, 0.36, 1)
         cur_x     = text_x + tw[0] + 3
@@ -2328,11 +2321,8 @@ def draw_calibration_view(frame, cal_state, hand_state=None):
     Guided gesture calibration screen for new players.
     Walks through Rock, Paper, Scissors collection then auto-trains.
     """
-    import math as _math
-    import time as _time
-
     w, h = frame.shape[1], frame.shape[0]
-    t    = _time.monotonic()
+    t    = time.monotonic()
 
     phase         = cal_state.get("phase",          "INTRO")
     gesture       = cal_state.get("gesture",        "Rock")
@@ -2381,7 +2371,7 @@ def draw_calibration_view(frame, cal_state, hand_state=None):
             draw_outlined_text(frame, text, px1 + _ix(w*0.03), ty,
                                scale, col, thickness=1, outline=2)
 
-        pulse = 0.6 + 0.4 * abs(_math.sin(t * _math.pi * 1.2))
+        pulse = 0.6 + 0.4 * abs(math.sin(t * math.pi * 1.2))
         pc = tuple(min(255, int(c * pulse)) for c in COL_GREEN)
         draw_centered_text_in_rect(frame, "Press SPACE or ENTER to begin  |  ESC to skip for now",
             (0, _ix(h*0.80), w, _ix(h*0.90)),
@@ -2498,7 +2488,7 @@ def draw_calibration_view(frame, cal_state, hand_state=None):
 
     # ── DONE ─────────────────────────────────────────────────────────────
     elif phase == "DONE":
-        pulse4 = 0.85 + 0.15 * abs(_math.sin(t * _math.pi * 1.5))
+        pulse4 = 0.85 + 0.15 * abs(math.sin(t * math.pi * 1.5))
         gc = tuple(min(255, int(c * pulse4)) for c in COL_GREEN)
         draw_centered_text_in_rect(frame, "CALIBRATION COMPLETE",
             (0, _ix(h*0.18), w, _ix(h*0.30)),

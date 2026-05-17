@@ -287,7 +287,7 @@ class ChallengeController:
         # Capture reaction time: ms between SHOOT opening and gesture lock.
         reaction_time_ms = None
         if self.shoot_open_time is not None:
-            reaction_time_ms = round((now - self.shoot_open_time) * 1000, 1)
+            reaction_time_ms = int(round((now - self.shoot_open_time) * 1000))
 
         self.player_gesture = player_gesture
         self.computer_gesture = self.robot_locked_move

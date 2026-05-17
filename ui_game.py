@@ -623,10 +623,10 @@ def draw_game_mode_view(frame, game_state, emotion_state=None, voice_mode_active
         bottom_hint = "Say READY > ONE > TWO > THREE > ROCK/PAPER/SCISSORS  *  BACK = menu  *  ? Help"
     elif diagnostic:
         right_hints = "ESC Back  M Game View  S Sound  ? Help  Q Quit"
-        bottom_hint = "M Game View  *  ESC Back  *  S Sound  *  C Commentary  *  ? Help  *  Q Quit"
+        bottom_hint = "M Game View  |  ESC Back  |  S Sound  |  C Commentary  |  ? Help  |  Q Quit"
     else:
-        right_hints = "ESC Back  M Mode  S Sound  ? Help  Q Quit"
-        bottom_hint = "ESC Back  *  M Diagnostic  *  S Sound  *  C Commentary  *  ? Help  *  Q Quit"
+        right_hints = "ESC Back  M Diagnostic  S Sound  ? Help  Q Quit"
+        bottom_hint = "ESC Back  |  M Diagnostic  |  S Sound  |  C Commentary  |  ? Help  |  Q Quit"
     draw_top_bar(frame, left_label, right_hints)
     draw_bottom_bar(frame, bottom_hint)
 
