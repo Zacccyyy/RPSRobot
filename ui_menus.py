@@ -447,8 +447,8 @@ def draw_settings_screen(frame, settings_schema, selected_index, config,
 
                 minus_col = COL_YELLOW if minus_active else (50, 80, 50)
                 plus_col  = COL_YELLOW if plus_active  else (50, 80, 50)
-                minus_text_col = (10, 10, 10) if minus_active else (120, 180, 120)
-                plus_text_col  = (10, 10, 10) if plus_active  else (120, 180, 120)
+                minus_text_col = COL_ON_ACTIVE if minus_active else (120, 180, 120)
+                plus_text_col  = COL_ON_ACTIVE if plus_active  else (120, 180, 120)
 
                 # Draw dwell arc on active button
                 for btn_cx, is_act, col in [
@@ -611,7 +611,7 @@ def draw_features_screen(frame, features_schema, selected_index, config,
                         ang = int(360 * adjust_pct)
                         r = int(80 + 175 * adjust_pct); g = int(255 * (1 - adjust_pct * 0.8))
                         cv2.ellipse(frame, (cx, y), (bar_half, bar_half), -90, 0, ang, (0, g, r), 2)
-                    txt_col = (10, 10, 10) if is_on else (140, 140, 60)
+                    txt_col = COL_ON_ACTIVE if is_on else (140, 140, 60)
                     draw_centered_text_in_rect(frame, label,
                         (btn_x1, y - bar_half, btn_x2, y + bar_half),
                         base_scale=0.70, color=txt_col, thickness=2, outline=0)

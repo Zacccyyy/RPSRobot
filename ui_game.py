@@ -383,11 +383,11 @@ def draw_arcade_beat_track(frame, beat_count, state, voice_mode_active=False):
             elif active:
                 col = COL_ACCENT
             else:
-                col = (56, 56, 56)
+                col = COL_BEAT_RING
 
             if active or shoot_beat:
                 cv2.circle(frame, (x, cy), radius, col, -1)
-                num_col = (10, 10, 10)
+                num_col = COL_ON_ACTIVE
             else:
                 cv2.circle(frame, (x, cy), radius, col, 1)
                 num_col = COL_TEXT_DIM
@@ -773,7 +773,7 @@ def draw_game_mode_view(frame, game_state, emotion_state=None, voice_mode_active
             bar_y2  = badge_y + _ix(h * 0.016)
             fill_w  = int(bw * mic_level)
             cv2.rectangle(frame, (badge_x, bar_y2), (badge_x + bw, bar_y2 + 3),
-                          (24, 24, 24), -1)
+                          COL_BEAT_FILL, -1)
             col = COL_GREEN if mic_level < 0.7 else COL_AMBER
             cv2.rectangle(frame, (badge_x, bar_y2), (badge_x + fill_w, bar_y2 + 3),
                           col, -1)

@@ -11,6 +11,7 @@ __all__ = [
     'COL_PANEL_BG', 'COL_PANEL_ALPHA', 'COL_ROW_SELECTED', 'COL_BORDER_HAIR',
     'COL_ACCENT', 'COL_TEXT_PRIMARY', 'COL_TEXT_SECONDARY', 'COL_TEXT_DIM',
     'COL_AMBER', 'COL_GREEN', 'COL_RED',
+    'COL_BEAT_FILL', 'COL_BEAT_RING', 'COL_ON_ACTIVE', 'COL_INACTIVE',
     # Legacy aliases (old names, new values -- sibling modules use these)
     'COL_BG_DARK', 'COL_BG_PANEL', 'COL_BG_PANEL_LIGHT',
     'COL_CYAN', 'COL_MAGENTA', 'COL_YELLOW', 'COL_ORANGE',
@@ -69,6 +70,12 @@ COL_YELLOW         = (  0, 200, 220)   # warm yellow (BGR)
 COL_ORANGE         = (  0, 130, 255)   # orange (BGR)
 COL_TEXT           = COL_TEXT_PRIMARY
 COL_TEXT_ACCENT    = COL_ACCENT
+
+# UI primitive colours (shared across beat-track, indicator rows, toggles)
+COL_BEAT_FILL  = (24, 24, 24)    # inactive beat circle fill
+COL_BEAT_RING  = (56, 56, 56)    # inactive beat circle ring
+COL_ON_ACTIVE  = (10, 10, 10)    # dark label text on filled/active elements
+COL_INACTIVE   = (40, 40, 60)    # unselected indicator / dim border
 
 # Colourblind-safe variants
 _COL_CB_WIN  = COL_GREEN
@@ -370,11 +377,11 @@ def draw_beat_track(frame, beat_count, num_beats=4, state="", x1=None, y1=None,
         elif act:
             col = COL_ACCENT
         else:
-            col = (56, 56, 56)
+            col = COL_BEAT_RING
 
         if act or shoot_beat:
             cv2.circle(frame, (cx, cy), radius, col, -1)
-            num_col = (10, 10, 10)
+            num_col = COL_ON_ACTIVE
         else:
             cv2.circle(frame, (cx, cy), radius, col, 2)
             num_col = COL_TEXT_DIM
@@ -530,7 +537,7 @@ def draw_gesture_confidence_bar(frame, stable_streak, confirm_frames, x, y, widt
     bar_top = bar_bot - bar_h
 
     cv2.rectangle(frame, (bar_x, bar_top), (bar_x + bar_w, bar_bot),
-                  (24, 24, 24), -1)
+                  COL_BEAT_FILL, -1)
     cv2.rectangle(frame, (bar_x, bar_top), (bar_x + bar_w, bar_bot),
                   COL_BORDER_HAIR, 1)
 
@@ -604,7 +611,7 @@ def draw_round_history_dots(frame, rounds, x1, y, x2):
         if letter:
             (lw, lh), _ = cv2.getTextSize(letter, font, fscale, 1)
             cv2.putText(frame, letter, (cx - lw // 2, y + lh // 2),
-                        font, fscale, (10, 10, 10), 1, cv2.LINE_AA)
+                        font, fscale, COL_ON_ACTIVE, 1, cv2.LINE_AA)
 
 def draw_help_overlay(frame, screen_name, voice_mode=False):
     h, w = frame.shape[:2]

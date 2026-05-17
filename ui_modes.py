@@ -8,6 +8,10 @@ import numpy as np
 from ui_base import *
 from ui_game import _draw_last_round_replay  # noqa: F401
 
+# Module-level palette additions
+_COL_WIN_TINT  = (6,  22,  6)   # subtle green panel fill for confirmed / won state
+_COL_LOSE_TINT = (22,  6,  6)   # subtle red panel fill for lost state
+
 def _draw_tp_hand_panel(frame, x1, y1, x2, y2, label, gesture, tracker_state=None,
                         highlight_col=None, result_col=None):
     """
@@ -392,7 +396,7 @@ def draw_personality_settings(frame, selected_name, descriptions):
         fill   = tuple(min(255, int(c * 0.15)) for c in col) if is_sel else (8, 8, 16)
         draw_panel(frame, list_x1, iy1, list_x2, iy2,
                    fill=fill, alpha=0.92,
-                   border=col if is_sel else (40, 40, 60),
+                   border=col if is_sel else COL_INACTIVE,
                    border_thickness=2 if is_sel else 1)
 
         # Colour dot
@@ -1400,10 +1404,10 @@ def draw_prediction_race_view(frame, game_state, tracker_state=None):
 
     for i in range(win_target):
         px = _ix(w * 0.04) + i * _ix(w * 0.028)
-        pc = COL_ACCENT if i < player_score else (40, 40, 60)
+        pc = COL_ACCENT if i < player_score else COL_INACTIVE
         cv2.circle(frame, (px, _ix(h * 0.145)), _ix(h * 0.012), pc, -1 if i < player_score else 2)
         ax = w - _ix(w * 0.04) - i * _ix(w * 0.028)
-        ac = COL_RED if i < ai_score else (40, 40, 60)
+        ac = COL_RED if i < ai_score else COL_INACTIVE
         cv2.circle(frame, (ax, _ix(h * 0.145)), _ix(h * 0.012), ac, -1 if i < ai_score else 2)
 
     if cur_state == "MATCH_RESULT":
@@ -1949,7 +1953,7 @@ def draw_rpsls_tutorial_screen(frame, step=0, hand_state=None):
             gx2    = gx1 + card_w
             is_det = (detected == g)
             draw_panel(frame, gx1, card_y1, gx2, card_y2,
-                       fill=(6, 22, 6) if is_det else COL_PANEL_BG,
+                       fill=_COL_WIN_TINT if is_det else COL_PANEL_BG,
                        alpha=0.92,
                        border=COL_GREEN if is_det else COL_BORDER_HAIR,
                        border_thickness=2 if is_det else 1)
@@ -2027,7 +2031,7 @@ def draw_rpsls_tutorial_screen(frame, step=0, hand_state=None):
             gx2    = gx1 + card_w
             is_det = (detected == g)
             draw_panel(frame, gx1, card_y1, gx2, card_y2,
-                       fill=(6, 22, 6) if is_det else COL_PANEL_BG,
+                       fill=_COL_WIN_TINT if is_det else COL_PANEL_BG,
                        alpha=0.92,
                        border=COL_GREEN if is_det else COL_BORDER_HAIR,
                        border_thickness=2 if is_det else 1)
@@ -2253,8 +2257,8 @@ def draw_rpsls_view(frame, game_state, tracker_state=None, hand_state=None):
     # YOU panel
     p_fill = COL_PANEL_BG
     if locked and p_gest != "Unknown":
-        if outcome == "win":    p_fill = (6, 22, 6)
-        elif outcome == "lose": p_fill = (22, 6, 6)
+        if outcome == "win":    p_fill = _COL_WIN_TINT
+        elif outcome == "lose": p_fill = _COL_LOSE_TINT
     draw_panel(frame, cx1, py1, cx2, py2, fill=p_fill, alpha=COL_PANEL_ALPHA,
                border=COL_BORDER_HAIR, border_thickness=1)
     draw_centered_text_in_rect(frame, "YOU",
@@ -2291,8 +2295,8 @@ def draw_rpsls_view(frame, game_state, tracker_state=None, hand_state=None):
     show_ai = locked and ai_gest in GESTURES_5
     ai_fill = COL_PANEL_BG
     if show_ai:
-        if outcome == "lose":  ai_fill = (6, 22, 6)
-        elif outcome == "win": ai_fill = (22, 6, 6)
+        if outcome == "lose":  ai_fill = _COL_WIN_TINT
+        elif outcome == "win": ai_fill = _COL_LOSE_TINT
     draw_panel(frame, ax1, py1, ax2, py2, fill=ai_fill, alpha=COL_PANEL_ALPHA,
                border=COL_BORDER_HAIR, border_thickness=1)
     draw_centered_text_in_rect(frame, "AI",
@@ -2468,7 +2472,7 @@ def draw_two_player_diagnostic(frame, game_state,
              COL_GREEN if streak >= 3 else COL_YELLOW)
 
         ty += _ix(line_gap * 0.3)
-        cv2.line(frame, (lx, ty), (px2 - pad, ty), (40, 40, 60), 1)
+        cv2.line(frame, (lx, ty), (px2 - pad, ty), COL_INACTIVE, 1)
         ty += _ix(line_gap * 0.5)
 
         # Hand quality
@@ -2486,7 +2490,7 @@ def draw_two_player_diagnostic(frame, game_state,
              COL_RED if poor_lit else COL_TEXT_DIM)
 
         ty += _ix(line_gap * 0.3)
-        cv2.line(frame, (lx, ty), (px2 - pad, ty), (40, 40, 60), 1)
+        cv2.line(frame, (lx, ty), (px2 - pad, ty), COL_INACTIVE, 1)
         ty += _ix(line_gap * 0.5)
 
         # Detection reason
@@ -2875,7 +2879,7 @@ def draw_hand_enroll_view(frame, game_state, hand_state=None):
         px   = pip_start + ri * pip_spacing
         done = ri < fp_round
         cur  = (ri == fp_round and fp_phase == "CAPTURING")
-        pc   = COL_GREEN if done else (COL_YELLOW if cur else (40, 40, 60))
+        pc   = COL_GREEN if done else (COL_YELLOW if cur else COL_INACTIVE)
         r    = 4 if done else 3
         cv2.circle(frame, (px, pip_y), r, pc, -1 if (done or cur) else 1)
 
