@@ -300,11 +300,14 @@ def draw_arcade_hero(frame, game_state, voice_mode_active=False):
             fist_font  = cv2.FONT_HERSHEY_DUPLEX
             (ftw, _), _ = cv2.getTextSize(fist_txt, fist_font, fist_scale, 2)
             ftx = (w - ftw) // 2
-            fty = y1 + _ix(ph * 0.56)
+            fty = y1 + _ix(ph * 0.50)
             cv2.putText(frame, fist_txt, (ftx, fty),
                         fist_font, fist_scale, (0, 0, 0), 4, cv2.LINE_AA)
             cv2.putText(frame, fist_txt, (ftx, fty),
                         fist_font, fist_scale, COL_TEXT_PRIMARY, 2, cv2.LINE_AA)
+            draw_centered_text(frame, "Pump down 4 times to count down",
+                               y1 + _ix(ph * 0.72), SCALE_CAPTION, COL_TEXT_DIM,
+                               thickness=1, outline=2)
 
     elif state == "COUNTDOWN":
         if voice_mode_active:
@@ -316,11 +319,12 @@ def draw_arcade_hero(frame, game_state, voice_mode_active=False):
                                SCALE_DISPLAY_L, COL_ACCENT, thickness=2, outline=3)
         else:
             _draw_state_pill(frame, f"BEAT {beat_count} OF 4", pcx, pill_y)
-            draw_centered_text_in_rect(frame, "SHOOT",
+            num_str = str(beat_count) if beat_count > 0 else "GO"
+            draw_centered_text_in_rect(frame, num_str,
                 (x1 + _ix(pw * 0.06), y1 + _ix(ph * 0.28),
                  x2 - _ix(pw * 0.06), y1 + _ix(ph * 0.72)),
                 base_scale=SCALE_DISPLAY_XL,
-                color=COL_TEXT_PRIMARY, thickness=2, outline=3)
+                color=COL_ACCENT, thickness=2, outline=3)
             if sub_text:
                 draw_centered_text(frame, sub_text, y1 + _ix(ph * 0.88),
                                    SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
@@ -606,13 +610,16 @@ def _draw_last_round_replay(frame, player_gesture, robot_gesture, banner):
 def draw_game_mode_view(frame, game_state, emotion_state=None, voice_mode_active=False,
                         last_heard_word="", tracker_state=None, hand_state=None,
                         flash_info=None, show_help=False, sound_on=True,
-                        colourblind=False, show_session_summary=False):
+                        colourblind=False, show_session_summary=False, diagnostic=False):
 
     mode_raw   = game_state.get("play_mode_label", "")
     left_label = f"RPS ROBOT  {mode_raw.upper()}" if mode_raw else "RPS ROBOT"
     if voice_mode_active:
         right_hints = "VOICE ON  *  Say READY to start  *  BACK = menu"
         bottom_hint = "Say READY > ONE > TWO > THREE > ROCK/PAPER/SCISSORS  *  BACK = menu  *  ? Help"
+    elif diagnostic:
+        right_hints = "ESC Back  M Game View  S Sound  ? Help  Q Quit"
+        bottom_hint = "M Game View  *  ESC Back  *  S Sound  *  C Commentary  *  ? Help  *  Q Quit"
     else:
         right_hints = "ESC Back  M Mode  S Sound  ? Help  Q Quit"
         bottom_hint = "ESC Back  *  M Diagnostic  *  S Sound  *  C Commentary  *  ? Help  *  Q Quit"

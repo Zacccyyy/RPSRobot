@@ -538,7 +538,7 @@ def _draw_reflex_target(frame, target, cx, cy, radius, flash=False):
                            0.50, col, thickness=2, outline=3)
 
 
-def draw_reflex_solo_view(frame, game_state):
+def draw_reflex_solo_view(frame, game_state, voice_mode_active=False):
     w, h = frame.shape[1], frame.shape[0]
 
     cur_state = game_state["state"]
@@ -610,7 +610,8 @@ def draw_reflex_solo_view(frame, game_state):
             draw_centered_text(frame, f"Avg: {avg_rt}ms", pill_y,
                                SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
 
-    draw_bottom_bar(frame, f"Score: {score}  |  Avg RT: {avg_rt}ms  |  Say RESTART or BACK  |  Q Quit")
+    voice_hint = "  |  Say RESTART or BACK" if voice_mode_active else ""
+    draw_bottom_bar(frame, f"Score: {score}  |  Avg RT: {avg_rt}ms{voice_hint}  |  Q Quit")
 
 
 def draw_reflex_two_player_view(frame, game_state,
@@ -2164,7 +2165,10 @@ def draw_rpsls_side_notice(frame, was_front_on=False, confirmed_gesture="Unknown
                        card_y + card_h + _ix(h * 0.04), SCALE_CAPTION, prog_col,
                        thickness=1, outline=2)
     draw_centered_text(frame, "Press ENTER when ready to play",
-                       card_y + card_h + _ix(h * 0.12), SCALE_BODY, COL_TEXT_SECONDARY,
+                       card_y + card_h + _ix(h * 0.12), SCALE_BODY, COL_ACCENT,
+                       thickness=1, outline=2)
+    draw_centered_text(frame, "(or hold each gesture above to practise first)",
+                       card_y + card_h + _ix(h * 0.19), SCALE_CAPTION, COL_TEXT_DIM,
                        thickness=1, outline=2)
 
     draw_bottom_bar(frame, "Hold each gesture 1.5s to tick off  |  Enter to start  |  ESC Back")

@@ -1177,7 +1177,26 @@ def draw_player_stats_screen(frame, stats_state):
             if i < len(players) - 1:
                 cv2.line(frame, (px1 + 3, ry2), (px2 - 3, ry2), COL_BORDER_HAIR, 1)
 
-        draw_bottom_bar(frame, "View play patterns and strategy analysis")
+        draw_bottom_bar(frame, "UP/DOWN Navigate  |  ENTER Open  |  ESC Back")
+        return
+
+    if step == "no_profiles":
+        draw_top_bar(frame, "PLAYER STATS", "ESC Back")
+        px1 = _ix(w * 0.20);  px2 = _ix(w * 0.80)
+        py1 = _ix(h * 0.25);  py2 = _ix(h * 0.82)
+        ph2 = py2 - py1
+        draw_panel(frame, px1, py1, px2, py2,
+                   fill=COL_PANEL_BG, alpha=0.88, border=COL_BORDER_HAIR, border_thickness=1)
+        draw_centered_text_in_rect(frame, "NO STATS YET",
+            (px1, py1 + _ix(ph2 * 0.10), px2, py1 + _ix(ph2 * 0.34)),
+            base_scale=SCALE_HEADING, color=COL_TEXT_PRIMARY, thickness=1, outline=3)
+        draw_centered_text_in_rect(frame, "Play a few rounds first to start tracking your stats.",
+            (px1 + 16, py1 + _ix(ph2 * 0.40), px2 - 16, py1 + _ix(ph2 * 0.58)),
+            base_scale=SCALE_BODY, color=COL_TEXT_SECONDARY, thickness=1, outline=2)
+        draw_centered_text_in_rect(frame, "Head to Game Modes and pick Fair Play or Challenge.",
+            (px1 + 16, py1 + _ix(ph2 * 0.58), px2 - 16, py1 + _ix(ph2 * 0.76)),
+            base_scale=SCALE_BODY, color=COL_TEXT_DIM, thickness=1, outline=2)
+        draw_bottom_bar(frame, "ESC Back to menu")
         return
 
     # --- VIEW MODE ---
@@ -1891,8 +1910,15 @@ def draw_login_screen(frame, login_text="", saved_name="", verified_players=None
         cur_x = tx + cw + 2
         cv2.rectangle(frame, (cur_x, ty - th2 - 2), (cur_x + 2, ty + 4), COL_ACCENT, -1)
 
+    # ── Char counter top-right of box ────────────────────────────────────
+    char_count = len(txt)
+    counter_str = f"{char_count}/20"
+    counter_col = COL_AMBER if char_count >= 18 else COL_TEXT_DIM
+    draw_outlined_text(frame, counter_str, box_x2 - _ix(w * 0.06), box_y1 - 6,
+                       SCALE_MICRO, counter_col, thickness=1, outline=2)
+
     # ── Caption below input ───────────────────────────────────────────────
-    draw_centered_text(frame, "A-Z  *  1-12 characters  *  press ENTER when done",
+    draw_centered_text(frame, "A-Z  *  up to 20 characters  *  press ENTER when done",
                        _ix(h * 0.60), SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
 
     # ── Recent players chips at y=68% ────────────────────────────────────

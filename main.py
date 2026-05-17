@@ -1060,7 +1060,9 @@ def open_player_stats(app_state):
     all_players = store.list_players()
 
     if not all_players:
-        print("[Stats] No player profiles found.")
+        app_state["app_screen"] = "PLAYER_STATS"
+        app_state["stats_step"] = "no_profiles"
+        app_state["stats_players"] = []
         return
 
     app_state["app_screen"] = "PLAYER_STATS"
@@ -1770,7 +1772,10 @@ def handle_voice_nav(app_state, action):
     # ── PLAYER_STATS ──────────────────────────────────────────────────────
     elif screen == "PLAYER_STATS":
         step = app_state.get("stats_step", "select")
-        if step == "select":
+        if step == "no_profiles":
+            if action == "back":
+                open_menu(app_state)
+        elif step == "select":
             players = app_state.get("stats_players", [])
             if action == "up" and players:
                 app_state["stats_player_index"] = (
@@ -2692,7 +2697,21 @@ def run():
     cap = cv2.VideoCapture(0)
 
     if not cap.isOpened():
-        print("Could not open camera.")
+        import numpy as _np
+        cv2.namedWindow(WINDOW_NAME)
+        _ef = _np.zeros((480, 640, 3), dtype=_np.uint8)
+        for _t, _y, _s in [
+            ("Camera not available", 190, 0.9),
+            ("Check camera permissions or connection,", 240, 0.50),
+            ("then relaunch the app.", 268, 0.50),
+            ("Press any key to exit.", 330, 0.45),
+        ]:
+            (_tw, _), _ = cv2.getTextSize(_t, cv2.FONT_HERSHEY_SIMPLEX, _s, 1)
+            cv2.putText(_ef, _t, ((640 - _tw) // 2, _y),
+                        cv2.FONT_HERSHEY_SIMPLEX, _s, (180, 180, 180), 1, cv2.LINE_AA)
+        cv2.imshow(WINDOW_NAME, _ef)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
         raise SystemExit
 
     app_state["cap"] = cap
@@ -3194,7 +3213,8 @@ def run():
                         )
 
                 elif app_state["play_mode"] == "ReflexSolo":
-                    draw_reflex_solo_view(frame, game_state)
+                    draw_reflex_solo_view(frame, game_state,
+                                          voice_mode_active=app_state.get("voice_mode_active", False))
 
                 elif app_state["play_mode"] == "BluffMode":
                     draw_bluff_mode_view(
@@ -3244,6 +3264,7 @@ def run():
                         sound_on=app_state["sound_player"].is_on(),
                         colourblind=app_state["config"].get("colourblind_mode", False),
                         show_session_summary=show_session_summary,
+                        diagnostic=(app_state["display_mode"] == "Diagnostic"),
                     )
 
                 # ── Help overlay for non-RPS modes (? key) ─────────────────
