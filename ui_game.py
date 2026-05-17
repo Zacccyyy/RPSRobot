@@ -61,7 +61,6 @@ def _draw_result_grid(frame, player_gesture, ai_gesture, result_banner,
     glyph_y = py1 + _ix(ph * 0.60)
     glyph_r = min(_ix(pw * 0.08), 50)
 
-    print(f"DEBUG result_grid result='{result_banner}'")
     # Glyph colours: win/loss override; draw falls back to gesture identity colour
     _GESTURE_COLS = {
         'rock':     (160, 120,  80),
@@ -502,7 +501,16 @@ def draw_result_screen(frame, game_state, colourblind=False):
     draw_panel(frame, x1, y1, x2, y2,
                fill=COL_PANEL_BG, alpha=0.88,
                border=banner_col, border_thickness=1)
-    _draw_state_pill(frame, banner, (x1 + x2) // 2, y1 + _ix((y2 - y1) * 0.09))
+    gs = banner.upper()
+    if any(w in gs for w in ('YOU WIN', 'YOU TAKE', 'SURVIVE')):
+        pill_label = 'WIN'
+    elif any(w in gs for w in ('ROBOT TAKES', 'ROBOT WIN', 'YOU LOSE', 'LOSS')):
+        pill_label = 'LOSS'
+    elif 'DRAW' in gs:
+        pill_label = 'DRAW'
+    else:
+        pill_label = 'RESULT'
+    _draw_state_pill(frame, pill_label, (x1 + x2) // 2, y1 + _ix((y2 - y1) * 0.09))
 
     # Colourblind tint
     if colourblind:
@@ -530,15 +538,41 @@ def draw_result_screen(frame, game_state, colourblind=False):
         (right[0], right[1] + 6, right[2], right[1] + _ix((right[3] - right[1]) * 0.20)),
         base_scale=SCALE_CAPTION, color=COL_TEXT_SECONDARY, thickness=1, outline=2)
 
-    _draw_gesture_icon(frame, game_state["player_gesture"], left)
-    _draw_gesture_icon(frame, game_state["computer_gesture"], right)
+    _GESTURE_COLS = {
+        'rock':     (160, 120,  80),
+        'paper':    ( 80, 160, 200),
+        'scissors': ( 80,  80, 200),
+        'lizard':   ( 80, 160,  80),
+        'spock':    (200, 100, 200),
+    }
+    p_base  = _GESTURE_COLS.get(game_state["player_gesture"].lower(),   COL_TEXT_SECONDARY)
+    ai_base = _GESTURE_COLS.get(game_state["computer_gesture"].lower(), COL_TEXT_SECONDARY)
+    b_up = banner.upper()
+    if any(w in b_up for w in ('YOU WIN', 'YOU TAKE', 'SURVIVE')):
+        p_col, ai_col = COL_GREEN, COL_RED
+    elif any(w in b_up for w in ('ROBOT TAKES', 'ROBOT WIN', 'YOU LOSE', 'LOSS')):
+        p_col, ai_col = COL_RED, COL_GREEN
+    else:
+        p_col, ai_col = p_base, ai_base
+
+    pgx  = (left[0]  + left[2])  // 2
+    pcy  = left[1]  + _ix((left[3]  - left[1])  * 0.48)
+    p_sz = _ix(min(left[2]  - left[0],  left[3]  - left[1])  * 0.20)
+    draw_gesture_glyph(frame, game_state["player_gesture"],
+                       (pgx - p_sz, pcy - p_sz, pgx + p_sz, pcy + p_sz), p_col)
+
+    agx  = (right[0] + right[2]) // 2
+    acy  = right[1] + _ix((right[3] - right[1]) * 0.48)
+    a_sz = _ix(min(right[2] - right[0], right[3] - right[1]) * 0.20)
+    draw_gesture_glyph(frame, game_state["computer_gesture"],
+                       (agx - a_sz, acy - a_sz, agx + a_sz, acy + a_sz), ai_col)
 
     draw_centered_text_in_rect(frame, game_state["player_gesture"].upper(),
         (left[0], left[1] + _ix((left[3] - left[1]) * 0.74), left[2], left[3] - 4),
-        base_scale=SCALE_CAPTION, color=COL_TEXT_PRIMARY, thickness=1, outline=2)
+        base_scale=SCALE_CAPTION, color=p_col, thickness=1, outline=2)
     draw_centered_text_in_rect(frame, game_state["computer_gesture"].upper(),
         (right[0], right[1] + _ix((right[3] - right[1]) * 0.74), right[2], right[3] - 4),
-        base_scale=SCALE_CAPTION, color=COL_TEXT_PRIMARY, thickness=1, outline=2)
+        base_scale=SCALE_CAPTION, color=ai_col, thickness=1, outline=2)
 
     # Colourblind stamp only (centre column otherwise empty)
     if colourblind:

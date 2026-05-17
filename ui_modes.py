@@ -2171,7 +2171,6 @@ def draw_rpsls_view(frame, game_state, tracker_state=None, hand_state=None):
     w, h = frame.shape[1], frame.shape[0]
 
     cur_state  = game_state["state"]
-    print(f"DEBUG pill state: {cur_state!r}")
     p_gest     = game_state.get("player_gesture", "Unknown")
     ai_gest    = game_state.get("ai_gesture", "Unknown")
     banner     = game_state.get("result_banner", "")
