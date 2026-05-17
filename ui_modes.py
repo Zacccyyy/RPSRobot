@@ -2554,17 +2554,12 @@ def _load_hand_img():
             # Soft curve: anything below lightness 230 starts becoming visible
             new_alpha = _np.clip((230.0 - lightness) / 180.0, 0.0, 1.0) * 255.0
             arr[:,:,3] = new_alpha
-            print(f"[HandScan] Derived alpha from darkness. "
-                  f"Opaque pixels: {int((new_alpha > 64).sum())}")
-        else:
-            print(f"[HandScan] Using existing alpha channel.")
 
         arr = arr.clip(0, 255).astype(_np.uint8)
         bgr   = arr[:, :, :3][:, :, ::-1].copy()   # RGB→BGR
         alpha = arr[:, :, 3].astype(_np.float32) / 255.0
         return bgr, alpha
-    except Exception as e:
-        print(f"[HandScan] Could not load hand_outline.png: {e}")
+    except Exception:
         return None, None
 
 _HAND_IMG_RAW = None
