@@ -576,16 +576,26 @@ def _draw_last_round_replay(frame, player_gesture, robot_gesture, banner):
         draw_centered_text(frame, banner, y1 + _ix(ph * 0.08),
                            SCALE_CAPTION, banner_col, thickness=1, outline=2)
 
+    b_up = banner.upper()
+    if any(w in b_up for w in ('YOU WIN', 'YOU TAKE', 'SURVIVE')):
+        p_col, ai_col = COL_GREEN, COL_RED
+    elif any(w in b_up for w in ('ROBOT TAKES', 'ROBOT WIN', 'YOU LOSE', 'LOSS')):
+        p_col, ai_col = COL_RED, COL_GREEN
+    else:
+        p_col, ai_col = COL_TEXT_SECONDARY, COL_TEXT_SECONDARY
+
     lx = x1 + _ix(pw * 0.22)
     rx = x1 + _ix(pw * 0.62)
     gy = y1 + _ix(ph * 0.20)
     sz = _ix(min(pw, ph) * 0.06)
-    draw_gesture_icon(frame, player_gesture, lx, gy, sz)
-    draw_gesture_icon(frame, robot_gesture,  rx, gy, sz)
-    draw_outlined_text(frame, player_gesture.upper(), lx - sz, gy + sz + 8,
-                       SCALE_MICRO, COL_TEXT_PRIMARY, thickness=1, outline=2)
-    draw_outlined_text(frame, robot_gesture.upper(),  rx - sz, gy + sz + 8,
-                       SCALE_MICRO, COL_TEXT_PRIMARY, thickness=1, outline=2)
+    if player_gesture:
+        draw_gesture_glyph(frame, player_gesture, (lx-sz, gy-sz, lx+sz, gy+sz), p_col)
+        draw_outlined_text(frame, player_gesture.upper(), lx - sz, gy + sz + 8,
+                           SCALE_MICRO, p_col, thickness=1, outline=2)
+    if robot_gesture:
+        draw_gesture_glyph(frame, robot_gesture, (rx-sz, gy-sz, rx+sz, gy+sz), ai_col)
+        draw_outlined_text(frame, robot_gesture.upper(), rx - sz, gy + sz + 8,
+                           SCALE_MICRO, ai_col, thickness=1, outline=2)
     draw_centered_text(frame, "vs", gy, SCALE_CAPTION, COL_TEXT_DIM,
                        thickness=1, outline=2)
 

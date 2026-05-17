@@ -2170,7 +2170,7 @@ def draw_rpsls_view(frame, game_state, tracker_state=None, hand_state=None):
     """RPSLS game screen."""
     w, h = frame.shape[1], frame.shape[0]
 
-    cur_state  = game_state["state"]
+    cur_state  = game_state.get("state", "")
     p_gest     = game_state.get("player_gesture", "Unknown")
     ai_gest    = game_state.get("ai_gesture", "Unknown")
     banner     = game_state.get("result_banner", "")
@@ -2324,13 +2324,17 @@ def draw_rpsls_view(frame, game_state, tracker_state=None, hand_state=None):
 
     # Inline state pill
     _PILL = {
-        "WAITING_FOR_ROCK": ("READY",      COL_ACCENT),
-        "COUNTDOWN":        ("COUNTING",   COL_ACCENT),
-        "SHOOT_WINDOW":     ("SHOOT",      COL_RED),
-        "ROUND_RESULT":     ("RESULT",     COL_TEXT_SECONDARY),
-        "MATCH_RESULT":     ("MATCH OVER", COL_TEXT_SECONDARY),
+        "WAITING_FOR_ROCK": ("READY",     COL_ACCENT),
+        "ROUND_INTRO":      ("GET READY", COL_TEXT_SECONDARY),
+        "COUNTDOWN":        ("COUNTING",  COL_ACCENT),
+        "SHOOT_WINDOW":     ("SHOOT",     COL_RED),
+        "ROUND_RESULT":     ("RESULT",    COL_TEXT_SECONDARY),
     }
-    pill_lbl, pill_col = _PILL.get(cur_state, ("READY", COL_ACCENT))
+    if cur_state == "MATCH_RESULT":
+        pill_lbl = "WIN" if p_score >= win_target else "LOSS"
+        pill_col = COL_GREEN if p_score >= win_target else COL_RED
+    else:
+        pill_lbl, pill_col = _PILL.get(cur_state, ("READY", COL_ACCENT))
     pill_mid_y = py1 + _ix(ph * 0.07)
     pill_h2    = _ix(h * 0.018)
     font_s     = cv2.FONT_HERSHEY_SIMPLEX
