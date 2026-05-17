@@ -551,7 +551,10 @@ class VoiceController:
                         last_partial = partial_text
                         for w in partial_text.split():
                             if w in _BEAT_WORDS or w in _THROW_WORDS or w in _NAV_WORDS:
-                                self._dispatch_word(w)
+                                with self._lock:
+                                    already_sent = (self._last_word == w)
+                                if not already_sent:
+                                    self._dispatch_word(w)
                                 break
                 except Exception:
                     pass

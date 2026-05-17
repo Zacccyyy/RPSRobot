@@ -17,6 +17,7 @@ Uses claude-sonnet-4-20250514. Runs async in a background thread
 so it never blocks the 30fps camera loop.
 """
 
+import os
 import threading
 import time
 import json
@@ -121,12 +122,16 @@ class CommentaryEngine:
                 "messages":   [{"role": "user", "content": prompt}],
             }).encode("utf-8")
 
+            api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+            if not api_key:
+                return
             req = urllib.request.Request(
                 "https://api.anthropic.com/v1/messages",
                 data=payload,
                 headers={
                     "Content-Type":      "application/json",
                     "anthropic-version": "2023-06-01",
+                    "x-api-key":         api_key,
                 },
                 method="POST",
             )

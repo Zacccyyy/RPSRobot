@@ -41,6 +41,10 @@ from gesture_fingerprint import (
     MIN_DWELL_FRAMES,
 )
 
+# Minimum confidence for a single-dot prediction to count as "correct".
+# Intentionally lower than VERIFY_THRESHOLD (accuracy ratio across all dots).
+_MIN_PRED_CONFIDENCE = 0.55
+
 
 class SquidFingerprintController(SquidGameController):
     """
@@ -116,7 +120,7 @@ class SquidFingerprintController(SquidGameController):
 
         elif self.fp_phase == "VERIFYING":
             predicted, conf = self._clf.predict(vec)
-            correct = (predicted == self.player_name and conf >= 0.55)
+            correct = (predicted == self.player_name and conf >= _MIN_PRED_CONFIDENCE)
             self.verify_results.append(correct)
             self.verify_total += 1
             window = self.verify_results[-VERIFY_WINDOW:]

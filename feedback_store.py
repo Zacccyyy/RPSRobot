@@ -32,7 +32,7 @@ def save_feedback(player_name: str, text: str, git_sha: str = "") -> Path:
     FEEDBACK_DIR.mkdir(parents=True, exist_ok=True)
 
     ts      = time.strftime("%Y-%m-%d_%H-%M-%S")
-    safe    = "".join(c if c.isalnum() or c in "-_" else "_"
+    safe    = "".join(c if (c.isascii() and c.isalnum()) or c in "-_" else "_"
                       for c in (player_name or "unknown"))
     fname   = f"{ts}_{safe}.txt"
     fpath   = FEEDBACK_DIR / fname

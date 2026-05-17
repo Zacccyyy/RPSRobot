@@ -404,8 +404,9 @@ class EmotionTracker:
                 self._locked_score   = 0.0
 
         self.raw_history.append(self._locked_emotion)
-        counts              = Counter(self.raw_history)
-        self.stable_emotion = counts.most_common(1)[0][0]
+        counts = Counter(self.raw_history)
+        top    = counts.most_common(1)
+        self.stable_emotion = top[0][0] if top else "Neutral"
 
         return self._build_state()
 

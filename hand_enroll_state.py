@@ -188,7 +188,7 @@ def _assess_quality(lm_obj, palm_scale, sil_cx_n=0.5, sil_cy_n=0.62):
                 abs(palm_cy - sil_cy_n) > POSITION_TOLERANCE):
             return False, "Move your hand inside the outline"
     except (IndexError, AttributeError):
-        pass
+        return False, "Incomplete hand detection"
 
     return True, "ok"
 
