@@ -2171,6 +2171,7 @@ def draw_rpsls_view(frame, game_state, tracker_state=None, hand_state=None):
     w, h = frame.shape[1], frame.shape[0]
 
     cur_state  = game_state["state"]
+    print(f"DEBUG pill state: {cur_state!r}")
     p_gest     = game_state.get("player_gesture", "Unknown")
     ai_gest    = game_state.get("ai_gesture", "Unknown")
     banner     = game_state.get("result_banner", "")
@@ -2274,6 +2275,9 @@ def draw_rpsls_view(frame, game_state, tracker_state=None, hand_state=None):
     draw_gesture_glyph(frame, glyph_gest,
                        (g_cx - g_half, g_cy - g_half, g_cx + g_half, g_cy + g_half),
                        g_col)
+    draw_centered_text_in_rect(frame, glyph_gest.upper(),
+        (cx1, g_cy + g_half + 4, cx2, g_cy + g_half + _ix(ph * 0.12)),
+        base_scale=SCALE_CAPTION, color=g_col, thickness=1, outline=2)
 
     streak   = tracker_state.get("stable_streak", 0) if tracker_state else 0
     pct_lock = min(1.0, streak / 3)
@@ -2307,6 +2311,9 @@ def draw_rpsls_view(frame, game_state, tracker_state=None, hand_state=None):
         draw_gesture_glyph(frame, ai_gest,
                            (ai_cx - g_half, ai_cy - g_half, ai_cx + g_half, ai_cy + g_half),
                            ai_col)
+        draw_centered_text_in_rect(frame, ai_gest.upper(),
+            (ax1, ai_cy + g_half + 4, ax2, ai_cy + g_half + _ix(ph * 0.12)),
+            base_scale=SCALE_CAPTION, color=ai_col, thickness=1, outline=2)
     else:
         draw_centered_text_in_rect(frame, "?",
             (ax1, py1 + _ix(ph * 0.28), ax2, py1 + _ix(ph * 0.68)),
