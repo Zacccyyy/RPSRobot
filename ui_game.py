@@ -61,6 +61,7 @@ def _draw_result_grid(frame, player_gesture, ai_gesture, result_banner,
     glyph_y = py1 + _ix(ph * 0.60)
     glyph_r = min(_ix(pw * 0.08), 50)
 
+    print(f"DEBUG result_grid result='{result_banner}'")
     # Glyph colours: win/loss override; draw falls back to gesture identity colour
     _GESTURE_COLS = {
         'rock':     (160, 120,  80),
