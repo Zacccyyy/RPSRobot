@@ -118,6 +118,7 @@ class ChallengeController:
         self.result_until = None
 
         self.tracker_reset_requested = False
+        self.gesture_assumed = False
 
         if self.robot_output is not None:
             self.robot_output.clear_pending_locked()
@@ -418,6 +419,7 @@ class ChallengeController:
             "player_score": self.streak,
             "robot_score": self.high_score,
             "request_tracker_reset": self.tracker_reset_requested,
+            "gesture_assumed": getattr(self, "gesture_assumed", False),
         }
 
         if self.state == "ROUND_INTRO":
@@ -605,6 +607,7 @@ class ChallengeController:
                     return self._build_output(now)
 
             if time_since_open >= self.rock_assume_seconds:
+                self.gesture_assumed = True
                 self._resolve_round("Rock", now)
                 return self._build_output(now)
 

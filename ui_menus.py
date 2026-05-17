@@ -115,11 +115,16 @@ def draw_simulation_screen(frame, sim_state):
     w, h = layout["w"], layout["h"]
     x1, y1, x2, y2 = layout["panel"]
 
-    draw_top_bar(frame, "SIMULATION", "Running...  ESC to go back when done")
+    status   = sim_state.get("status", "running")
+    if status == "running":
+        _top_hint = "Simulation running...  ESC disabled"
+    elif status == "done":
+        _top_hint = "Simulation complete  |  ESC Back"
+    else:
+        _top_hint = "ESC Back"
+    draw_top_bar(frame, "SIMULATION", _top_hint)
     draw_panel(frame, x1, y1, x2, y2, fill=COL_BG_PANEL, alpha=0.94,
                border=COL_ACCENT, border_thickness=1)
-
-    status   = sim_state.get("status", "running")
     progress = sim_state.get("progress", 0.0)
     prog_txt = sim_state.get("progress_text", "")
     results  = sim_state.get("results")
@@ -153,6 +158,8 @@ def draw_simulation_screen(frame, sim_state):
         dots = "." * (1 + int(t * 2) % 3)
         draw_centered_text(frame, f"Please wait{dots}", cy + _ix(ph * 0.18),
                            0.42, COL_TEXT_DIM, thickness=1, outline=2)
+        draw_centered_text(frame, "ESC is disabled while simulation is running",
+                           cy + _ix(ph * 0.26), 0.34, COL_TEXT_DIM, thickness=1, outline=1)
 
     elif status == "error":
         draw_centered_text(frame, "SIMULATION ERROR", cy, 0.70, COL_RED, thickness=2, outline=3)
@@ -526,9 +533,9 @@ def draw_settings_screen(frame, settings_schema, selected_index, config,
     if sel_item.get("key") == "voice_model":
         val = config.get("voice_model", "US English")
         if val == "US English":
-            hint_bottom = "Download: alphacephei.com/vosk/models  ->  vosk-model-small-en-us-0.15"
+            hint_bottom = "(type in browser) alphacephei.com/vosk/models  ->  vosk-model-small-en-us-0.15"
         else:
-            hint_bottom = "Download: alphacephei.com/vosk/models  ->  vosk-model-small-en-in-0.4"
+            hint_bottom = "(type in browser) alphacephei.com/vosk/models  ->  vosk-model-small-en-in-0.4"
 
     draw_bottom_bar(frame, hint_bottom)
 

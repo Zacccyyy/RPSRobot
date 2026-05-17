@@ -103,6 +103,7 @@ class RPSGameController:
         self.robot_move_command = "PENDING"
         self.result_banner = ""
         self.result_until = None
+        self.gesture_assumed = False
 
     def _lock_round(self, player_gesture, now):
         self.player_gesture = player_gesture
@@ -157,6 +158,7 @@ class RPSGameController:
             "round_number": 0,
             "player_score": 0,
             "robot_score": 0,
+            "gesture_assumed": self.gesture_assumed,
         }
 
         if self.state == "WAITING_FOR_ROCK":
@@ -297,6 +299,7 @@ class RPSGameController:
                     return self._build_output(now)
 
             if time_since_open >= self.rock_assume_seconds:
+                self.gesture_assumed = True
                 self._lock_round("Rock", now)
                 return self._build_output(now)
 

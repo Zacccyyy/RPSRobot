@@ -126,6 +126,7 @@ class FairPlayController:
         # One-shot flag used by the main loop.
         # When True, the tracker should clear its recent history exactly once.
         self.tracker_reset_requested = False
+        self.gesture_assumed = False
 
         if self.robot_output is not None:
             self.robot_output.clear_pending_locked()
@@ -345,6 +346,7 @@ class FairPlayController:
             "player_score": self.player_score,
             "robot_score": self.robot_score,
             "request_tracker_reset": self.tracker_reset_requested,
+            "gesture_assumed": getattr(self, "gesture_assumed", False),
             "opponent_type": opp_type,
             "ai_personality": personality,
             "reaction_ms": getattr(self, "_last_reaction_ms", None),
@@ -589,6 +591,7 @@ class FairPlayController:
             # This still keeps Rock responsive, but gives Paper/Scissors
             # more time to become the new stable throw.
             if time_since_open >= self.rock_assume_seconds:
+                self.gesture_assumed = True
                 self._resolve_round("Rock", now)
                 return self._build_output(now)
 

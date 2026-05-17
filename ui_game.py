@@ -440,6 +440,11 @@ def draw_result_screen(frame, game_state, colourblind=False):
         pill_label = 'RESULT'
     _draw_state_pill(frame, pill_label, (x1 + x2) // 2, y1 + _ix((y2 - y1) * 0.09))
 
+    if game_state.get("gesture_assumed"):
+        draw_centered_text(frame, "Rock assumed -- no gesture detected",
+                           y1 + _ix((y2 - y1) * 0.18), SCALE_CAPTION, COL_AMBER,
+                           thickness=1, outline=2)
+
     # Colourblind tint
     if colourblind:
         tint = _COL_CB_WIN if ("WIN" in banner.upper() or "SURVIVE" in banner.upper()) \

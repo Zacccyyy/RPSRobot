@@ -752,16 +752,27 @@ def draw_bluff_mode_view(frame, game_state, tracker_state=None, hand_state=None,
                 (cx1 + 4, pan_y1 + _ix(ph * 0.74), cx2 - 4, pan_y1 + _ix(ph * 0.87)),
                 base_scale=SCALE_CAPTION, color=truth_col, thickness=1, outline=2)
     else:
-        main_text = "MAKE A FIST" if cur_state == "WAITING_FOR_ROCK" else \
-                    ("READY" if beat_count == 0 else str(min(beat_count, 3)))
-        pulse = 0.72 + 0.28 * abs(math.sin(t * math.pi * 1.4))
-        num_col = tuple(min(255, int(c * pulse)) for c in COL_ACCENT) \
-                  if cur_state == "COUNTDOWN" and main_text not in ("MAKE A FIST", "READY") \
-                  else COL_ACCENT
-        draw_centered_text_in_rect(frame, main_text,
-            (cx1, pan_y1 + _ix(ph * 0.25), cx2, pan_y1 + _ix(ph * 0.65)),
-            base_scale=SCALE_BODY if cur_state != "COUNTDOWN" else SCALE_DISPLAY_L,
-            color=num_col, thickness=2, outline=3)
+        if cur_state == "ROUND_INTRO" and game_state.get("round_number", 1) == 1:
+            draw_centered_text_in_rect(frame, "AI WILL DECLARE ITS MOVE",
+                (cx1, pan_y1 + _ix(ph * 0.20), cx2, pan_y1 + _ix(ph * 0.42)),
+                base_scale=SCALE_CAPTION, color=COL_TEXT_SECONDARY, thickness=1, outline=2)
+            draw_centered_text_in_rect(frame, "...but may be bluffing",
+                (cx1, pan_y1 + _ix(ph * 0.44), cx2, pan_y1 + _ix(ph * 0.60)),
+                base_scale=SCALE_CAPTION, color=COL_AMBER, thickness=1, outline=2)
+            draw_centered_text_in_rect(frame, "Normal RPS rules apply",
+                (cx1, pan_y1 + _ix(ph * 0.63), cx2, pan_y1 + _ix(ph * 0.74)),
+                base_scale=0.36, color=COL_TEXT_DIM, thickness=1, outline=2)
+        else:
+            main_text = "MAKE A FIST" if cur_state == "WAITING_FOR_ROCK" else \
+                        ("READY" if beat_count == 0 else str(min(beat_count, 3)))
+            pulse = 0.72 + 0.28 * abs(math.sin(t * math.pi * 1.4))
+            num_col = tuple(min(255, int(c * pulse)) for c in COL_ACCENT) \
+                      if cur_state == "COUNTDOWN" and main_text not in ("MAKE A FIST", "READY") \
+                      else COL_ACCENT
+            draw_centered_text_in_rect(frame, main_text,
+                (cx1, pan_y1 + _ix(ph * 0.25), cx2, pan_y1 + _ix(ph * 0.65)),
+                base_scale=SCALE_BODY if cur_state != "COUNTDOWN" else SCALE_DISPLAY_L,
+                color=num_col, thickness=2, outline=3)
 
     # Beat track
     if cur_state in ("COUNTDOWN", "WAITING_FOR_ROCK", "SHOOT_WINDOW"):
@@ -941,6 +952,29 @@ def draw_simon_says_two_player_view(frame, game_state,
 
     draw_top_bar(frame, "SIMON SAYS  -  2 PLAYER CHAIN",
                  f"Chain: {chain_len}  |  {active} is active  |  Q Quit")
+
+    if game_state.get("state") == "INTRO":
+        cy_i = h // 2
+        draw_centered_text(frame, "SIMON SAYS  2 PLAYER", cy_i - _ix(h * 0.28),
+                           SCALE_HEADING, COL_GREEN, thickness=2, outline=3)
+        draw_centered_text(frame, "P1 adds a gesture  |  P2 copies + adds  |  alternate",
+                           cy_i - _ix(h * 0.14), SCALE_CAPTION, COL_TEXT_SECONDARY,
+                           thickness=1, outline=2)
+        draw_centered_text(frame, "Hold each gesture for 2 seconds to lock it in",
+                           cy_i - _ix(h * 0.06), SCALE_CAPTION, COL_TEXT_DIM,
+                           thickness=1, outline=2)
+        draw_centered_text(frame, "Wrong gesture or wrong order = game over",
+                           cy_i + _ix(h * 0.02), SCALE_CAPTION, COL_TEXT_DIM,
+                           thickness=1, outline=2)
+        draw_centered_text(frame, "P1 = Left hand    P2 = Right hand",
+                           cy_i + _ix(h * 0.12), SCALE_CAPTION, COL_ACCENT,
+                           thickness=1, outline=2)
+        pulse = 0.5 + 0.5 * abs(math.sin(time.monotonic() * math.pi * 1.2))
+        pc = tuple(min(255, int(c * pulse)) for c in COL_GREEN)
+        draw_centered_text(frame, "Press ENTER to start",
+                           cy_i + _ix(h * 0.26), SCALE_BODY, pc, thickness=1, outline=2)
+        draw_bottom_bar(frame, "P1=Left hand  |  P2=Right hand  |  ENTER Start  |  Q Quit")
+        return
 
     if game_over:
         draw_centered_text(frame, "GAME OVER", h // 2 - _ix(h * 0.12),
@@ -1806,6 +1840,17 @@ def draw_arcade_snake_view(frame, game_state, tracker_state=None):
             f"{display_gest}  {action[display_gest]}",
             _ix(w * 0.04), grid_y2 + _ix(h * 0.02),
             0.42, get_gesture_color(display_gest), thickness=1, outline=2)
+
+    # Hand-lost badge (playing state only)
+    if state != "GAME_OVER" and tracker_state is not None:
+        _has_hand = (tracker_state.get("confirmed_gesture", "Unknown") != "Unknown" or
+                     tracker_state.get("stable_gesture",   "Unknown") != "Unknown")
+        if not _has_hand:
+            _pulse = 0.6 + 0.4 * abs(math.sin(t * math.pi * 2.5))
+            _ac = tuple(min(255, int(c * _pulse)) for c in COL_AMBER)
+            draw_outlined_text(frame, "HAND NOT IN FRAME",
+                               _ix(w * 0.04), _ix(h * 0.10),
+                               SCALE_CAPTION, _ac, thickness=1, outline=2)
 
     # ── GAME OVER ──────────────────────────────────────────────────────────
     if state == "GAME_OVER":
