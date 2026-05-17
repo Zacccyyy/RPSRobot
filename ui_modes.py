@@ -65,7 +65,7 @@ def draw_two_player_view(frame, game_state,
     w, h = frame.shape[1], frame.shape[0]
     t    = time.monotonic()
 
-    cur_state  = game_state["state"]
+    cur_state  = game_state.get("state", "")
     banner     = game_state.get("result_banner", "")
     beat_count = game_state.get("beat_count", 0)
     main_text  = game_state.get("main_text", "")
@@ -190,7 +190,7 @@ def draw_pvpvai_view(frame, game_state,
     w, h = frame.shape[1], frame.shape[0]
     t    = time.monotonic()
 
-    cur_state = game_state["state"]
+    cur_state = game_state.get("state", "")
     banner    = game_state.get("result_banner", "")
     p1_pts    = game_state.get("p1_pts_this_round", 0)
     p2_pts    = game_state.get("p2_pts_this_round", 0)
@@ -541,7 +541,7 @@ def _draw_reflex_target(frame, target, cx, cy, radius, flash=False):
 def draw_reflex_solo_view(frame, game_state, voice_mode_active=False):
     w, h = frame.shape[1], frame.shape[0]
 
-    cur_state = game_state["state"]
+    cur_state = game_state.get("state", "")
     target    = game_state.get("target", "")
     score     = game_state.get("score", 0)
     best      = game_state.get("best_score", 0)
@@ -618,7 +618,7 @@ def draw_reflex_two_player_view(frame, game_state,
                                 p1_tracker_state=None, p2_tracker_state=None):
     w, h = frame.shape[1], frame.shape[0]
 
-    cur_state  = game_state["state"]
+    cur_state  = game_state.get("state", "")
     target     = game_state.get("target", "")
     p1_score   = game_state.get("p1_score", 0)
     p2_score   = game_state.get("p2_score", 0)
@@ -697,7 +697,7 @@ def draw_bluff_mode_view(frame, game_state, tracker_state=None, hand_state=None,
     w, h = frame.shape[1], frame.shape[0]
     t    = time.monotonic()
 
-    cur_state    = game_state["state"]
+    cur_state    = game_state.get("state", "")
     declared     = game_state.get("ai_declared_move", "?")
     actual       = game_state.get("ai_actual_move",   "?")
     score_text   = game_state.get("score_text", "")

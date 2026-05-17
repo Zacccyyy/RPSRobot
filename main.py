@@ -1050,8 +1050,7 @@ def handle_clone_setup_key(app_state, key):
         if key == KEY_ESC:
             open_menu(app_state)
         elif key in KEY_ENTER:
-            # Go back to name entry so they can start playing to build data.
-            open_menu(app_state)
+            start_game(app_state, "FairPlay")
 
 
 def open_player_stats(app_state):
@@ -1766,8 +1765,10 @@ def handle_voice_nav(app_state, action):
             elif action == "back":
                 app_state["clone_step"] = "enter_name"
         elif step == "no_profiles":
-            if action in ("select", "back"):
+            if action == "back":
                 open_menu(app_state)
+            elif action == "select":
+                start_game(app_state, "FairPlay")
 
     # ── PLAYER_STATS ──────────────────────────────────────────────────────
     elif screen == "PLAYER_STATS":

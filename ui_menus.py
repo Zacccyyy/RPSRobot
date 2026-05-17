@@ -1020,7 +1020,7 @@ def draw_clone_setup_screen(frame, clone_state):
             cur_x = tx + cw + 2
             cv2.rectangle(frame, (cur_x, ty - th2 - 2), (cur_x + 2, ty + 4), COL_ACCENT, -1)
 
-        draw_centered_text(frame, "A-Z  *  1-12 characters  *  ENTER to confirm",
+        draw_centered_text(frame, "A-Z  *  up to 20 characters  *  ENTER to confirm",
                            _ix(h * 0.60), SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
 
         if msg:
@@ -1127,7 +1127,7 @@ def draw_clone_setup_screen(frame, clone_state):
                     base_scale=SCALE_CAPTION, color=COL_TEXT_DIM,
                     thickness=1, outline=1)
 
-        draw_bottom_bar(frame, "Play Fair Play or Challenge to record rounds")
+        draw_bottom_bar(frame, "ENTER Start Fair Play  |  ESC Back to menu")
 
 # ============================================================
 # PLAYER STATS SCREEN

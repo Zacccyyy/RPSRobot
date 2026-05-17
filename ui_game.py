@@ -156,9 +156,9 @@ def draw_info_panel(frame, tracker_state, game_state, count_text, status_text,
     draw_panel(frame, x1, y1, x2, y2,
                fill=COL_PANEL_BG, alpha=0.88, border=COL_ACCENT, border_thickness=1)
 
-    raw_gesture       = tracker_state.get("raw_gesture",       "—")
-    stable_gesture    = tracker_state.get("stable_gesture",    "—")
-    confirmed_gesture = tracker_state.get("confirmed_gesture", "—")
+    raw_gesture       = tracker_state.get("raw_gesture",       "?")
+    stable_gesture    = tracker_state.get("stable_gesture",    "?")
+    confirmed_gesture = tracker_state.get("confirmed_gesture", "?")
     robot_ready       = tracker_state.get("robot_ready",       False)
     command_text      = tracker_state.get("command",           "")
     stable_streak     = tracker_state.get("stable_streak",     0)
@@ -422,8 +422,7 @@ def draw_result_screen(frame, game_state, colourblind=False):
     w, h   = layout["w"], layout["h"]
     x1, y1, x2, y2 = layout["result"]
 
-    banner      = game_state["result_banner"] if game_state["result_banner"] \
-                  else game_state["main_text"]
+    banner      = game_state.get("result_banner") or game_state.get("main_text", "")
     banner_col  = get_result_banner_color(banner, colourblind=colourblind)
 
     draw_panel(frame, x1, y1, x2, y2,
