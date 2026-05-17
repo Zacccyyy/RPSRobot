@@ -40,6 +40,7 @@ class RPSGameController:
         self.rock_assume_seconds = rock_assume_seconds
         self.result_display_seconds = result_display_seconds
 
+        self._voice_mode = False
         self.reset_round()
 
     def reset(self):
@@ -69,7 +70,6 @@ class RPSGameController:
             self.last_beat_time = now
 
         elif word == "three" and cooldown_ok:
-            self.beat_count = 3
             self.last_beat_time = now
             self.beat_count = 4
             self.state = "SHOOT_WINDOW"

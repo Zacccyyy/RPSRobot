@@ -164,7 +164,6 @@ class ChallengeController:
             self.last_beat_time = now
 
         elif word == "three" and cooldown_ok:
-            self.beat_count = 3
             self.last_beat_time = now
             self._lock_robot_move()
             self.beat_count = 4
@@ -429,10 +428,10 @@ class ChallengeController:
             "player_score": self.streak,
             "robot_score": self.high_score,
             "request_tracker_reset": self.tracker_reset_requested,
-            "gesture_assumed": getattr(self, "gesture_assumed", False),
-            "last_player_gesture": getattr(self, "_last_round_player_gest", None),
-            "last_robot_gesture":  getattr(self, "_last_round_robot_gest",  None),
-            "last_banner":         getattr(self, "_last_round_banner", ""),
+            "gesture_assumed": self.gesture_assumed,
+            "last_player_gesture": self._last_round_player_gest,
+            "last_robot_gesture":  self._last_round_robot_gest,
+            "last_banner":         self._last_round_banner,
         }
 
         if self.state == "ROUND_INTRO":

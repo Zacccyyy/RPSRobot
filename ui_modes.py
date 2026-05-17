@@ -7,6 +7,7 @@ import time
 import numpy as np
 from ui_base import *
 from ui_game import _draw_last_round_replay  # noqa: F401
+from fair_play_ai import PERSONALITIES, PERSONALITY_NAMES
 
 # Module-level palette additions
 _COL_WIN_TINT  = (6,  22,  6)   # subtle green panel fill for confirmed / won state
@@ -321,7 +322,6 @@ def draw_pvpvai_view(frame, game_state,
 
 def draw_personality_settings(frame, selected_name, descriptions):
     """AI Personality selector  -  left list, right detail card."""
-    from fair_play_ai import PERSONALITIES, PERSONALITY_NAMES
     w, h = frame.shape[1], frame.shape[0]
     t    = time.monotonic()
 
@@ -982,6 +982,7 @@ def draw_simon_says_two_player_view(frame, game_state,
         draw_centered_text(frame, game_state.get("game_over_text", ""),
                            h // 2 + _ix(h * 0.04), SCALE_BODY, COL_TEXT_SECONDARY,
                            thickness=1, outline=2)
+        draw_bottom_bar(frame, "ENTER Restart  |  ESC Menu")
         return
 
     act_col = COL_ACCENT if active == "P1" else COL_AMBER
@@ -1080,6 +1081,7 @@ def draw_squid_game_view(frame, game_state, hand_state=None):
                            h // 2 + _ix(h * 0.12), SCALE_BODY, COL_RED,
                            thickness=1, outline=2)
         draw_top_bar(frame, "SQUID GAME", "Q Quit")
+        draw_bottom_bar(frame, "Show finger to start  |  Q Quit")
         return
 
     if game_over or state == "GAME_OVER":
@@ -1093,6 +1095,7 @@ def draw_squid_game_view(frame, game_state, hand_state=None):
                                h // 2 + _ix(h * 0.04) + i * _ix(h * 0.09),
                                SCALE_BODY, COL_TEXT_SECONDARY, thickness=1, outline=2)
         draw_top_bar(frame, "SQUID GAME  -  GAME OVER", "Q Quit  |  ESC Menu")
+        draw_bottom_bar(frame, "ENTER Restart  |  ESC Menu  |  Q Quit")
         return
 
     # Light indicator banner
@@ -1210,6 +1213,7 @@ def draw_squid_game_2p_view(frame, game_state, p1_hand=None, p2_hand=None):
         draw_centered_text(frame, "P2 = Right hand index finger",
                            h // 2 + _ix(h * 0.25), 0.36, COL_MAGENTA, thickness=1, outline=2)
         draw_top_bar(frame, "RED LIGHT GREEN LIGHT  -  2 PLAYER", "Q Quit")
+        draw_bottom_bar(frame, "P1=Left index  |  P2=Right index  |  Q Quit")
         return
 
     # ── GAME_OVER ───────────────────────────────────────────────────────────
@@ -1228,6 +1232,7 @@ def draw_squid_game_2p_view(frame, game_state, p1_hand=None, p2_hand=None):
         draw_centered_text(frame, reason, h // 2 + _ix(h * 0.12),
                            0.40, COL_TEXT_ACCENT, thickness=1, outline=2)
         draw_top_bar(frame, "RED LIGHT GREEN LIGHT  -  2P", "Q Quit  |  ESC Menu")
+        draw_bottom_bar(frame, "ENTER Restart  |  ESC Menu  |  Q Quit")
         return
 
     # ── PLAYING ─────────────────────────────────────────────────────────────

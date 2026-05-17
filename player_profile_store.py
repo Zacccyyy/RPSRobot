@@ -22,6 +22,14 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+try:
+    import openpyxl
+    from openpyxl import Workbook, load_workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    _HAS_OPENPYXL = True
+except ImportError:
+    _HAS_OPENPYXL = False
+
 
 GESTURES = ["Rock", "Paper", "Scissors"]
 OUTCOMES = ["win", "lose", "draw"]
@@ -92,7 +100,8 @@ class PlayerProfileStore:
         return profile
 
     def record_round(self, player_name, player_gesture, robot_gesture,
-                     outcome, game_mode, round_number=0, emotion=None):
+                     outcome, game_mode, round_number=0, emotion=None,
+                     reaction_ms=None):
         """
         Record a single round to the player's profile.
         Called automatically during gameplay when a player name is set.
@@ -112,6 +121,8 @@ class PlayerProfileStore:
             "game_mode": game_mode,
             "round_number": round_number,
         }
+        if reaction_ms is not None:
+            round_data["reaction_ms"] = reaction_ms
 
         # Attach emotion data if available.
         if emotion and isinstance(emotion, dict):
@@ -129,8 +140,10 @@ class PlayerProfileStore:
                 round_data["response_type"] = "stay"
             elif UPGRADE.get(prev_gesture) == player_gesture:
                 round_data["response_type"] = "upgrade"
-            else:
+            elif DOWNGRADE.get(prev_gesture) == player_gesture:
                 round_data["response_type"] = "downgrade"
+            else:
+                round_data["response_type"] = "lateral"
             round_data["previous_gesture"] = prev_gesture
             round_data["previous_outcome"] = prev["outcome"]
         else:
@@ -291,10 +304,9 @@ class PlayerProfileStore:
 
     def _log_to_excel(self, player_name, round_data):
         """Append round to the combined research Excel."""
+        if not _HAS_OPENPYXL:
+            return
         try:
-            from openpyxl import Workbook, load_workbook
-            from openpyxl.styles import Font, PatternFill, Alignment
-
             if self.excel_path.exists():
                 try:
                     wb = load_workbook(self.excel_path)
@@ -374,10 +386,9 @@ class PlayerProfileStore:
         Generate per-player analysis sheets in the research Excel.
         Each player gets their own tab with strategy breakdown.
         """
+        if not _HAS_OPENPYXL:
+            return
         try:
-            from openpyxl import Workbook, load_workbook
-            from openpyxl.styles import Font, PatternFill, Alignment
-
             if self.excel_path.exists():
                 wb = load_workbook(self.excel_path)
             else:
@@ -416,8 +427,6 @@ class PlayerProfileStore:
 
     def _write_player_sheet(self, ws, name, tables):
         """Write a single player's analysis to a worksheet."""
-        from openpyxl.styles import Font, PatternFill, Alignment
-
         header_fill = PatternFill("solid", fgColor="1F4E78")
         header_font = Font(color="FFFFFF", bold=True, size=12)
         section_font = Font(bold=True, size=11)

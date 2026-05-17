@@ -128,6 +128,7 @@ class FairPlayController:
         # When True, the tracker should clear its recent history exactly once.
         self.tracker_reset_requested = False
         self.gesture_assumed = False
+        self._last_reaction_ms = None
 
         if self.robot_output is not None:
             self.robot_output.clear_pending_locked()
@@ -175,7 +176,6 @@ class FairPlayController:
 
         elif word == "three" and cooldown_ok:
             # "three" = final beat: lock robot + open SHOOT immediately.
-            self.beat_count = 3
             self.last_beat_time = now
             self._lock_robot_move()
             self.beat_count = 4
@@ -347,10 +347,10 @@ class FairPlayController:
             "player_score": self.player_score,
             "robot_score": self.robot_score,
             "request_tracker_reset": self.tracker_reset_requested,
-            "gesture_assumed": getattr(self, "gesture_assumed", False),
+            "gesture_assumed": self.gesture_assumed,
             "opponent_type": opp_type,
             "ai_personality": personality,
-            "reaction_ms": getattr(self, "_last_reaction_ms", None),
+            "reaction_ms": self._last_reaction_ms,
             # Replay: last round gestures (shown briefly in WAITING_FOR_ROCK)
             "last_player_gesture": getattr(self, "_last_round_player_gest", None),
             "last_robot_gesture":  getattr(self, "_last_round_robot_gest",  None),

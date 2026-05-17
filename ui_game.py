@@ -620,7 +620,7 @@ def draw_game_mode_view(frame, game_state, emotion_state=None, voice_mode_active
     left_label = f"RPS ROBOT  {mode_raw.upper()}" if mode_raw else "RPS ROBOT"
     if voice_mode_active:
         right_hints = "VOICE ON  *  Say READY to start  *  BACK = menu"
-        bottom_hint = "Say READY > ONE > TWO > THREE > ROCK/PAPER/SCISSORS  *  BACK = menu  *  ? Help"
+        bottom_hint = "Say READY > ONE > TWO > THREE > ROCK/PAPER/SCISSORS  |  BACK = menu  |  ? Help"
     elif diagnostic:
         right_hints = "ESC Back  M Game View  S Sound  ? Help  Q Quit"
         bottom_hint = "M Game View  |  ESC Back  |  S Sound  |  C Commentary  |  ? Help  |  Q Quit"

@@ -98,7 +98,6 @@ from arcade_snake_state import ArcadeSnakeController
 def _run_report_updater_bg():
     """Background-dispatch the report auto-updater."""
     try:
-        import sys, os
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         from report_updater import update_report
         result = update_report(verbose=False)
@@ -825,7 +824,6 @@ def start_game(app_state, mode=None, from_category=False):
                 loaded = store.load_ai_state(player_name, ctrl.ai)
                 if loaded:
                     print(f"[AI] Restored learned model for {player_name} in {ctrl_key}")
-                    break  # only need to load once  -  they share the same pattern
 
     print(f"Play mode: {app_state['play_mode']}")
     print(f"Display mode: {app_state['display_mode']}")
@@ -2298,7 +2296,6 @@ def _launch_tournament_simulation(app_state):
 
     def _run():
         try:
-            import sys
             sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
             from player_profile_store import PlayerProfileStore
             from player_clone_ai import PlayerCloneAI
@@ -2456,7 +2453,7 @@ def format_setting_value(app_state, item):
     if item["type"] == "action":
         return ""
 
-    value = app_state["config"][item["key"]]
+    value = app_state["config"].get(item["key"], item.get("default", ""))
 
     if item["type"] == "text":
         display = str(value).strip()
@@ -3108,6 +3105,7 @@ def run():
                             "outcome":        outcome,
                             "game_mode":      _mode_label,
                             "round_number":   game_state.get("round_number", 0),
+                            "reaction_ms":    game_state.get("reaction_ms"),
                         }
 
                     # Step 2: Once we leave ROUND_RESULT (state changed), flush
@@ -3129,6 +3127,7 @@ def run():
                             game_mode=pending["game_mode"],
                             round_number=pending["round_number"],
                             emotion=app_state["emotion_tracker"].get_round_snapshot(),
+                            reaction_ms=pending.get("reaction_ms"),
                         )
 
                 if app_state["display_mode"] == "Diagnostic" and not _is_two_player and _is_rps_mode:
