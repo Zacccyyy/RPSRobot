@@ -61,17 +61,23 @@ def _draw_result_grid(frame, player_gesture, ai_gesture, result_banner,
     glyph_y = py1 + _ix(ph * 0.60)
     glyph_r = min(_ix(pw * 0.08), 50)
 
-    # Glyph colours: green=winner, red=loser, neutral=draw
+    # Glyph colours: win/loss override; draw falls back to gesture identity colour
+    _GESTURE_COLS = {
+        'rock':     (160, 120,  80),
+        'paper':    ( 80, 160, 200),
+        'scissors': ( 80,  80, 200),
+        'lizard':   ( 80, 160,  80),
+        'spock':    (200, 100, 200),
+    }
+    p_base  = _GESTURE_COLS.get(player_gesture.lower(),  COL_TEXT_SECONDARY)
+    ai_base = _GESTURE_COLS.get(ai_gesture.lower(),      COL_TEXT_SECONDARY)
     b_up = result_banner.upper()
     if 'WIN' in b_up:
-        p_glyph_col  = COL_GREEN
-        ai_glyph_col = COL_RED
-    elif 'LOSS' in b_up or 'LOSE' in b_up:
-        p_glyph_col  = COL_RED
-        ai_glyph_col = COL_GREEN
+        p_glyph_col,  ai_glyph_col = COL_GREEN, COL_RED
+    elif any(w in b_up for w in ('LOSS', 'LOSE')):
+        p_glyph_col,  ai_glyph_col = COL_RED,   COL_GREEN
     else:
-        p_glyph_col  = COL_TEXT_SECONDARY
-        ai_glyph_col = COL_TEXT_SECONDARY
+        p_glyph_col,  ai_glyph_col = p_base,    ai_base
 
     pgx = px1 + _ix(pw * 0.20)
     draw_gesture_glyph(frame, player_gesture,
