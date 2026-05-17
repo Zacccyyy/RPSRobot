@@ -2089,12 +2089,12 @@ def draw_rpsls_side_notice(frame, was_front_on=False, confirmed_gesture="Unknown
 
     # 5 cards in a row
     n       = len(GESTURES_5)
-    card_w  = _ix(w * 0.16)
-    card_h  = _ix(h * 0.42)
-    gap     = _ix(w * 0.02)
+    card_w  = _ix(w * 0.17)
+    card_h  = _ix(h * 0.50)
+    gap     = _ix(w * 0.018)
     total_w = n * card_w + (n - 1) * gap
     start_x = (w - total_w) // 2
-    card_y  = _ix(h * 0.25)
+    card_y  = _ix(h * 0.20)
 
     for i, gest in enumerate(GESTURES_5):
         cx1 = start_x + i * (card_w + gap)
@@ -2134,13 +2134,13 @@ def draw_rpsls_side_notice(frame, was_front_on=False, confirmed_gesture="Unknown
         bar_y  = card_y + _ix(card_h * 0.82)
         bar_x1 = cx1 + _ix(card_w * 0.08)
         bar_x2 = cx2 - _ix(card_w * 0.08)
-        bar_h2 = _ix(h * 0.018)
+        bar_h2 = _ix(h * 0.030)
         if is_ticked:
             draw_progress_bar(frame, bar_x1, bar_y, bar_x2, bar_y + bar_h2,
                               1.0, color=COL_GREEN)
             draw_centered_text_in_rect(frame, "DONE",
-                (cx1, bar_y - 2, cx2, bar_y + bar_h2 + 2),
-                base_scale=SCALE_MICRO, color=(0, 0, 0), thickness=1, outline=0)
+                (cx1, bar_y, cx2, bar_y + bar_h2),
+                base_scale=SCALE_CAPTION, color=(0, 0, 0), thickness=1, outline=0)
         elif is_current and dwell_pct > 0:
             draw_progress_bar(frame, bar_x1, bar_y, bar_x2, bar_y + bar_h2,
                               dwell_pct, color=COL_ACCENT)

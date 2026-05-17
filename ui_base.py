@@ -63,10 +63,10 @@ COL_RED            = (60, 60, 200)    # #C83C3C lose / error
 COL_BG_DARK        = COL_PANEL_BG
 COL_BG_PANEL       = COL_PANEL_BG
 COL_BG_PANEL_LIGHT = (28, 22, 16)
-COL_CYAN           = COL_ACCENT        # was neon cyan, now accent blue
-COL_MAGENTA        = COL_AMBER         # was neon magenta, now amber
-COL_YELLOW         = COL_ACCENT        # was arcade yellow, now accent blue
-COL_ORANGE         = COL_AMBER         # was orange warning, now amber
+COL_CYAN           = (200, 200,   0)   # teal-cyan  (BGR)
+COL_MAGENTA        = (180,   0, 180)   # purple-magenta (BGR)
+COL_YELLOW         = (  0, 200, 220)   # warm yellow (BGR)
+COL_ORANGE         = (  0, 130, 255)   # orange (BGR)
 COL_TEXT           = COL_TEXT_PRIMARY
 COL_TEXT_ACCENT    = COL_ACCENT
 
