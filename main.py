@@ -1925,7 +1925,11 @@ def apply_setting_change(app_state, direction):
 
     if item["type"] == "choice":
         options = item["options"]
-        current_index = options.index(config[key])
+        try:
+            current_index = options.index(config[key])
+        except ValueError:
+            current_index = 0
+            config[key] = options[0]
         new_index = (current_index + direction) % len(options)
         config[key] = options[new_index]
 
@@ -4047,11 +4051,6 @@ def run():
                     app_state["_notes_saved_path"] = ""
                     app_state["_notes_from_screen"] = app_state["app_screen"]
                     app_state["app_screen"]        = "NOTES"
-                elif key == ord("c"):
-                    on = app_state["commentary_engine"].toggle()
-                    if not on:
-                        app_state["commentary_engine"].clear()
-                    print(f"[Commentary] {'ON' if on else 'OFF'}")
                 elif key == ord("1"):
                     switch_play_mode(app_state, "Cheat")
                 elif key == ord("2"):
