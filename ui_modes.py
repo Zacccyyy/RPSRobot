@@ -1285,13 +1285,22 @@ def draw_squid_game_2p_view(frame, game_state, p1_hand=None, p2_hand=None):
     draw_bottom_bar(frame,
         "P1=Left finger  |  P2=Right finger  |  Guide to your dot  |  FREEZE on RED  |  Q Quit")
 
-# Gesture colours for the two new gestures
+# Gesture colours for the two new gestures (legacy, used by _draw_rpsls_gesture_icon)
 _RPSLS_COLS = {
     "Rock":     COL_CYAN,
     "Paper":    COL_GREEN,
     "Scissors": COL_MAGENTA,
     "Lizard":   (80, 200, 80),     # lime green
     "Spock":    (255, 200, 0),     # gold
+}
+
+# Identity colours for gesture glyphs — subtle, not neon; applied to draw_gesture_glyph only
+_RPSLS_GESTURE_COLS = {
+    "Rock":     (160, 120,  80),   # warm stone
+    "Paper":    ( 80, 160, 200),   # cool blue
+    "Scissors": ( 80,  80, 200),   # red
+    "Lizard":   ( 80, 160,  80),   # green
+    "Spock":    (200, 100, 200),   # purple
 }
 
 # Quick unicode representations for the rule-strip
@@ -1900,7 +1909,7 @@ def draw_rpsls_tutorial_screen(frame, step=0, hand_state=None):
             gc_y = card_y1 + _ix(card_h * 0.42)
             draw_gesture_glyph(frame, g,
                                (gc_x - 36, gc_y - 36, gc_x + 36, gc_y + 36),
-                               COL_ACCENT)
+                               _RPSLS_GESTURE_COLS.get(g, COL_ACCENT))
             draw_centered_text_in_rect(frame, g,
                 (gx1, card_y1 + _ix(card_h * 0.74), gx2, card_y1 + _ix(card_h * 0.92)),
                 base_scale=SCALE_CAPTION, color=COL_TEXT_SECONDARY,
@@ -1949,7 +1958,7 @@ def draw_rpsls_tutorial_screen(frame, step=0, hand_state=None):
             half = min(_ix(card_w * 0.30), _ix(card_h * 0.22))
             draw_gesture_glyph(frame, g,
                                (gc_x - half, gc_y - half, gc_x + half, gc_y + half),
-                               COL_GREEN if is_det else COL_ACCENT)
+                               _RPSLS_GESTURE_COLS.get(g, COL_ACCENT))
             draw_centered_text_in_rect(frame, g,
                 (gx1, card_y1 + _ix(card_h * 0.60), gx2, card_y1 + _ix(card_h * 0.74)),
                 base_scale=SCALE_BODY,
@@ -2027,7 +2036,7 @@ def draw_rpsls_tutorial_screen(frame, step=0, hand_state=None):
             half = min(28, _ix(card_w * 0.35))
             draw_gesture_glyph(frame, g,
                                (gc_x - half, gc_y - half, gc_x + half, gc_y + half),
-                               COL_GREEN if is_det else COL_ACCENT)
+                               _RPSLS_GESTURE_COLS.get(g, COL_ACCENT))
             draw_centered_text_in_rect(frame, g,
                 (gx1, card_y1 + _ix(card_h * 0.73), gx2, card_y1 + _ix(card_h * 0.92)),
                 base_scale=SCALE_CAPTION,
@@ -2253,10 +2262,15 @@ def draw_rpsls_view(frame, game_state, tracker_state=None, hand_state=None):
         base_scale=SCALE_CAPTION, color=COL_TEXT_SECONDARY, thickness=1, outline=2)
 
     glyph_gest = p_gest if locked else live
-    g_col      = COL_TEXT_PRIMARY if locked else COL_ACCENT
-    g_cx       = (cx1 + cx2) // 2
-    g_cy       = py1 + _ix(ph * 0.48)
-    g_half     = _ix(pan_w * 0.28)
+    if locked:
+        if outcome == "win":    g_col = COL_GREEN
+        elif outcome == "lose": g_col = COL_RED
+        else:                   g_col = COL_TEXT_SECONDARY
+    else:
+        g_col = _RPSLS_GESTURE_COLS.get(live, COL_ACCENT)
+    g_cx   = (cx1 + cx2) // 2
+    g_cy   = py1 + _ix(ph * 0.48)
+    g_half = _ix(pan_w * 0.28)
     draw_gesture_glyph(frame, glyph_gest,
                        (g_cx - g_half, g_cy - g_half, g_cx + g_half, g_cy + g_half),
                        g_col)
@@ -2283,10 +2297,16 @@ def draw_rpsls_view(frame, game_state, tracker_state=None, hand_state=None):
         base_scale=SCALE_CAPTION, color=COL_TEXT_SECONDARY, thickness=1, outline=2)
     ai_cx = (ax1 + ax2) // 2
     ai_cy = py1 + _ix(ph * 0.48)
+    if locked:
+        if outcome == "lose":  ai_col = COL_GREEN
+        elif outcome == "win": ai_col = COL_RED
+        else:                  ai_col = COL_TEXT_SECONDARY
+    else:
+        ai_col = COL_TEXT_SECONDARY
     if show_ai:
         draw_gesture_glyph(frame, ai_gest,
                            (ai_cx - g_half, ai_cy - g_half, ai_cx + g_half, ai_cy + g_half),
-                           COL_TEXT_SECONDARY)
+                           ai_col)
     else:
         draw_centered_text_in_rect(frame, "?",
             (ax1, py1 + _ix(ph * 0.28), ax2, py1 + _ix(ph * 0.68)),

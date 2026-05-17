@@ -349,7 +349,8 @@ def draw_beat_track(frame, beat_count, num_beats=4, state="", x1=None, y1=None,
     ph = by2 - by1
     pw = bx2 - bx1
     cap_y = by1 + _ix(ph * 0.28)
-    cv2.putText(frame, "BEAT TRACK", (bx1 + _ix(pw * 0.30), cap_y),
+    (cap_lw, _), _ = cv2.getTextSize("BEAT TRACK", FONT_PRIMARY, SCALE_MICRO, 1)
+    cv2.putText(frame, "BEAT TRACK", (bx1 + (pw - cap_lw) // 2, cap_y),
                 FONT_PRIMARY, SCALE_MICRO, COL_TEXT_SECONDARY, 1, cv2.LINE_AA)
 
     diameter = min(_ix(h * 0.052), 38)

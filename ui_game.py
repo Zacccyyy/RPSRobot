@@ -61,11 +61,23 @@ def _draw_result_grid(frame, player_gesture, ai_gesture, result_banner,
     glyph_y = py1 + _ix(ph * 0.60)
     glyph_r = min(_ix(pw * 0.08), 50)
 
+    # Glyph colours: green=winner, red=loser, neutral=draw
+    b_up = result_banner.upper()
+    if 'WIN' in b_up:
+        p_glyph_col  = COL_GREEN
+        ai_glyph_col = COL_RED
+    elif 'LOSS' in b_up or 'LOSE' in b_up:
+        p_glyph_col  = COL_RED
+        ai_glyph_col = COL_GREEN
+    else:
+        p_glyph_col  = COL_TEXT_SECONDARY
+        ai_glyph_col = COL_TEXT_SECONDARY
+
     pgx = px1 + _ix(pw * 0.20)
     draw_gesture_glyph(frame, player_gesture,
                        (pgx - glyph_r, glyph_y - glyph_r,
                         pgx + glyph_r, glyph_y + glyph_r),
-                       color=COL_ACCENT)
+                       color=p_glyph_col)
     draw_centered_text_in_rect(frame, "YOU",
         (pgx - _ix(pw * 0.12), py1 + _ix(ph * 0.24),
          pgx + _ix(pw * 0.12), py1 + _ix(ph * 0.38)),
@@ -74,13 +86,12 @@ def _draw_result_grid(frame, player_gesture, ai_gesture, result_banner,
     draw_centered_text_in_rect(frame, player_gesture.upper(),
         (pgx - _ix(pw * 0.12), glyph_y + glyph_r,
          pgx + _ix(pw * 0.12), glyph_y + glyph_r + _ix(ph * 0.14)),
-        base_scale=SCALE_CAPTION, color=COL_TEXT_SECONDARY,
+        base_scale=SCALE_CAPTION, color=p_glyph_col,
         thickness=1, outline=2)
 
     # Result chip -- centre column
     rcx = (px1 + px2) // 2
     rcy = glyph_y
-    b_up = result_banner.upper()
     if 'WIN' in b_up:
         rc = COL_GREEN
     elif 'LOSS' in b_up or 'LOSE' in b_up:
@@ -96,7 +107,7 @@ def _draw_result_grid(frame, player_gesture, ai_gesture, result_banner,
     draw_gesture_glyph(frame, ai_gesture,
                        (rgx - glyph_r, glyph_y - glyph_r,
                         rgx + glyph_r, glyph_y + glyph_r),
-                       color=COL_TEXT_SECONDARY)
+                       color=ai_glyph_col)
     draw_centered_text_in_rect(frame, opp_label.upper(),
         (rgx - _ix(pw * 0.12), py1 + _ix(ph * 0.24),
          rgx + _ix(pw * 0.12), py1 + _ix(ph * 0.38)),
@@ -105,7 +116,7 @@ def _draw_result_grid(frame, player_gesture, ai_gesture, result_banner,
     draw_centered_text_in_rect(frame, ai_gesture.upper(),
         (rgx - _ix(pw * 0.12), glyph_y + glyph_r,
          rgx + _ix(pw * 0.12), glyph_y + glyph_r + _ix(ph * 0.14)),
-        base_scale=SCALE_CAPTION, color=COL_TEXT_SECONDARY,
+        base_scale=SCALE_CAPTION, color=ai_glyph_col,
         thickness=1, outline=2)
 
 # ============================================================
@@ -157,24 +168,30 @@ def draw_gesture_row(frame, detected_gesture="", gestures=None):
     total_w  = n * step - gap
     start_x  = (w - total_w) // 2 + max_w // 2
 
+    _GESTURE_IDENTITY = {
+        'rock':     (160, 120,  80),
+        'paper':    ( 80, 160, 200),
+        'scissors': ( 80,  80, 200),
+    }
+
     dot_r = 4
     for i, g in enumerate(gestures):
         cx     = start_x + i * step
         active = detected_gesture and g.lower() == detected_gesture.lower()
         label  = g.upper()
+        base_col = _GESTURE_IDENTITY.get(g.lower(), COL_TEXT_SECONDARY)
+        col      = base_col if active else tuple(int(c * 0.35) for c in base_col)
         (lw, lh), _ = cv2.getTextSize(label, font, SCALE_MICRO, 1)
         cv2.putText(frame, label, (cx - lw // 2, cy - 4),
                     font, SCALE_MICRO,
                     (0, 0, 0), 3, cv2.LINE_AA)
         cv2.putText(frame, label, (cx - lw // 2, cy - 4),
-                    font, SCALE_MICRO,
-                    COL_ACCENT if active else COL_TEXT_DIM, 1, cv2.LINE_AA)
-        dot_col = COL_ACCENT if active else COL_TEXT_DIM
-        dot_y   = cy + lh // 2 + 6
+                    font, SCALE_MICRO, col, 1, cv2.LINE_AA)
+        dot_y = cy + lh // 2 + 6
         if active:
-            cv2.circle(frame, (cx, dot_y), dot_r, dot_col, -1)
+            cv2.circle(frame, (cx, dot_y), dot_r, base_col, -1)
         else:
-            cv2.circle(frame, (cx, dot_y), dot_r, dot_col, 1)
+            cv2.circle(frame, (cx, dot_y), dot_r, col, 1)
 
 # ============================================================
 # SCORE BAR (spec §03 y 18-22%)
