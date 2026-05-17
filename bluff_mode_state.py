@@ -257,6 +257,11 @@ class BluffModeController:
             "request_tracker_reset": self.tracker_reset_requested,
             "bluff_rate":        self.bluff_rate,
             "bluff_pct_so_far":  (sum(1 for r in self._log if r["is_bluff"]) / max(len(self._log), 1)),
+            "declaration_history": [
+                {"declared": r["ai_declared"], "actual": r["ai_actual"],
+                 "outcome": r["outcome"], "is_bluff": r["is_bluff"]}
+                for r in self._log[-6:]
+            ],
             "research_log":      self._log,
             "two_player":        False,
             "opponent_type":     "AI",

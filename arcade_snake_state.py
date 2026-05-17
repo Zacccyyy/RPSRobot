@@ -136,6 +136,7 @@ class ArcadeSnakeController:
             "grid_h":          GRID_H,
             "last_gesture":    self._last_gesture,
             "voted_gesture":   self._voted_gesture,
+            "tick_secs":       max(0.055, TICK_SECS - self.score * 0.00020),
         }
 
     def update(self, tracker_state, now=None):
@@ -180,7 +181,8 @@ class ArcadeSnakeController:
             if voted == "Rock":
                 self._turn_used = False
 
-            if now - self._last_tick >= TICK_SECS:
+            tick = max(0.055, TICK_SECS - self.score * 0.00020)
+            if now - self._last_tick >= tick:
                 self._last_tick = now
 
                 if not self._turn_used:

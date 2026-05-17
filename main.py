@@ -622,6 +622,9 @@ def build_app_state():
         "_settings_text_edit": False,
         # Flash effect tracking
         "_flash_info":   {"active": False, "result": "", "frame_idx": 0, "mic_level": 0.0},
+        # Gesture quality rolling window (calibration nudge)
+        "_gesture_quality_buf": [],   # recent 'unknown' booleans (rolling 300 frames ~10s)
+        "_gesture_quality_low": False,
         # Win/loss streak tracking for HUD label
         "_streak_count": 0,
         "_streak_type":  "",   # "win" or "lose"
@@ -827,6 +830,51 @@ def start_game(app_state, mode=None, from_category=False):
 
     print(f"Play mode: {app_state['play_mode']}")
     print(f"Display mode: {app_state['display_mode']}")
+
+
+def _draw_esc_summary_overlay(frame, summary):
+    """Semi-transparent session stats panel shown briefly after ESC-to-menu."""
+    h, w = frame.shape[:2]
+    pw = int(w * 0.46)
+    ph = int(h * 0.32)
+    x1 = (w - pw) // 2
+    y1 = int(h * 0.34)
+    x2, y2 = x1 + pw, y1 + ph
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (x1, y1), (x2, y2), (12, 10, 8), -1)
+    cv2.rectangle(overlay, (x1, y1), (x2, y2), (80, 60, 30), 1)
+    cv2.addWeighted(overlay, 0.88, frame, 0.12, 0, frame)
+    font  = cv2.FONT_HERSHEY_SIMPLEX
+    cx    = (x1 + x2) // 2
+    mode  = summary.get("mode", "")
+    title = f"SESSION  {mode.upper()}" if mode else "SESSION SUMMARY"
+    (tw, _), _ = cv2.getTextSize(title, font, 0.40, 1)
+    cv2.putText(frame, title, (cx - tw // 2, y1 + int(ph * 0.20)),
+                font, 0.40, (0, 0, 0), 3, cv2.LINE_AA)
+    cv2.putText(frame, title, (cx - tw // 2, y1 + int(ph * 0.20)),
+                font, 0.40, (210, 160, 60), 1, cv2.LINE_AA)
+    ps    = summary.get("player_score", 0)
+    rs    = summary.get("robot_score",  0)
+    score = f"You {ps}  -  {rs} AI"
+    (sw, _), _ = cv2.getTextSize(score, font, 0.55, 2)
+    cv2.putText(frame, score, (cx - sw // 2, y1 + int(ph * 0.44)),
+                font, 0.55, (0, 0, 0), 4, cv2.LINE_AA)
+    cv2.putText(frame, score, (cx - sw // 2, y1 + int(ph * 0.44)),
+                font, 0.55, (255, 255, 255), 2, cv2.LINE_AA)
+    lines = []
+    rt = summary.get("avg_reaction_ms")
+    if rt:
+        lines.append(f"Avg reaction: {rt}ms")
+    tg = summary.get("top_gesture")
+    if tg:
+        lines.append(f"Top throw: {tg}")
+    for i, line in enumerate(lines[:2]):
+        ly = y1 + int(ph * 0.62) + i * int(ph * 0.18)
+        (lw2, _), _ = cv2.getTextSize(line, font, 0.35, 1)
+        cv2.putText(frame, line, (cx - lw2 // 2, ly),
+                    font, 0.35, (0, 0, 0), 3, cv2.LINE_AA)
+        cv2.putText(frame, line, (cx - lw2 // 2, ly),
+                    font, 0.35, (160, 160, 160), 1, cv2.LINE_AA)
 
 
 def open_menu(app_state):
@@ -2882,6 +2930,15 @@ def run():
 
                         tracker_state = app_state["tracker"].update(hand_state["raw_gesture"])
 
+                    # Rolling gesture-quality monitor (calibration nudge)
+                    _gqb = app_state["_gesture_quality_buf"]
+                    _gqb.append(tracker_state.get("stable_gesture", "Unknown") == "Unknown")
+                    if len(_gqb) > 300:
+                        _gqb.pop(0)
+                    app_state["_gesture_quality_low"] = (
+                        len(_gqb) >= 60 and sum(_gqb) / len(_gqb) > 0.50
+                    )
+
                     controller = get_active_controller(app_state)
 
                     if hasattr(controller, "set_emotion_snapshot"):
@@ -2943,6 +3000,9 @@ def run():
                             tracker_state=tracker_state,
                             now=time.monotonic()
                         )
+
+                # Cache last game_state so ESC handler can build a session summary
+                app_state["_last_game_state"] = game_state
 
                 # --- Sound effects ---
                 _dispatch_sounds(app_state, game_state)
@@ -3263,6 +3323,7 @@ def run():
                         colourblind=app_state["config"].get("colourblind_mode", False),
                         show_session_summary=show_session_summary,
                         diagnostic=(app_state["display_mode"] == "Diagnostic"),
+                        gesture_quality_low=app_state.get("_gesture_quality_low", False),
                     )
 
                 # ── Help overlay for non-RPS modes (? key) ─────────────────
@@ -3475,6 +3536,14 @@ def run():
                     update_label=auto_updater.status_label(),
                     calibration_warning=app_state.get("_needs_calibration", False),
                 )
+                # ESC session summary overlay (fades after 2.5 s)
+                _esc_sum   = app_state.get("_esc_summary")
+                _esc_until = app_state.get("_esc_summary_until", 0)
+                if _esc_sum and time.monotonic() < _esc_until:
+                    _draw_esc_summary_overlay(frame, _esc_sum)
+                elif time.monotonic() >= _esc_until:
+                    app_state["_esc_summary"] = None
+
                 if _nav_enabled:
                     draw_gesture_nav_overlay(frame, app_state["gesture_nav"].get_cursor_info())
 
@@ -4010,6 +4079,32 @@ def run():
             elif app_state["app_screen"] == "GAME":
                 if key == KEY_ESC:
                     app_state["show_help"] = False
+                    # Build a brief session summary from last game state
+                    _gs = app_state.get("_last_game_state", {})
+                    _p_score = _gs.get("player_score", 0)
+                    _r_score = _gs.get("robot_score", 0)
+                    _rt_list = _gs.get("session_reaction_times", [])
+                    _avg_rt  = (round(sum(_rt_list) / len(_rt_list))
+                                if _rt_list else None)
+                    _top_g   = None
+                    _rts     = _gs.get("session_gestures",
+                               [h.get("player_gesture") for h in _gs.get("history", [])])
+                    if _rts:
+                        from collections import Counter as _Ctr
+                        _top_g = _Ctr(_rts).most_common(1)[0][0]
+                    _rounds = _gs.get("round_number", 0)
+                    if _p_score + _r_score > 0 or _rounds > 1:
+                        app_state["_esc_summary"] = {
+                            "player_score": _p_score,
+                            "robot_score":  _r_score,
+                            "avg_reaction_ms": _avg_rt,
+                            "top_gesture":  _top_g,
+                            "rounds":       max(_rounds - 1, _p_score + _r_score),
+                            "mode":         _gs.get("play_mode_label", ""),
+                        }
+                        app_state["_esc_summary_until"] = time.monotonic() + 2.5
+                    else:
+                        app_state["_esc_summary"] = None
                     if app_state.get("_came_from_category"):
                         if app_state["play_mode"] == "Challenge":
                             finalize_active_challenge_run(app_state, status="abandoned")

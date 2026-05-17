@@ -13,6 +13,16 @@ from fair_play_ai import PERSONALITIES, PERSONALITY_NAMES
 _COL_WIN_TINT  = (6,  22,  6)   # subtle green panel fill for confirmed / won state
 _COL_LOSE_TINT = (22,  6,  6)   # subtle red panel fill for lost state
 
+
+def _draw_start_prompt(frame, text, y, t, color=None):
+    """Pulsing centered start-prompt used across all INTRO / WAITING states."""
+    h, w = frame.shape[:2]
+    col = color or COL_GREEN
+    pulse = 0.45 + 0.55 * abs(math.sin(t * math.pi * 1.2))
+    pc = tuple(min(255, int(c * pulse)) for c in col)
+    draw_centered_text(frame, text, y, SCALE_BODY, pc, thickness=1, outline=2)
+
+
 def _draw_tp_hand_panel(frame, x1, y1, x2, y2, label, gesture, tracker_state=None,
                         highlight_col=None, result_col=None):
     """
@@ -553,6 +563,7 @@ def draw_reflex_solo_view(frame, game_state, voice_mode_active=False):
                  f"Score: {score}  |  Best: {best}  |  Q Quit")
 
     if cur_state == "INTRO":
+        t_now = time.monotonic()
         draw_centered_text(frame, "SPEED REFLEX", h // 2 - _ix(h * 0.10),
                            SCALE_DISPLAY_L, COL_ACCENT, thickness=2, outline=3)
         draw_centered_text(frame, "Match each gesture as fast as you can!",
@@ -561,6 +572,7 @@ def draw_reflex_solo_view(frame, game_state, voice_mode_active=False):
         draw_centered_text(frame, "30 seconds  |  No penalty for misses",
                            h // 2 + _ix(h * 0.11), SCALE_CAPTION, COL_TEXT_DIM,
                            thickness=1, outline=2)
+        _draw_start_prompt(frame, "Get ready...", h // 2 + _ix(h * 0.22), t_now)
 
     elif cur_state == "GAME_OVER":
         draw_centered_text(frame, "TIME'S UP!", h // 2 - _ix(h * 0.12),
@@ -617,6 +629,7 @@ def draw_reflex_solo_view(frame, game_state, voice_mode_active=False):
 def draw_reflex_two_player_view(frame, game_state,
                                 p1_tracker_state=None, p2_tracker_state=None):
     w, h = frame.shape[1], frame.shape[0]
+    t    = time.monotonic()
 
     cur_state  = game_state.get("state", "")
     target     = game_state.get("target", "")
@@ -647,6 +660,7 @@ def draw_reflex_two_player_view(frame, game_state,
         draw_centered_text(frame, "Match the gesture first to score!",
                            cy + _ix(h * 0.06), 0.40, COL_TEXT_DIM,
                            thickness=1, outline=2)
+        _draw_start_prompt(frame, "Get ready...", cy + _ix(h * 0.18), time.monotonic())
     else:
         _draw_reflex_target(frame, target, cx, cy, radius)
         # Winner flash
@@ -792,6 +806,24 @@ def draw_bluff_mode_view(frame, game_state, tracker_state=None, hand_state=None,
     if score_text:
         draw_centered_text(frame, score_text, pan_y2 + _ix(h * 0.19),
                            SCALE_BODY, COL_TEXT_SECONDARY, thickness=1, outline=2)
+
+    # -- Declaration history strip ----------------------------------------
+    decl_hist = game_state.get("declaration_history", [])
+    if decl_hist:
+        strip_y  = h - _ix(h * 0.11)
+        n        = len(decl_hist)
+        cell_w   = _ix(w * 0.09)
+        strip_x  = (w - n * cell_w) // 2
+        for idx, entry in enumerate(decl_hist):
+            bx = strip_x + idx * cell_w
+            outcome_col = COL_GREEN if entry["outcome"] == "win" \
+                          else (COL_TEXT_SECONDARY if entry["outcome"] == "draw" else COL_RED)
+            bluff_mark = "B" if entry["is_bluff"] else "T"
+            bluff_col  = COL_RED if entry["is_bluff"] else COL_GREEN
+            draw_outlined_text(frame, entry["declared"][:1].upper(), bx, strip_y,
+                               0.30, outcome_col, thickness=1, outline=1)
+            draw_outlined_text(frame, bluff_mark, bx + _ix(cell_w * 0.45), strip_y,
+                               0.24, bluff_col, thickness=1, outline=1)
 
     # -- Research stat: bluff rate so far ---------------------------------
     research_txt = f"Bluff rate this session: {bluff_pct*100:.0f}%"
@@ -1080,8 +1112,9 @@ def draw_squid_game_view(frame, game_state, hand_state=None):
         draw_centered_text(frame, "FREEZE on RED LIGHT",
                            h // 2 + _ix(h * 0.12), SCALE_BODY, COL_RED,
                            thickness=1, outline=2)
+        _draw_start_prompt(frame, "Get ready...", h // 2 + _ix(h * 0.24), t)
         draw_top_bar(frame, "SQUID GAME", "Q Quit")
-        draw_bottom_bar(frame, "Show finger to start  |  Q Quit")
+        draw_bottom_bar(frame, "Move index finger to dot  |  Freeze on RED  |  Q Quit")
         return
 
     if game_over or state == "GAME_OVER":
@@ -1212,6 +1245,7 @@ def draw_squid_game_2p_view(frame, game_state, p1_hand=None, p2_hand=None):
                            h // 2 + _ix(h * 0.18), 0.36, COL_CYAN, thickness=1, outline=2)
         draw_centered_text(frame, "P2 = Right hand index finger",
                            h // 2 + _ix(h * 0.25), 0.36, COL_MAGENTA, thickness=1, outline=2)
+        _draw_start_prompt(frame, "Get ready...", h // 2 + _ix(h * 0.36), t)
         draw_top_bar(frame, "RED LIGHT GREEN LIGHT  -  2 PLAYER", "Q Quit")
         draw_bottom_bar(frame, "P1=Left index  |  P2=Right index  |  Q Quit")
         return
@@ -1664,6 +1698,12 @@ def draw_gesture_rehab_view(frame, game_state):
             else:
                 ry += _ix(ph2 * 0.022)
 
+        # Horizontal separator + pulsing start prompt at panel bottom
+        sep_y = py2 - _ix(ph2 * 0.10)
+        cv2.line(frame, (px1 + _ix(pw2 * 0.04), sep_y),
+                 (px2 - _ix(pw2 * 0.04), sep_y), (40, 55, 70), 1)
+        _draw_start_prompt(frame, "Press ENTER or say START to begin",
+                           py2 - _ix(ph2 * 0.05), t, COL_ACCENT)
         return
 
     if cur_state == "COMPLETE":

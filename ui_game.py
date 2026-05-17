@@ -76,10 +76,11 @@ def _draw_streak_row(frame, px1, py1, px2, py2, streak, high_streak, total_pips=
 # GESTURE INDICATOR ROW (spec §03 y 9-17%)
 # ============================================================
 
-def draw_gesture_row(frame, detected_gesture="", gestures=None):
+def draw_gesture_row(frame, detected_gesture="", gestures=None, tracker_state=None,
+                     gesture_quality_low=False):
     """
-    Row of gesture labels with a dot indicator below each.
-    Dot filled accent when gesture matches detected_gesture, else dim ring.
+    Row of gesture labels with a confidence arc below each active gesture.
+    Arc fills amber→green as stable_streak approaches confirmation threshold.
     """
     w, h = _frame_size(frame)
     if gestures is None:
@@ -90,6 +91,13 @@ def draw_gesture_row(frame, detected_gesture="", gestures=None):
     cy     = (row_y1 + row_y2) // 2
     n      = len(gestures)
     gap    = _ix(w * 0.056) if n <= 3 else _ix(w * 0.040)
+
+    # Confidence: 0.0 → 1.0 from stable_streak / confirm threshold (≈8 frames)
+    streak    = tracker_state.get("stable_streak", 0) if tracker_state else 0
+    confirmed = (tracker_state.get("confirmed_gesture", "Unknown")
+                 if tracker_state else "Unknown")
+    conf_pct  = min(1.0, streak / 8.0) if detected_gesture else 0.0
+    is_locked = confirmed == detected_gesture and detected_gesture != ""
 
     # Centre the group
     font     = cv2.FONT_HERSHEY_SIMPLEX
@@ -105,6 +113,7 @@ def draw_gesture_row(frame, detected_gesture="", gestures=None):
     }
 
     dot_r = 4
+    arc_r = 9
     for i, g in enumerate(gestures):
         cx     = start_x + i * step
         active = detected_gesture and g.lower() == detected_gesture.lower()
@@ -119,9 +128,30 @@ def draw_gesture_row(frame, detected_gesture="", gestures=None):
                     font, SCALE_MICRO, col, 1, cv2.LINE_AA)
         dot_y = cy + lh // 2 + 6
         if active:
-            cv2.circle(frame, (cx, dot_y), dot_r, base_col, -1)
+            # Background ring
+            cv2.circle(frame, (cx, dot_y), arc_r, COL_BEAT_RING, 1, cv2.LINE_AA)
+            # Confidence arc: amber below 70%, green at 100%
+            if is_locked:
+                arc_col = COL_GREEN
+                sweep   = 360
+            else:
+                t = conf_pct
+                arc_col = tuple(int(a + (b - a) * t)
+                                for a, b in zip(COL_AMBER, COL_GREEN))
+                sweep   = int(360 * conf_pct)
+            if sweep > 0:
+                cv2.ellipse(frame, (cx, dot_y), (arc_r, arc_r),
+                            -90, 0, sweep, arc_col, 2, cv2.LINE_AA)
+            # Filled dot when confirmed
+            cv2.circle(frame, (cx, dot_y), dot_r,
+                       COL_GREEN if is_locked else base_col, -1)
         else:
             cv2.circle(frame, (cx, dot_y), dot_r, col, 1)
+
+    if gesture_quality_low:
+        nudge_y = _ix(h * 0.165)
+        draw_centered_text(frame, "Gesture reads poor -- try recalibrating  (Settings > Calibrate)",
+                           nudge_y, SCALE_MICRO, COL_AMBER, thickness=1, outline=2)
 
 # ============================================================
 # SCORE BAR (spec §03 y 18-22%)
@@ -510,17 +540,52 @@ def draw_result_screen(frame, game_state, colourblind=False):
             (right[0], right[1] + _ix((right[3] - right[1]) * 0.74), right[2], right[3] - 4),
             base_scale=SCALE_CAPTION, color=ai_col, thickness=1, outline=2)
 
-    # Colourblind stamp only (centre column otherwise empty)
-    if colourblind:
-        vs_y = y1 + _ix(ph * 0.54)
-        if "YOU WIN" in banner.upper() or "SURVIVE" in banner.upper():
-            stamp, stamp_col = "WIN", _COL_CB_WIN
-        elif "DRAW" in banner.upper():
-            stamp, stamp_col = "DRAW", _COL_CB_DRAW
-        else:
-            stamp, stamp_col = "LOSE", _COL_CB_LOSE
-        draw_centered_text(frame, stamp, vs_y, SCALE_BODY, stamp_col,
-                           thickness=2, outline=3)
+    # Centre column: outcome shape icon (always) + colourblind text stamp
+    b_up = banner.upper()
+    cx_mid = (x1 + x2) // 2
+    icon_cy = y1 + _ix(ph * 0.54)
+    icon_r  = _ix(min(pw, ph) * 0.038)
+    if "YOU WIN" in b_up or "SURVIVE" in b_up:
+        # Filled circle = WIN
+        cv2.circle(frame, (cx_mid, icon_cy), icon_r + 1, (0, 0, 0), -1)
+        cv2.circle(frame, (cx_mid, icon_cy), icon_r, COL_GREEN, -1)
+        if colourblind:
+            draw_centered_text(frame, "WIN", icon_cy + icon_r + _ix(h * 0.025),
+                               SCALE_CAPTION, _COL_CB_WIN, thickness=1, outline=2)
+    elif "DRAW" in b_up:
+        # Horizontal bar = DRAW
+        cv2.rectangle(frame,
+                      (cx_mid - icon_r, icon_cy - icon_r // 3),
+                      (cx_mid + icon_r, icon_cy + icon_r // 3),
+                      (0, 0, 0), -1)
+        cv2.rectangle(frame,
+                      (cx_mid - icon_r, icon_cy - icon_r // 3),
+                      (cx_mid + icon_r, icon_cy + icon_r // 3),
+                      COL_TEXT_SECONDARY, -1)
+        if colourblind:
+            draw_centered_text(frame, "DRAW", icon_cy + icon_r + _ix(h * 0.025),
+                               SCALE_CAPTION, _COL_CB_DRAW, thickness=1, outline=2)
+    else:
+        # X = LOSE
+        d = icon_r
+        cv2.line(frame, (cx_mid - d, icon_cy - d), (cx_mid + d, icon_cy + d),
+                 (0, 0, 0), 5, cv2.LINE_AA)
+        cv2.line(frame, (cx_mid + d, icon_cy - d), (cx_mid - d, icon_cy + d),
+                 (0, 0, 0), 5, cv2.LINE_AA)
+        cv2.line(frame, (cx_mid - d, icon_cy - d), (cx_mid + d, icon_cy + d),
+                 COL_RED, 3, cv2.LINE_AA)
+        cv2.line(frame, (cx_mid + d, icon_cy - d), (cx_mid - d, icon_cy + d),
+                 COL_RED, 3, cv2.LINE_AA)
+        if colourblind:
+            draw_centered_text(frame, "LOSE", icon_cy + icon_r + _ix(h * 0.025),
+                               SCALE_CAPTION, _COL_CB_LOSE, thickness=1, outline=2)
+
+    # Reaction time (shown when available, below icon)
+    rt = game_state.get("reaction_ms")
+    if rt:
+        rt_y = icon_cy + icon_r + _ix(ph * 0.14)
+        draw_centered_text(frame, f"{rt}ms", rt_y,
+                           SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
 
 def draw_session_summary(frame, summary):
     layout = _game_layout(frame)
@@ -614,10 +679,16 @@ def _draw_last_round_replay(frame, player_gesture, robot_gesture, banner):
 def draw_game_mode_view(frame, game_state, emotion_state=None, voice_mode_active=False,
                         last_heard_word="", tracker_state=None, hand_state=None,
                         flash_info=None, show_help=False, sound_on=True,
-                        colourblind=False, show_session_summary=False, diagnostic=False):
+                        colourblind=False, show_session_summary=False, diagnostic=False,
+                        gesture_quality_low=False):
 
     mode_raw   = game_state.get("play_mode_label", "")
     left_label = f"RPS ROBOT  {mode_raw.upper()}" if mode_raw else "RPS ROBOT"
+    # Challenge: show all-time best streak in left label
+    if mode_raw.lower() == "challenge":
+        hs = game_state.get("high_score", game_state.get("robot_score", 0))
+        if hs:
+            left_label = f"RPS ROBOT  CHALLENGE  |  Best streak: {hs}"
     if voice_mode_active:
         right_hints = "VOICE ON  *  Say READY to start  *  BACK = menu"
         bottom_hint = "Say READY > ONE > TWO > THREE > ROCK/PAPER/SCISSORS  |  BACK = menu  |  ? Help"
@@ -637,7 +708,8 @@ def draw_game_mode_view(frame, game_state, emotion_state=None, voice_mode_active
         sg = tracker_state.get("stable_gesture", "")
         detected = cg if cg in ("Rock", "Paper", "Scissors") \
                    else (sg if sg in ("Rock", "Paper", "Scissors") else "")
-    draw_gesture_row(frame, detected_gesture=detected)
+    draw_gesture_row(frame, detected_gesture=detected, tracker_state=tracker_state,
+                     gesture_quality_low=gesture_quality_low)
 
     draw_game_status_strip(frame, game_state)
 
