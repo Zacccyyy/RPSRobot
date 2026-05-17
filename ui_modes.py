@@ -6,7 +6,7 @@ import math
 import time
 import numpy as np
 from ui_base import *
-from ui_game import _draw_gesture_icon, _draw_last_round_replay  # noqa: F401
+from ui_game import _draw_last_round_replay  # noqa: F401
 
 def _draw_tp_hand_panel(frame, x1, y1, x2, y2, label, gesture, tracker_state=None,
                         highlight_col=None, result_col=None):

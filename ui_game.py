@@ -50,82 +50,6 @@ def _draw_state_pill(frame, state_str, cx, cy):
                                thickness=1, outline=2)
 
 # ============================================================
-# HELPER: RESULT GRID (spec §03 result state)
-# ============================================================
-
-def _draw_result_grid(frame, player_gesture, ai_gesture, result_banner,
-                      px1, py1, px2, py2, opp_label="ROBOT"):
-    """3-column result grid: player glyph, result chip, robot glyph."""
-    pw = px2 - px1
-    ph = py2 - py1
-    glyph_y = py1 + _ix(ph * 0.60)
-    glyph_r = min(_ix(pw * 0.08), 50)
-
-    # Glyph colours: win/loss override; draw falls back to gesture identity colour
-    _GESTURE_COLS = {
-        'rock':     (160, 120,  80),
-        'paper':    ( 80, 160, 200),
-        'scissors': ( 80,  80, 200),
-        'lizard':   ( 80, 160,  80),
-        'spock':    (200, 100, 200),
-    }
-    p_base  = _GESTURE_COLS.get(player_gesture.lower(),  COL_TEXT_SECONDARY)
-    ai_base = _GESTURE_COLS.get(ai_gesture.lower(),      COL_TEXT_SECONDARY)
-    b_up = result_banner.upper()
-    if 'WIN' in b_up:
-        p_glyph_col,  ai_glyph_col = COL_GREEN, COL_RED
-    elif any(w in b_up for w in ('LOSS', 'LOSE')):
-        p_glyph_col,  ai_glyph_col = COL_RED,   COL_GREEN
-    else:
-        p_glyph_col,  ai_glyph_col = p_base,    ai_base
-
-    pgx = px1 + _ix(pw * 0.20)
-    draw_gesture_glyph(frame, player_gesture,
-                       (pgx - glyph_r, glyph_y - glyph_r,
-                        pgx + glyph_r, glyph_y + glyph_r),
-                       color=p_glyph_col)
-    draw_centered_text_in_rect(frame, "YOU",
-        (pgx - _ix(pw * 0.12), py1 + _ix(ph * 0.24),
-         pgx + _ix(pw * 0.12), py1 + _ix(ph * 0.38)),
-        base_scale=SCALE_CAPTION, color=COL_TEXT_DIM,
-        thickness=1, outline=2)
-    draw_centered_text_in_rect(frame, player_gesture.upper(),
-        (pgx - _ix(pw * 0.12), glyph_y + glyph_r,
-         pgx + _ix(pw * 0.12), glyph_y + glyph_r + _ix(ph * 0.14)),
-        base_scale=SCALE_CAPTION, color=p_glyph_col,
-        thickness=1, outline=2)
-
-    # Result chip -- centre column
-    rcx = (px1 + px2) // 2
-    rcy = glyph_y
-    if 'WIN' in b_up:
-        rc = COL_GREEN
-    elif 'LOSS' in b_up or 'LOSE' in b_up:
-        rc = COL_RED
-    else:
-        rc = COL_TEXT_SECONDARY
-    draw_centered_text_in_rect(frame, b_up,
-        (rcx - _ix(pw * 0.12), rcy - _ix(ph * 0.06),
-         rcx + _ix(pw * 0.12), rcy + _ix(ph * 0.06)),
-        base_scale=SCALE_BODY, color=rc, thickness=1, outline=2)
-
-    rgx = px1 + _ix(pw * 0.80)
-    draw_gesture_glyph(frame, ai_gesture,
-                       (rgx - glyph_r, glyph_y - glyph_r,
-                        rgx + glyph_r, glyph_y + glyph_r),
-                       color=ai_glyph_col)
-    draw_centered_text_in_rect(frame, opp_label.upper(),
-        (rgx - _ix(pw * 0.12), py1 + _ix(ph * 0.24),
-         rgx + _ix(pw * 0.12), py1 + _ix(ph * 0.38)),
-        base_scale=SCALE_CAPTION, color=COL_TEXT_DIM,
-        thickness=1, outline=2)
-    draw_centered_text_in_rect(frame, ai_gesture.upper(),
-        (rgx - _ix(pw * 0.12), glyph_y + glyph_r,
-         rgx + _ix(pw * 0.12), glyph_y + glyph_r + _ix(ph * 0.14)),
-        base_scale=SCALE_CAPTION, color=ai_glyph_col,
-        thickness=1, outline=2)
-
-# ============================================================
 # HELPER: STREAK ROW (challenge mode)
 # ============================================================
 
@@ -634,18 +558,6 @@ def draw_session_summary(frame, summary):
                        y2 - _ix((y2 - y1) * 0.06), SCALE_MICRO, COL_TEXT_DIM,
                        thickness=1, outline=2)
 
-# ============================================================
-# PRIVATE HELPERS (imported by ui_modes)
-# ============================================================
-
-def _draw_gesture_icon(frame, gesture, rect):
-    """Draw gesture glyph centred in rect. Used by result screen and ui_modes."""
-    x1, y1, x2, y2 = rect
-    cx = (x1 + x2) // 2
-    cy = y1 + _ix((y2 - y1) * 0.48)
-    size = _ix(min(x2 - x1, y2 - y1) * 0.20)
-    glyph_rect = (cx - size, cy - size, cx + size, cy + size)
-    draw_gesture_glyph(frame, gesture, glyph_rect, color=COL_TEXT_PRIMARY)
 
 def _draw_last_round_replay(frame, player_gesture, robot_gesture, banner):
     """Briefly show last round's gestures at the start of the next wait state."""
