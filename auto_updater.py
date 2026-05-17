@@ -151,8 +151,6 @@ def check_for_updates():
 
     if local_sha and remote_sha.startswith(local_sha[:12]):
         _set(status="up_to_date")
-    elif local_sha == remote_sha:
-        _set(status="up_to_date")
     else:
         _set(status="update_available")
 

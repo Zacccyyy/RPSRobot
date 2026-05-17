@@ -611,11 +611,11 @@ class FairPlayAI:
             }
             return move
 
-        # ── Ghost: play player's last gesture ──
+        # ── Ghost: echo player's last gesture (mirror, not counter) ──
         if self._p_use_delayed and history:
             last_player_g = history[-1].get("player_gesture")
             if last_player_g in VALID_GESTURES:
-                move = COUNTER_MOVE[last_player_g]
+                move = last_player_g
                 self.last_prediction = {
                     "top_predicted_move": last_player_g, "used_predicted_move": last_player_g,
                     "effective_skill": 0.55, "opponent_type": "ghost",
@@ -635,12 +635,6 @@ class FairPlayAI:
 
         # ── Standard prediction path ──
         scores = self._predict_player_scores(history)
-
-        # Apply personality layer biases
-        bias = self._p_layer_bias
-        if "frequency" in bias:
-            # Recompute with boosted frequency weight — simple rescale via post-hoc
-            pass  # layer biases are applied inside _predict_player_scores via self._p_layer_bias
 
         ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
         best_move    = ranked[0][0]

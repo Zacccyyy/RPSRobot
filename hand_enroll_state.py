@@ -389,16 +389,18 @@ class HandEnrollController(_ScanBase):
             self.fp_phase = "INSUFFICIENT"
             return
 
-        # Self-test: predict against the centroid of our own samples
-        # Use the median sample (most representative, not an outlier)
-        import numpy as _np
-        arr = _np.array(self._session_samples)
-        centroid = arr.mean(axis=0).tolist()
-        pred_name, pred_conf = clf.predict(centroid)
+        # Self-test: predict a random individual sample (not the centroid,
+        # which trivially returns perfect confidence in distance mode).
+        import random as _random
+        test_sample = _random.choice(self._session_samples)
+        pred_name, pred_conf = clf.predict(test_sample)
 
-        self.recog_name  = pred_name
-        self.recog_conf  = pred_conf
-        self.fp_phase    = "RECOGNIZED"
+        self.recog_name = pred_name
+        self.recog_conf = pred_conf
+        if pred_name == self.player_name:
+            self.fp_phase = "RECOGNIZED"
+        else:
+            self.fp_phase = "INSUFFICIENT"
 
         n_people = len(clf.classes)
         mode     = clf._mode

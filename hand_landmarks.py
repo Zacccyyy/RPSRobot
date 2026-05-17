@@ -464,14 +464,21 @@ def process_two_hands_frame(
             state["status_text"]  = f"{label} ({score:.2f})"
             state["up_fingers"]   = cr.get("up_fingers", [])
 
-        # EMA wrist smoothing — keep smoothed for display, raw for pump detection
+        # Kalman wrist smoothing — keep smoothed for display, raw for pump detection
         raw_y = lm_obj.landmark[0].y
         state["raw_wrist_y"] = raw_y
         if ema_state is not None:
-            prev = ema_state.get("wrist_y")
-            smoothed = raw_y if prev is None else 0.35 * raw_y + 0.65 * prev
-            ema_state["wrist_y"] = smoothed
-            state["wrist_y"] = smoothed
+            kf = ema_state.get("kalman")
+            if kf is not None:
+                smoothed = kf.update(raw_y)
+                ema_state["wrist_y"] = smoothed
+                state["wrist_y"] = smoothed
+            else:
+                # Legacy EMA path (old {"wrist_y": None} dicts)
+                prev = ema_state.get("wrist_y")
+                smoothed = raw_y if prev is None else 0.35 * raw_y + 0.65 * prev
+                ema_state["wrist_y"] = smoothed
+                state["wrist_y"] = smoothed
         else:
             state["wrist_y"] = raw_y
 

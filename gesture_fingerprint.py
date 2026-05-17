@@ -160,7 +160,7 @@ def extract_geometry_features(landmark_frames):
                 idx_curl / idx_len,                       # 7 index curl
                 mid_curl / mid_len,                       # 8 middle curl
                 rng_curl / rng_len,                       # 9 ring curl
-                _dist(lm, INDEX_MCP, PINKY_MCP) / palm_w, # 10 knuckle span
+                _dist(lm, INDEX_MCP, PINKY_MCP) / palm_h, # 10 knuckle span/height ratio
                 idx_angle / math.pi,                      # 11 index angle
             ]
             for i, v in enumerate(f):

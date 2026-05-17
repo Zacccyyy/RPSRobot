@@ -201,7 +201,7 @@ def extract_features(history, current_index, lookback=3, reaction_time_ms=None):
     if reaction_time_ms is not None:
         features.append(min(reaction_time_ms / 500.0, 1.0))
     else:
-        features.append(0.5)  # neutral default
+        features.append(0.0)  # missing — sentinel distinct from any real reaction time
 
     return features
 

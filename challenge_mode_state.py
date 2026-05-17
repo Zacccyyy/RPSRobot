@@ -625,14 +625,6 @@ class ChallengeController:
                 self._resolve_round("Rock", now)
                 return self._build_output(now)
 
-            if now >= self.shoot_close_time:
-                fallback_throw = self._fallback_throw(tracker_state)
-
-                if fallback_throw in VALID_GESTURES:
-                    self._resolve_round(fallback_throw, now)
-                else:
-                    self._prepare_next_round(now)
-
             return self._build_output(now)
 
         return self._build_output(now)
