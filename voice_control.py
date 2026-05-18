@@ -205,7 +205,7 @@ _NAV_WORDS = {
     "begin":        "start",
     "play":         "start",
     "launch":       "start",
-    "go":           "start",   # also mapped to select — both work contextually
+    "launch":       "start",
 
     # ── Next / skip (tutorial and multi-step flows) ───────────────────────
     "skip":         "next",
@@ -540,6 +540,9 @@ class VoiceController:
                                 if not already_sent:
                                     self._dispatch_word(w)
                                 break
+                    # Clear dedup so the same word can fire again in the next utterance
+                    with self._lock:
+                        self._last_word = None
                 except Exception:
                     pass
             else:

@@ -222,17 +222,16 @@ class ChallengeStatsLogger:
         self._safe_save_and_close(wb)
 
     def finalize_run(self, final_streak, status="completed"):
-        if self.active_run is None:
+        run = self.active_run          # snapshot immediately
+        self.active_run = None         # clear before any IO so start_run can proceed
+        if run is None:
             return
 
         timestamp = self._timestamp()
 
         wb = self._load_workbook()
         if wb is None:
-            self.active_run = None
             return
-
-        run = self.active_run
 
         # Calculate average reaction time for this run.
         reaction_times = run["reaction_times"]
@@ -270,8 +269,6 @@ class ChallengeStatsLogger:
 
         self._set_summary(summary, "last_updated", timestamp)
         self._safe_save_and_close(wb)
-
-        self.active_run = None
 
     # ------------------------------------------------------------------
     # Workbook creation (new installs)

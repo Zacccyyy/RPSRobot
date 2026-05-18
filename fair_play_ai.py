@@ -225,6 +225,7 @@ class FairPlayAI:
         self.difficulty   = difficulty
         self.last_prediction = None
         self.set_personality(personality)
+        self.reset()
 
     def set_personality(self, name):
         p = PERSONALITIES.get(name, PERSONALITIES["Normal"])

@@ -58,7 +58,6 @@ class ReflexSoloController:
         self.reaction_times  = []
         self.target_shown    = 0.0
         self.result_until    = 0.0
-        self.game_over_until = 0.0
         self.last_result     = ""
         self.last_rt_ms      = 0
         self.game_end_time   = 0.0
@@ -127,7 +126,6 @@ class ReflexSoloController:
                 if now >= self.game_end_time:
                     self._submit_score(player_name)
                     self.state           = "GAME_OVER"
-                    self.game_over_until = now + GAME_OVER_SECS
                 else:
                     self.state = "PLAYING"
                     self._next_target()

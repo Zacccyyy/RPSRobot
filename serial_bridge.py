@@ -48,8 +48,9 @@ class SerialBridge:
     """
 
     def __init__(self, baud_rate=115200, log_limit=50):
-        self.baud_rate = baud_rate
-        self.log_limit = log_limit
+        self.baud_rate   = baud_rate
+        self.log_limit   = log_limit
+        self.bridge_type = "SERIAL"
 
         self._serial = None
         self._port_name = None

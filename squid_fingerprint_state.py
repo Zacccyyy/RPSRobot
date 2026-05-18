@@ -25,6 +25,7 @@ States:
 """
 
 import time
+import threading
 from collections import deque
 
 from squid_game_state import (
@@ -139,9 +140,18 @@ class SquidFingerprintController(SquidGameController):
                 self.fp_phase = "FAILED"
 
     def _train(self):
+        if getattr(self, "_training_in_progress", False):
+            return
+        self._training_in_progress = True
         self.fp_phase = "TRAINING"
-        ok = self._clf.train(self._store, include_unverified_for=self.player_name)
-        self.fp_phase = "VERIFYING" if ok else "COLLECTING"
+        threading.Thread(target=self._do_train, daemon=True).start()
+
+    def _do_train(self):
+        try:
+            ok = self._clf.train(self._store, include_unverified_for=self.player_name)
+            self.fp_phase = "VERIFYING" if ok else "COLLECTING"
+        finally:
+            self._training_in_progress = False
 
     def update(self, hand_state, now=None):
         if now is None:

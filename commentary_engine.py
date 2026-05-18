@@ -22,6 +22,8 @@ import threading
 import time
 import json
 
+_CLAUDE_MODEL = "claude-sonnet-4-20250514"
+
 _SYSTEM_PROMPT = """You are a sharp, witty sports commentator for a Rock Paper Scissors AI match.
 After each round, produce exactly ONE sentence (max 20 words) of commentary.
 Focus on: the player's patterns, the AI's prediction, psychological tendencies, or match momentum.
@@ -116,7 +118,7 @@ class CommentaryEngine:
         try:
             import urllib.request
             payload = json.dumps({
-                "model":      "claude-sonnet-4-20250514",
+                "model":      _CLAUDE_MODEL,
                 "max_tokens": 60,
                 "system":     _SYSTEM_PROMPT,
                 "messages":   [{"role": "user", "content": prompt}],

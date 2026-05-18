@@ -34,7 +34,7 @@ class HardwareTestController:
         self.bridge           = bridge
         self.ble_available    = ble_available
         self.serial_available = serial_available
-        self._mode            = "BLE" if hasattr(bridge, "_async_scan") else "SERIAL"
+        self._mode            = getattr(bridge, "bridge_type", "SERIAL")
 
         self.available_ports     = []
         self.selected_port_index = 0

@@ -1773,10 +1773,10 @@ def handle_voice_nav(app_state, action):
             apply_setting_change(app_state, -1)
         elif action == "right":
             apply_setting_change(app_state, 1)
-        elif action in ("select", "back"):
+        elif action == "select":
             activate_settings_item(app_state)
-            if action == "back":
-                open_menu(app_state)
+        elif action == "back":
+            open_menu(app_state)
 
     # ── CLONE_SETUP ───────────────────────────────────────────────────────
     elif screen == "CLONE_SETUP":
@@ -2840,10 +2840,11 @@ def run():
                 _nav_skip_tick = 0
 
             if app_state["app_screen"] == "GAME":
-                _is_two_player = app_state["play_mode"] in ("TwoPlayerPvP", "PvPvAI",
-                                                               "ReflexTwoPlayer",
-                                                               "SimonSays2P",
-                                                               "SquidGame2P")
+                _mode = app_state["play_mode"]
+                _is_two_player = _mode in ("TwoPlayerPvP", "PvPvAI",
+                                           "ReflexTwoPlayer",
+                                           "SimonSays2P",
+                                           "SquidGame2P")
                 p1_tracker = p2_tracker = None   # set in two-player branch
                 show_session_summary = False      # set in single-player path
 
@@ -2911,8 +2912,6 @@ def run():
                         _ema_state=app_state["_ema_state"],
                         five_gesture_mode=(app_state["play_mode"] == "RPSLS"),
                     )
-
-                    _mode = app_state["play_mode"]  # needed by emotion gate below
 
                     # ArcadeSnake uses its own vote-buffer debouncing inside the
                     # controller. Still call tracker.update() so confirmed_gesture

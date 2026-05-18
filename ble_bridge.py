@@ -96,7 +96,8 @@ class BLEBridge:
     """
 
     def __init__(self, log_limit=50):
-        self.log_limit = log_limit
+        self.log_limit  = log_limit
+        self.bridge_type = "BLE"
 
         self._client        = None
         self._device_name   = None

@@ -55,7 +55,7 @@ def load_data():
             label = LABEL_TO_INT[row[0]]
             features = [float(v) for v in row[1:]]
 
-            if len(features) != 20:
+            if len(features) != FEATURE_DIM:
                 continue
 
             X_rows.append(features)
