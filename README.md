@@ -1,397 +1,271 @@
-# RPS Robot — Gesture Recognition System
-**TrickWing Toys / RavensAgency**
+# RPS Gesture Recogniser
 
-Real-time Rock Paper Scissors gesture recognition with adaptive AI opponent,
-hand geometry biometrics, voice control, and physical robot arm support.
+A real-time Rock-Paper-Scissors gesture recognition system with an adaptive AI opponent,
+multiple game modes, voice control, player profiling, and optional physical robot output.
 
----
-
-## System Requirements
-
-| Requirement | macOS | Windows |
-|---|---|---|
-| OS Version | macOS 11 (Big Sur) or later | Windows 10 or later |
-| Chip | Intel Core i5 or Apple M-series | Intel Core i5 or AMD Ryzen 5 |
-| RAM | 8GB minimum, 16GB recommended | 8GB minimum, 16GB recommended |
-| Webcam | 720p built-in or USB | 720p built-in or USB |
-| Storage | 2GB free | 2GB free |
-| Internet | Required for install | Required for install |
-| Python | Installed automatically | 3.9+ required before running installer |
+Built for macOS (Apple M-series). Windows users see the Windows section below.
 
 ---
 
-## Installation — macOS
+## Requirements
 
-### Step 1 — Download the installer
+- Python 3.9 or later
+- A standard webcam (built-in or USB)
+- macOS 12+ (Monterey or later) — see Windows notes below
 
-Download `install.py` from the GitHub repository, or run this one-liner in Terminal:
+---
+
+## Installation
+
+### 1. Clone the repository
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Zacccyyy/RPSRobot/main/install.py -o ~/Downloads/install.py
+git clone https://github.com/yourusername/rps_hand_counter.git
+cd rps_hand_counter
 ```
 
-### Step 2 — Open Terminal
-
-Press `Cmd + Space`, type `Terminal`, press Enter.
-
-### Step 3 — Run the installer
+### 2. Create and activate a virtual environment
 
 ```bash
-python3 ~/Downloads/install.py
+python3 -m venv .venv
+source .venv/bin/activate
 ```
 
-- Enter your Mac password when prompted (required for Homebrew)
-- The installer downloads ~400MB of dependencies
-- Takes 5–10 minutes on a typical connection
-- Everything is handled automatically — Python, Git, all packages, speech model
+### 3. Install dependencies
 
-### Step 4 — Launch
-
-Double-click **`Launch RPS Robot.command`** on your Desktop.
-
-Or from Terminal:
 ```bash
-cd ~/rps_hand_counter && source .venv/bin/activate && python main.py
+pip install -r requirements.txt
+```
+
+### 4. Download the Vosk speech recognition model (required for voice control)
+
+Voice control requires a ~50MB model file. Download it manually:
+
+```bash
+mkdir -p models
+cd models
+curl -LO https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip
+unzip vosk-model-small-en-us-0.15.zip
+cd ..
+```
+
+If you prefer the Indian/Australian accent model:
+
+```bash
+curl -LO https://alphacephei.com/vosk/models/vosk-model-small-en-in-0.4.zip
+unzip vosk-model-small-en-in-0.4.zip
+```
+
+Select which model to use inside the app under Settings > Voice Model.
+
+> Voice control is optional. The app runs fully without it — voice just won't respond.
+
+### 5. (Optional) Set your Anthropic API key for live commentary
+
+The commentary engine (press C in-game) uses the Claude API. Add your key to your shell profile:
+
+```bash
+echo 'export ANTHROPIC_API_KEY="your-key-here"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+Get a key at https://console.anthropic.com. Commentary is off by default and costs
+only fractions of a cent per round when enabled.
+
+### 6. Create the data directory
+
+```bash
+mkdir -p ~/Desktop/CapStone/fingerprints
 ```
 
 ---
 
-## Installation — Windows
+## Running the app
 
-### Step 1 — Install Python
-
-If you don't already have Python 3.9 or later installed:
-
-1. Go to [python.org/downloads](https://www.python.org/downloads/)
-2. Download the latest Python 3.x installer
-3. Run it — **tick "Add Python to PATH"** before clicking Install
-4. Verify by opening Command Prompt and typing: `python --version`
-
-### Step 2 — Download the installer
-
-Download `install.py` from the GitHub repository:
-
-```
-https://github.com/Zacccyyy/RPSRobot/blob/main/install.py
-```
-
-Or open Command Prompt and run:
-```cmd
-curl -fsSL https://raw.githubusercontent.com/Zacccyyy/RPSRobot/main/install.py -o %USERPROFILE%\Downloads\install.py
-```
-
-> `%USERPROFILE%` is Windows shorthand for your home folder, e.g. `C:\Users\YourName`
-
-### Step 3 — Open Command Prompt
-
-Press `Win + R`, type `cmd`, press Enter.
-
-### Step 4 — Run the installer
-
-```cmd
-python %USERPROFILE%\Downloads\install.py
-```
-
-- Git will be installed automatically via winget if not already present
-- The installer downloads ~400MB of dependencies
-- Takes 5–10 minutes on a typical connection
-
-> **Note:** Windows Defender or SmartScreen may show a warning when running
-> the installer. Click **"More info" → "Run anyway"** — this is expected for
-> unsigned Python scripts.
-
-### Step 5 — Launch
-
-Double-click **`Launch RPS Robot.bat`** on your Desktop.
-
-Or from Command Prompt:
-```cmd
-cd %USERPROFILE%\rps_hand_counter
-.venv\Scripts\activate
+```bash
+source .venv/bin/activate
 python main.py
 ```
 
----
-
-## First Run (Both Platforms)
-
-On first launch you will be asked to:
-1. Enter your name
-2. Grant webcam access when prompted — click **Allow**
-
-Your data is saved to:
-- **macOS:** `~/Desktop/CapStone/`
-- **Windows:** `C:\Users\<YourName>\Desktop\CapStone\`
+On first launch you will be asked to enter your name. This creates your player profile.
+After that the main menu loads automatically on every subsequent launch.
 
 ---
 
-## Updating the App
+## Voice commands (overview)
 
-The app checks GitHub for updates every time it launches.
+Voice control is enabled under Features > Voice Mode.
 
-When an update is available, a **yellow banner** appears in the main menu showing the version difference. Press **`U`** to download and apply the update — the app restarts automatically.
-
-This works on both macOS and Windows as long as the app was installed using the installer above (which uses `git clone` under the hood).
-
----
-
-## Game Modes
-
-| Mode | Description |
+| What you say | What it does |
 |---|---|
-| **Fair Play** | Standard RPS vs adaptive AI with 7 personalities |
-| **Challenge** | AI learns your patterns over 20+ rounds |
-| **Prediction Race** | Beat the AI by NOT playing what it predicts |
-| **Two Player** | PvP or PvP+AI on the same webcam |
-| **Bluff Mode** | Show one gesture, lock in another |
-| **Reflex** | Speed test — fastest response wins |
-| **Simon Says** | Follow gesture sequences |
-| **Red Light Green Light** | Squid Game-style hold challenge |
-| **Arcade Snake** | Control Snake with hand gestures |
-| **Gesture Trainer** | Rehabilitation-focused hold exercises |
-| **RPSLS** | Rock Paper Scissors Lizard Spock |
+| READY / ONE / TWO / THREE | RPS countdown beats |
+| ROCK / PAPER / SCISSORS | Throw a gesture |
+| LIZARD / SPOCK | RPSLS gestures |
+| BACK / CANCEL | Return to previous screen |
+| QUIT / EXIT | Quit the app |
+| RESTART / AGAIN | Restart current game |
+| START / BEGIN | Begin a session (Gesture Trainer etc.) |
+| SNAKE / SQUID / SIMON / REFLEX | Jump directly to that game mode |
+| STATS / SETTINGS / TUTORIAL | Open that menu section |
+| COMMENTARY | Toggle live commentary |
+
+Press `?` at any time for a full in-game voice command reference.
 
 ---
 
-## Key Controls (In Game)
+## Controls (keyboard)
 
 | Key | Action |
 |---|---|
-| `ESC` | Back / Menu |
-| `D` | Toggle Diagnostic overlay |
-| `H` | Hardware Test (ESP32 serial) |
-| `U` | Apply available update |
-| `C` | Toggle AI commentary |
-| `F` | Collect training data |
-| `T` | Train ML model |
-| `1 / 2 / 3` | Switch display mode |
+| W / S or Arrow keys | Navigate menus |
+| Enter | Select / confirm |
+| ESC | Back / return to menu |
+| Q | Quit |
+| C | Toggle commentary |
+| M | Toggle diagnostic mode |
+| N | Toggle sound |
+| ? | Show help overlay |
 
 ---
 
-## Voice Commands
+## Hardware robot arm (optional)
 
-The app supports offline voice control via Vosk (no internet required after install).
+The app can send move commands to an ESP32-based servo arm over USB serial.
+This is entirely optional — the app runs fully without it.
 
-**Menu navigation:** `"menu"`, `"settings"`, `"game modes"`, `"simulations"`
-
-**Game shortcuts:** `"snake"`, `"squid"`, `"simon"`, `"reflex"`, `"rehab"`, `"race"`, `"rpsls"`
-
-**In game:** `"rock"`, `"paper"`, `"scissors"`, `"restart"`, `"quit"`
-
-**Voice model:** US English by default. Change to Indian English in Settings → Voice Model.
+Connect the ESP32 via USB before launching the app. The serial bridge
+auto-detects available ports. See `serial_bridge.py` for port configuration.
 
 ---
 
-## Hand Scan Biometrics
+## Data and files
 
-The app can identify players by their hand geometry — no typing required at login.
+All persistent data is saved to `~/Desktop/CapStone/`:
 
-1. Go to **Settings → Enroll Hand Scan**
-2. Complete 20 scanning rounds (varied positions and distances, ~3 minutes)
-3. Use **Settings → Hand Scan Diagnostic** to verify recognition is working
-4. On the login screen, press **TAB** to log in by hand scan instead of typing
+| Path | Contents |
+|---|---|
+| `player_research_log.xlsx` | Full round-by-round research log |
+| `simulation_results.xlsx` | Simulation Lab outputs |
+| `snake_highscore.json` | Arcade Snake leaderboard |
+| `fingerprints/` | Gesture fingerprint enrollment data |
 
-Data saved to:
-- **macOS:** `~/Desktop/CapStone/fingerprints/`
-- **Windows:** `C:\Users\<YourName>\Desktop\CapStone\fingerprints\`
-
----
-
-## Player Feedback
-
-Players can submit feature suggestions and feedback from inside the app.
-
-Press **`N`** from the main menu to open the Notes screen. Type your suggestion
-and press **Enter** to submit. Each submission is saved as a timestamped `.txt`
-file to `Desktop/CapStone/feedback/` so the developer can review them.
+Player profiles (gesture history, AI state, stats) are saved as JSON files
+in the project directory under `profiles/`.
 
 ---
 
-## Physical Robot Arm (Optional)
+## Windows notes
 
-If using the ESP32 microcontroller:
+The app is developed and tested on macOS. It will run on Windows with the
+following adjustments:
 
-1. Install the [CP210x USB driver](https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers)
-2. Upload the provided Arduino sketch to the ESP32
-3. Connect via USB
-4. In the app: `D` → `H` → select port with `[` `]` → ENTER to connect
+### What works the same
+- All gesture recognition, game modes, AI, stats, simulations, fingerprint system
+- Voice control (Vosk is cross-platform)
+- Serial bridge to ESP32
 
-The app works fully without the robot arm.
+### What needs adjusting on Windows
 
----
+**1. Sound is disabled**
+Sound uses `afplay`, which is macOS-only. On Windows the sound player
+silently does nothing — no crash, just no audio. A future update will
+add Windows audio support via `winsound` or `playsound`.
 
-## Data & Privacy
+**2. Terminal auto-close on quit does not work**
+The app uses `osascript` (AppleScript) to close the terminal window when
+you press Q. On Windows this silently fails — just close the terminal manually.
 
-RPS Robot asks for your consent on first launch before sending any data
-outside your device. You can change your choice at any time in
-**Settings → Privacy Settings**.
-
-**If you accept:** crash reports and feedback you submit are sent to a
-private developer Discord channel to help improve the app.
-
-**If you decline:** everything stays on your device only. Nothing is sent.
-
-All data is stored locally at `Desktop/CapStone/`:
-
-```
-Desktop/CapStone/
-├── fingerprints/               Hand geometry profiles (local only)
-├── profiles/                   Player game statistics (local only)
-├── simulations/                AI simulation results (local only)
-├── feedback/                   Your submitted suggestions (local copy)
-├── crash_reports/              Crash reports (local copy)
-├── challenge_research_log.xlsx
-└── player_research_log.xlsx
+**3. Virtual environment activation is different**
+```bat
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
-**What is never collected:** camera data, gameplay video, location,
-hand scan biometrics, or any background tracking.
+**4. Webcam index may differ**
+If the camera doesn't open, edit `main.py` line ~60 and change
+`cv2.VideoCapture(0)` to `cv2.VideoCapture(1)` or `cv2.VideoCapture(2)`.
 
-For full details see [PRIVACY.md](PRIVACY.md).
+**5. Serial port names are different**
+ESP32 shows as `COM3`, `COM4` etc. instead of `/dev/tty.usbserial-...`.
+Update `serial_bridge.py` with your COM port if auto-detect fails.
+
+**6. Run with**
+```bat
+python main.py
+```
+(not `python3` — on Windows the command is usually `python`)
+
+### Tested Python versions
+- macOS: Python 3.9, 3.11
+- Windows: Python 3.11 (community tested — not officially supported)
 
 ---
 
 ## Troubleshooting
 
-### Camera not found
-- Make sure no other app is using the webcam (Zoom, Teams, FaceTime etc.)
-- **macOS:** System Settings → Privacy & Security → Camera → allow RPS Robot
-- **Windows:** Settings → Privacy → Camera → allow desktop apps
+**Camera not opening**
+Make sure no other app (FaceTime, Zoom, etc.) is using the camera.
+Try changing the camera index in `main.py`.
 
-### Gesture not recognising
-- Ensure good lighting — avoid sitting with a bright window behind you
-- Hold hand flat, palm facing the camera, fingers spread
-- Press `D` to see the diagnostic overlay and confidence scores
+**MediaPipe warnings in terminal**
+The `landmark_projection_calculator` warning is harmless — MediaPipe
+prints it internally and does not affect gesture recognition.
 
-### Voice commands not working
-- Check the Vosk model folder exists inside `rps_hand_counter/vosk-model-small-en-us-0.15/`
-- If missing, re-run the installer — it will download the model again
+**Voice not responding**
+Check that the Vosk model folder exists at `models/vosk-model-small-en-us-0.15/`.
+Enable voice under Features > Voice Mode. Check your microphone permissions
+in System Settings > Privacy > Microphone.
 
-### ESP32 port busy
-- **macOS/Windows:** Close Arduino IDE Serial Monitor before connecting in-app
+**Excel log corruption error**
+If you see `Error -3 while decompressing data`, the Excel log file is
+corrupted. The app will automatically back it up and create a fresh one.
+No round data is lost from your JSON profile.
 
-### Windows — Python not found
-- Re-install Python from python.org and make sure **"Add Python to PATH"** is ticked
-
-### Windows — app won't open or SmartScreen warning
-- Right-click `Launch RPS Robot.bat` → Run as administrator
-- Or open Command Prompt, navigate to the folder, and run `python main.py` directly
-
-### App crashed
-- Crash reports are saved to `Desktop/CapStone/crash_*.txt`
-- Open the file and check the error message at the top
+**Fingerprint enrollment not working**
+Make sure you are enrolling via Settings > Enroll Fingerprint, NOT via
+the Squid Game mode in the game menu. Only the Settings path activates
+fingerprint collection. You need at least 25 dot captures before the
+classifier trains.
 
 ---
 
-## Technical Stack
+## Project structure
 
-- Python 3.9+
-- OpenCV 4.11 — camera capture and display
-- MediaPipe 0.10.21 — hand landmark detection (21 landmarks)
-- scikit-learn — MLP gesture classifier + SVM hand biometrics
-- Vosk — offline speech recognition
-- Anthropic Claude API — AI commentary
-- openpyxl — research data logging to Excel
-- pyserial — ESP32 robot arm communication
-
----
-
-## Academic Attribution
-
-This system was developed as part of an undergraduate robotics engineering
-capstone project. The following open-source projects, libraries, and research
-papers directly influenced the design and implementation.
-
-### Core Libraries
-
-| Library | Version | Use | Link |
-|---|---|---|---|
-| MediaPipe | 0.10.21 | 21-point hand landmark detection | [github.com/google/mediapipe](https://github.com/google/mediapipe) |
-| OpenCV | 4.11.0 | Camera capture, frame rendering, UI | [github.com/opencv/opencv](https://github.com/opencv/opencv) |
-| scikit-learn | Latest | MLP classifier, SVM biometrics | [github.com/scikit-learn/scikit-learn](https://github.com/scikit-learn/scikit-learn) |
-| Vosk | 0.3.45+ | Offline speech recognition | [github.com/alphacep/vosk-api](https://github.com/alphacep/vosk-api) |
-| Anthropic Python SDK | Latest | Claude API integration | [github.com/anthropics/anthropic-sdk-python](https://github.com/anthropics/anthropic-sdk-python) |
-| NumPy | 1.26.4 | Numerical computation | [github.com/numpy/numpy](https://github.com/numpy/numpy) |
-| openpyxl | Latest | Excel research data logging | [github.com/theorchard/openpyxl](https://github.com/theorchard/openpyxl) |
-| pyserial | Latest | ESP32 serial communication | [github.com/pyserial/pyserial](https://github.com/pyserial/pyserial) |
-
-### Gesture Recognition — GitHub Projects
-
-These open-source projects directly influenced the gesture classification pipeline.
-No code was directly copied — each project informed architectural and methodological decisions.
-
-- **Kazuhito00/hand-gesture-recognition-using-mediapipe** (2021)
-  The data collection workflow and keypoint normalisation strategy (translate to wrist origin, scale by palm size) directly inspired our landmark collection and front-on training system.
-  [github.com/Kazuhito00/hand-gesture-recognition-using-mediapipe](https://github.com/Kazuhito00/hand-gesture-recognition-using-mediapipe)
-
-- **andypotato/fingerpose** (2022)
-  The curl-state analysis approach (NoCurl / HalfCurl / FullCurl using PIP and DIP joint angles) was adopted from this library's published curl thresholds and integrated into our hybrid detection pipeline.
-  [github.com/andypotato/fingerpose](https://github.com/andypotato/fingerpose)
-
-- **AishTron7/Rock-Paper-Scissor** (2023)
-  Validated that SGD classifiers on MediaPipe landmarks can achieve 99.7% accuracy, informing our confidence threshold tuning.
-  [github.com/AishTron7/Rock-Paper-Scissor](https://github.com/AishTron7/Rock-Paper-Scissor)
-
-- **stefanluncanu24/RockPaperScissors-using-MediaPipe-Cv2** (2023)
-  XGBoost-based gesture recognition approach reviewed for comparison against our MLP architecture.
-  [github.com/stefanluncanu24/RockPaperScissors-using-MediaPipe-Cv2](https://github.com/stefanluncanu24/RockPaperScissors-using-MediaPipe-Cv2)
-
-- **ChetanNair/Rock-Paper-Scissors** (2023)
-  OpenCV and MediaPipe finger-counting approach reviewed during early gesture detection development.
-  [github.com/ChetanNair/Rock-Paper-Scissors](https://github.com/ChetanNair/Rock-Paper-Scissors)
-
-- **hjpulkki/RPS** (2020)
-  Deep learning approach using Keras RNN for gesture sequence modelling, reviewed for comparison.
-  [github.com/hjpulkki/RPS](https://github.com/hjpulkki/RPS)
-
-### AI Opponent — GitHub Projects
-
-These projects were reviewed as part of the adversarial AI literature survey.
-Our AI architecture differs from all of them by implementing intentional imperfection
-and personality-based play rather than pure win-maximisation.
-
-- **dmickelson/Rock-paper-scissors** (2023) — LSTM move prediction
-  [github.com/dmickelson/Rock-paper-scissors](https://github.com/dmickelson/Rock-paper-scissors)
-
-- **MattYu/Project---Predictive-Rock-Paper-Scissor-AI** (2020) — 15-scheme swarm mind with N-gram matching
-  [github.com/MattYu/Project---Predictive-Rock-Paper-Scissor-AI-](https://github.com/MattYu/Project---Predictive-Rock-Paper-Scissor-AI-)
-
-- **Asylumrunner/Rock-Paper-Scissors-AI** (2019) — Markov chain transition modelling
-  [github.com/Asylumrunner/Rock-Paper-Scissors-AI](https://github.com/Asylumrunner/Rock-Paper-Scissors-AI)
-
-- **wesleytian/roshambo-god** (2018) — Bayesian prediction
-  [github.com/wesleytian/roshambo-god](https://github.com/wesleytian/roshambo-god)
-
-- **goelp14/RockPaperScissors** (2021) — Markov Chain difficulty tiers
-  [github.com/goelp14/RockPaperScissors](https://github.com/goelp14/RockPaperScissors)
-
-- **wmodes/rock-paper-scissors** (2023) — Heuristic computer player strategies
-  [github.com/wmodes/rock-paper-scissors](https://github.com/wmodes/rock-paper-scissors)
-
-- **Raymond Hettinger — Pattern Recognition and Reinforcement Learning (PyCon 2019)**
-  Digraph-based prediction with strategy weighting.
-  [rhettinger.github.io/rock_paper.html](https://rhettinger.github.io/rock_paper.html)
-
-### Academic Papers
-
-- Zhang, H., et al. (2020). MediaPipe Hands: On-device Real-time Hand Tracking. *arXiv:2006.10214*
-
-- Ghanbari, A., et al. (2022). Hand geometry biometrics using MediaPipe landmark ratios. *ICEE 2022*
-
-- Zhang, Y., Moisan, E., & Gonzalez, C. (2021). Heterogeneous cycle-based behaviours in sequential RPS. *Cognitive Science*
-
-- Brockbank, E., & Vul, E. (2021). Failure to randomise against adaptive opponents. *Psychological Science*
-
-- Qi, J., et al. (2021). A review of vision-based hand gesture recognition for HRI. *Complex & Intelligent Systems*
-
-- Ahmad, T., et al. (2021). MLP classifiers on MediaPipe landmarks for gesture recognition. *IEEE Access*
-
-- Amprimo, G., et al. (2022). MediaPipe hand tracking accuracy for clinical applications. *IEEE CBMS*
-
-- Zohaib, M., & Nakanishi, J. (2020). Diversifying DDA agents via player state modelling. *IEEE ToG*
-
-- Dyson, B.J., et al. (2016). Negative outcomes evoke cyclic decisions in RPS. *Nature Scientific Reports*
+```
+rps_hand_counter/
+├── main.py                    # Entry point and run loop
+├── requirements.txt           # Python dependencies
+├── config.json                # User configuration (auto-saved)
+├── models/                    # Vosk speech model (download separately)
+│   └── vosk-model-small-en-us-0.15/
+├── profiles/                  # Player profile JSON files (auto-created)
+├── ui_base.py                 # Colours, layout helpers, drawing primitives
+├── ui_game.py                 # In-game screens
+├── ui_modes.py                # Per-mode renderers
+├── ui_menus.py                # Menu / settings / stats screens
+├── ui_renderer.py             # Re-export shim (do not edit)
+├── fair_play_state.py         # Main RPS game logic + Thompson Sampling AI
+├── gesture_fingerprint.py     # Biometric fingerprint system
+├── squid_fingerprint_state.py # Fingerprint enrollment via Squid Game
+├── voice_control.py           # Vosk speech recognition
+├── commentary_engine.py       # Claude API live commentary
+├── player_profile_store.py    # Player profiles and round logging
+├── serial_bridge.py           # ESP32 robot arm serial output
+└── sound_player.py            # macOS audio (afplay)
+```
 
 ---
 
-*RPS Robot — TrickWing Toys | RavensAgency*
+## Academic context
+
+This project is a robotics engineering capstone at an Australian university.
+The gesture recognition system, AI opponent modelling, and biometric
+fingerprint subsystem are original research contributions.
+
+The companion business capstone covers TrickWing Toys' commercialisation
+plan for the RPS Robot consumer product (AUD $39.95 RRP, target age 7-10).
+
+---
+
+*Last updated: April 2026*

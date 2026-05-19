@@ -1,12 +1,25 @@
-numpy==1.26.4
-opencv-python==4.11.0.86
-mediapipe==0.10.21
+# RPS Gesture Recogniser — Python dependencies
+# Install with: pip install -r requirements.txt
+#
+# Python 3.9+ required (tested on 3.9 and 3.11)
+
+# Core computer vision
+opencv-python>=4.11.0
+mediapipe>=0.10.21
+
+# Machine learning
 scikit-learn>=1.3.0
-openpyxl>=3.1.0
-Pillow>=10.0.0
+numpy>=1.26.4
+
+# Excel logging
+openpyxl>=3.1.2
+
+# Offline speech recognition
+# NOTE: also requires a Vosk model file — see README for download instructions
 vosk>=0.3.45
+
+# Hardware serial (only needed if using the ESP32 robot arm)
 pyserial>=3.5
-anthropic>=0.25.0
-urllib3>=2.0.0
-sentry-sdk>=2.0.0
-bleak>=0.21.0
+
+# NOTE: The Claude API commentary feature uses urllib (Python stdlib) — no extra package needed.
+# You do need an ANTHROPIC_API_KEY environment variable set if you want to use it.
