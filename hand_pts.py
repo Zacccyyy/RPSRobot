@@ -1,7 +1,29 @@
-# Auto-generated from Hand2011.svg
-# Normalised (0..1) point lists, one per SVG path
+# =============================================================================
+# hand_pts.py
+# -----------
+# Static hand silhouette data used by the enrollment UI.
+#
+# What it does:
+#   - Contains the normalised (0..1) coordinate lists for two SVG paths
+#     that together draw the hand outline shown during biometric enrollment.
+#   - The coordinates were auto-generated from Hand2011.svg.
+#   - HAND_BBOX_W and HAND_BBOX_H record the original SVG bounding box so
+#     callers can rescale the points to any pixel size if needed.
+#
+# Where it fits:
+#   - Imported by the enrollment UI renderer (e.g. ui_renderer.py or similar)
+#     to draw the guiding silhouette overlay on top of the camera feed.
+#   - Nothing in this file needs to run; it is pure data.
+# =============================================================================
+
+# Original SVG bounding box dimensions (in SVG user units).
+# Not used for drawing directly — kept for reference / rescaling.
 HAND_BBOX_W = 411.1784
 HAND_BBOX_H = 434.6866
+
+# Each entry in HAND_PATHS is a list of (x, y) tuples, all normalised to [0, 1].
+# HAND_PATHS[0] — outer contour of the hand
+# HAND_PATHS[1] — inner detail / second stroke of the hand outline
 HAND_PATHS = [
     [
         (0.34801,0.00086), (0.33726,0.00128), (0.32772,0.00288), (0.31950,0.00663), (0.31107,0.01316), (0.30409,0.02120), (0.29990,0.02919), (0.29840,0.03483),

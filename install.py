@@ -37,9 +37,11 @@ GITHUB_REPO = "https://github.com/Zacccyyy/RPSRobot.git"
 APP_DIR     = pathlib.Path.home() / "rps_hand_counter"
 VENV_DIR    = APP_DIR / ".venv"
 
+# Vosk speech recognition model — small US English model (~40 MB download)
 VOSK_MODEL  = "vosk-model-small-en-us-0.15"
 VOSK_URL    = f"https://alphacephei.com/vosk/models/{VOSK_MODEL}.zip"
 
+# All Python packages that need to be installed, as (display_name, pip_spec) pairs
 PACKAGES = [
     ("NumPy",             "numpy>=1.26.4,<2.0"),
     ("OpenCV",            "opencv-python>=4.8.0"),
@@ -65,14 +67,16 @@ OS_NAME  = "macOS" if IS_MAC else ("Windows" if IS_WIN else "Linux")
 _USE_COLOR = IS_MAC or IS_LINUX or os.environ.get("TERM") == "xterm-256color"
 
 def _c(code, text):
+    """Wrap text in an ANSI colour escape sequence, or return plain text on Windows CMD."""
     return f"\033[{code}m{text}\033[0m" if _USE_COLOR else text
 
-# Use ASCII-safe symbols on Windows, Unicode on Mac/Linux
+# Use ASCII-safe symbols on Windows CMD, Unicode elsewhere
 _OK   = "[OK]"   if IS_WIN else "  ok "
 _FAIL = "[!!]"   if IS_WIN else "  !! "
 _WARN = "[??]"   if IS_WIN else "  ?? "
-_ARR  = "  ->  " if IS_WIN else "  ->  "
+_ARR  = "  ->  "   # same on all platforms
 
+# Shortcut print helpers so each step only needs one function call
 def ok(msg):   print(_c("32",   f"{_OK}  {msg}"))
 def info(msg): print(_c("36",   f"{_ARR} {msg}"))
 def warn(msg): print(_c("33",   f"{_WARN} {msg}"))
@@ -85,9 +89,11 @@ def bold(msg): return _c("1", msg)
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def run(cmd, **kwargs):
+    """Run a shell command and raise an exception if it fails."""
     return subprocess.run(cmd, check=True, **kwargs)
 
 def run_quiet(cmd):
+    """Run a shell command, suppressing all output. Returns True on success."""
     try:
         subprocess.run(cmd, check=True,
                        stdout=subprocess.DEVNULL,
@@ -97,20 +103,29 @@ def run_quiet(cmd):
         return False
 
 def command_exists(cmd):
+    """Return True if the given command is on the system PATH."""
     return shutil.which(cmd) is not None
 
 def venv_python():
+    """Return the path to the Python executable inside our virtual environment."""
     if IS_WIN:
         return VENV_DIR / "Scripts" / "python.exe"
     return VENV_DIR / "bin" / "python"
 
 def venv_pip():
+    """Return the path to pip inside our virtual environment."""
     if IS_WIN:
         return VENV_DIR / "Scripts" / "pip.exe"
     return VENV_DIR / "bin" / "pip"
 
 def get_desktop():
-    """Get the real Desktop path - handles OneDrive relocation on Windows."""
+    """
+    Return the user's Desktop folder as a Path.
+
+    On Windows, OneDrive sometimes moves the Desktop folder to
+    C:/Users/<name>/OneDrive/Desktop — we read the real path from the
+    registry instead of assuming ~/Desktop.
+    """
     if IS_WIN:
         try:
             import winreg
@@ -121,12 +136,16 @@ def get_desktop():
                 desktop, _ = winreg.QueryValueEx(key, "Desktop")
                 return pathlib.Path(desktop)
         except Exception:
-            pass
+            pass  # fall through to the default below
     return pathlib.Path.home() / "Desktop"
 
 def get_data_dir():
-    # macOS: ~/Desktop/CapStone (existing users keep their data location)
-    # Windows/Linux: ~/CapStone  (keeps Desktop clean)
+    """
+    Return the CapStone data directory for this platform.
+
+    macOS: ~/Desktop/CapStone  (keeps existing user data in place)
+    Windows/Linux: ~/CapStone  (keeps Desktop clean)
+    """
     import sys as _sys
     if _sys.platform == "darwin":
         return pathlib.Path.home() / "Desktop" / "CapStone"
@@ -136,10 +155,11 @@ def get_data_dir():
 # ── Banner ────────────────────────────────────────────────────────────────────
 
 def print_banner():
+    """Print the RPS Robot ASCII-art logo and basic platform info."""
     print()
-    # The box-drawing chars in the banner are fine on Windows - they render
-    # correctly in modern Windows Terminal and PowerShell (Windows 10+).
-    # Only the progress/status symbols like checkmarks caused issues.
+    # The box-drawing chars in the banner render correctly in modern Windows
+    # Terminal and PowerShell (Windows 10+). Only progress symbols like
+    # checkmarks caused issues on older Windows CMD — those use ASCII fallbacks.
     print(_c("1;36", "  ██████╗ ██████╗ ███████╗    ██████╗  █████╗ ██████╗  █████╗ ████████╗"))
     print(_c("1;36", "  ██╔══██╗██╔══██╗██╔════╝    ██╔══██╗██╔═══██╗██╔══██╗██╔═══██╗╚══██╔══╝"))
     print(_c("1;36", "  ██████╔╝██████╔╝███████╗    ██████╔╝██║   ██║██████╔╝██║   ██║   ██║   "))
@@ -161,17 +181,24 @@ def print_banner():
 # ── Step 1: System check ──────────────────────────────────────────────────────
 
 def _find_python312():
-    """Find Python 3.12 executable if already installed."""
+    """
+    Search common locations for a Python 3.12 executable.
+
+    Checks the PATH first (via the candidate names), then checks known
+    Windows install directories.  Returns the executable path as a string,
+    or None if not found.
+    """
     candidates = ["py", "python3.12", "python"]
-    # Also check common Windows install paths
+
+    # Add common Windows install paths to the search list
     if IS_WIN:
         username = os.environ.get("USERNAME", "user")
-        extra = [
+        candidates += [
             rf"C:\Users\{username}\AppData\Local\Programs\Python\Python312\python.exe",
             r"C:\Program Files\Python312\python.exe",
             r"C:\Program Files (x86)\Python312\python.exe",
         ]
-        candidates += extra
+
     for candidate in candidates:
         try:
             result = subprocess.run(
@@ -181,16 +208,23 @@ def _find_python312():
             )
             if result.returncode == 0:
                 parts = result.stdout.strip().split()
+                # Only accept exactly Python 3.12
                 if len(parts) == 2 and int(parts[0]) == 3 and int(parts[1]) == 12:
                     return str(candidate)
         except Exception:
-            continue
+            continue  # this candidate didn't work, try the next one
+
     return None
 
 
 def _install_python312_windows():
-    """Install Python 3.12 on Windows and relaunch this installer with it."""
-    # Check if already installed somewhere
+    """
+    Install Python 3.12 on Windows via winget, then relaunch this installer.
+
+    If winget is not available, print instructions and exit.
+    After a successful install, we relaunch automatically with the new Python.
+    """
+    # Check if Python 3.12 is already installed somewhere non-obvious
     py312 = _find_python312()
     if py312:
         info(f"Found Python 3.12 at {py312} - relaunching...")
@@ -218,7 +252,7 @@ def _install_python312_windows():
         fail("Tick 'Add Python to PATH', then re-run: python install.py")
         sys.exit(1)
 
-    # Try to find and relaunch with it
+    # Relaunch the installer with the newly installed Python 3.12
     py312 = _find_python312()
     if py312:
         info("Relaunching installer with Python 3.12...")
@@ -232,14 +266,21 @@ def _install_python312_windows():
 
 
 def check_system():
+    """
+    Step 1 — confirm the OS and Python version are compatible.
+
+    MediaPipe only supports Python 3.9–3.12, so we either bail or
+    auto-install 3.12 if the user has something newer.
+    """
     step("Step 1 -- Checking system requirements")
 
+    # Report OS version and warn if it's older than recommended
     if IS_WIN:
         win_rel = platform.release()
         try:
             rel_int = int(win_rel)
         except ValueError:
-            rel_int = 10
+            rel_int = 10  # treat unknown releases as "10" to avoid false warnings
         if rel_int < 10:
             warn(f"Windows {win_rel} detected. Windows 10 or later recommended.")
         else:
@@ -254,7 +295,7 @@ def check_system():
     else:
         ok(f"Linux ({platform.release()})")
 
-    # MediaPipe only supports Python 3.9 - 3.12
+    # MediaPipe requires Python 3.9–3.12 — check and handle out-of-range versions
     py = sys.version_info
     if py < (3, 9):
         fail(f"Python {py.major}.{py.minor} detected. Python 3.9-3.12 required.")
@@ -280,7 +321,13 @@ def check_system():
 # ── Step 2: Git ───────────────────────────────────────────────────────────────
 
 def _find_git_windows():
-    """Find git.exe on Windows - checks common paths and registry."""
+    """
+    Find git.exe on Windows by checking common install paths and the registry.
+
+    winget installs Git but doesn't always update PATH in the current session,
+    so we need to look for it manually.  Returns the full path to git.exe as a
+    string, or None if not found.
+    """
     common = [
         r"C:\Program Files\Git\cmd\git.exe",
         r"C:\Program Files (x86)\Git\cmd\git.exe",
@@ -289,6 +336,8 @@ def _find_git_windows():
     for p in common:
         if pathlib.Path(p).exists():
             return p
+
+    # Also check the system PATH via the registry
     try:
         import winreg
         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
@@ -300,13 +349,21 @@ def _find_git_windows():
                     return str(candidate)
     except Exception:
         pass
+
     return None
 
 
 def ensure_git():
+    """
+    Step 2 — make sure Git is installed and on the PATH.
+
+    Git is needed so we can clone the repo and pull updates later.
+    On Mac we use Homebrew; on Windows we use winget.
+    """
     step("Step 2 -- Git version control")
 
     if command_exists("git"):
+        # Already installed — just report the version and move on
         ver = subprocess.check_output(["git", "--version"], text=True).strip()
         ok(ver)
         return
@@ -332,7 +389,8 @@ def ensure_git():
              "-e", "--source", "winget",
              "--accept-package-agreements",
              "--accept-source-agreements"])
-        # PATH not updated in current session - find git.exe directly
+        # PATH isn't updated in the current session after winget installs,
+        # so find git.exe directly and prepend its directory to PATH
         git_exe = _find_git_windows()
         if git_exe:
             git_dir = str(pathlib.Path(git_exe).parent)
@@ -352,9 +410,17 @@ def ensure_git():
 # ── Step 3: Clone / update ────────────────────────────────────────────────────
 
 def clone_or_update():
+    """
+    Step 3 — get the latest code from GitHub.
+
+    Three cases:
+      - Repo already cloned: just pull the latest changes.
+      - Folder exists but isn't a git repo: back it up, then clone fresh.
+      - Folder doesn't exist: clone fresh.
+    """
     step("Step 3 -- Downloading RPS Robot from GitHub")
 
-    # Use full path to git on Windows in case PATH update didn't stick
+    # On Windows, PATH may not include git yet, so use the full path if we can find it
     git_cmd = "git"
     if IS_WIN:
         found = _find_git_windows()
@@ -364,10 +430,12 @@ def clone_or_update():
     git_dir = APP_DIR / ".git"
 
     if git_dir.exists():
+        # Already a git repo — just pull latest changes
         info("Already installed - pulling latest updates...")
         run([git_cmd, "-C", str(APP_DIR), "pull", "origin", "main"])
         ok("Up to date with GitHub")
     elif APP_DIR.exists():
+        # Folder exists but isn't ours — back it up so we don't destroy data
         backup = APP_DIR.parent / "rps_hand_counter_backup"
         warn(f"Folder exists but is not a git repo - backing up to {backup}")
         APP_DIR.rename(backup)
@@ -375,6 +443,7 @@ def clone_or_update():
         run([git_cmd, "clone", GITHUB_REPO, str(APP_DIR)])
         ok(f"Cloned to {APP_DIR}")
     else:
+        # Fresh install
         info(f"Cloning from {GITHUB_REPO} ...")
         run([git_cmd, "clone", GITHUB_REPO, str(APP_DIR)])
         ok(f"Cloned to {APP_DIR}")
@@ -385,6 +454,12 @@ def clone_or_update():
 # ── Step 4: Virtual environment ───────────────────────────────────────────────
 
 def create_venv():
+    """
+    Step 4 — create a Python virtual environment inside the app folder.
+
+    We always delete and recreate the venv on a fresh install to ensure
+    there are no stale or conflicting packages left over.
+    """
     step("Step 4 -- Python virtual environment")
 
     if VENV_DIR.exists():
@@ -393,6 +468,7 @@ def create_venv():
 
     info("Creating virtual environment...")
     run([sys.executable, "-m", "venv", str(VENV_DIR)])
+    # Upgrade pip quietly before installing anything else
     run_quiet([str(venv_python()), "-m", "pip", "install",
                "--upgrade", "pip", "--quiet"])
     ok("Virtual environment ready")
@@ -402,6 +478,13 @@ def create_venv():
 # ── Step 5: Install packages ──────────────────────────────────────────────────
 
 def install_packages():
+    """
+    Step 5 — install all required Python packages into the virtual environment.
+
+    Tries each package quietly first; if that fails, retries with full output
+    so the user can see what went wrong.  Collects failures and reports them
+    all at the end rather than aborting on the first error.
+    """
     step("Step 5 -- Installing Python packages")
     print()
     info("This takes 3-8 minutes. Total download: ~400MB")
@@ -415,9 +498,10 @@ def install_packages():
             capture_output=True
         )
         if result.returncode == 0:
-            # Use \r to overwrite the "Installing..." line
+            # Use \r to overwrite the "Installing..." line with a success message
             print(f"\r  {_c('32', '[OK]')} {name}                          ")
         else:
+            # Quiet install failed — retry with full output so user can see the error
             print(f"\r  {_c('31', '[!!]')} {name} - retrying with output...")
             result2 = subprocess.run([str(venv_pip()), "install", pkg])
             if result2.returncode != 0:
@@ -434,6 +518,12 @@ def install_packages():
 # ── Step 6: Vosk speech model ─────────────────────────────────────────────────
 
 def install_vosk_model():
+    """
+    Step 6 — download and extract the Vosk US English speech recognition model.
+
+    The model is ~40 MB compressed.  We skip the download if the model folder
+    already exists (e.g. on a reinstall).
+    """
     step("Step 6 -- Speech recognition model (Vosk)")
 
     model_dir = APP_DIR / VOSK_MODEL
@@ -447,11 +537,11 @@ def install_vosk_model():
     info(f"Downloading Vosk US English model (~40MB)...")
     print()
 
-    # Simple progress without Unicode block chars (works on Windows CMD)
     def _progress(block_num, block_size, total_size):
+        """Print a simple ASCII progress bar — no Unicode block chars (works on Windows CMD)."""
         if total_size > 0:
-            pct  = min(100, int(block_num * block_size * 100 / total_size))
-            bar  = "#" * (pct // 5) + "." * (20 - pct // 5)
+            pct = min(100, int(block_num * block_size * 100 / total_size))
+            bar = "#" * (pct // 5) + "." * (20 - pct // 5)
             print(f"\r  [{bar}] {pct}%", end="", flush=True)
 
     urllib.request.urlretrieve(VOSK_URL, zip_path, _progress)
@@ -461,7 +551,7 @@ def install_vosk_model():
     info("Extracting model...")
     with zipfile.ZipFile(zip_path, "r") as zf:
         zf.extractall(APP_DIR)
-    zip_path.unlink()
+    zip_path.unlink()  # remove the zip now that we've extracted it
     ok("Vosk model installed")
     print()
 
@@ -469,15 +559,23 @@ def install_vosk_model():
 # ── Step 7: Data directory + launcher ─────────────────────────────────────────
 
 def setup_data_and_launcher():
+    """
+    Step 7 — create the CapStone data folder structure and a Desktop launcher.
+
+    Creates subdirectories for all the data the app produces, then calls
+    the platform-specific launcher creator.
+    """
     step("Step 7 -- Data folder + Desktop launcher")
 
     data_dir = get_data_dir()
     desktop  = get_desktop()
 
+    # Create all the subdirectories the app needs (exist_ok means no error if already there)
     for subdir in ["", "fingerprints", "profiles", "simulations", "feedback", "crash_reports"]:
         (data_dir / subdir).mkdir(parents=True, exist_ok=True)
     ok(f"Data folder: {data_dir}")
 
+    # Create a platform-appropriate launcher
     if IS_WIN:
         _create_windows_launcher(desktop, data_dir)
     elif IS_MAC:
@@ -489,7 +587,15 @@ def setup_data_and_launcher():
 
 
 def _create_mac_launcher(desktop, data_dir):
-    # Store the actual .command in the app folder (not Desktop)
+    """
+    Create a .command script in the app folder and a Finder alias on the Desktop.
+
+    Also builds a proper .icns icon from the PNG so the launcher gets a nice icon
+    in Finder.  Everything is wrapped in try/except because icon creation is
+    cosmetic — we don't want it to abort the install.
+    """
+    # The actual launcher lives inside the app folder, not on the Desktop.
+    # The Desktop gets a Finder alias pointing to it (cleaner than a symlink).
     launcher = APP_DIR / "Launch RPS Robot.command"
     launcher.write_text(textwrap.dedent(f"""\
         #!/bin/bash
@@ -506,16 +612,17 @@ def _create_mac_launcher(desktop, data_dir):
             read -n 1 -p "  Press any key to close..."
         fi
     """))
-    launcher.chmod(0o755)
+    launcher.chmod(0o755)  # make it executable
 
-    # Build .icns from the PNG
     icon_png  = APP_DIR / "TheRPSRobot.png"
     icon_icns = APP_DIR / "TheRPSRobot.icns"
 
+    # Build a proper .icns file from our PNG (macOS needs multiple sizes in one file)
     if icon_png.exists():
         try:
             iconset = APP_DIR / "TheRPSRobot.iconset"
             iconset.mkdir(exist_ok=True)
+            # macOS requires all these sizes in an .iconset folder
             sizes = {
                 "icon_16x16.png":      16,
                 "icon_16x16@2x.png":   32,
@@ -529,16 +636,17 @@ def _create_mac_launcher(desktop, data_dir):
                 "icon_512x512@2x.png": 1024,
             }
             from PIL import Image
-            # Open at full resolution for best quality downscaling
+            # Open the source PNG at full resolution for the best downscaling quality
             src = Image.open(icon_png).convert("RGBA")
             for fname, sz in sizes.items():
                 src.resize((sz, sz), Image.LANCZOS).save(
                     iconset / fname, optimize=True)
+            # iconutil is a macOS command-line tool that converts .iconset -> .icns
             result = subprocess.run(
                 ["iconutil", "-c", "icns", str(iconset), "-o", str(icon_icns)],
                 capture_output=True)
             import shutil as _sh
-            _sh.rmtree(iconset, ignore_errors=True)
+            _sh.rmtree(iconset, ignore_errors=True)  # clean up the temp iconset folder
             if result.returncode == 0:
                 ok("App icon (.icns) created at full quality")
             else:
@@ -546,10 +654,9 @@ def _create_mac_launcher(desktop, data_dir):
         except Exception as e:
             warn(f"Could not create .icns: {e}")
 
-    # Apply icon to launcher and create Desktop alias via osascript
+    # Apply the icon to the .command file using macOS's JavaScript bridge
     if icon_icns.exists():
         try:
-            # Set icon on the .command file
             subprocess.run(["osascript", "-l", "JavaScript", "-e", f'''
                 ObjC.import("AppKit");
                 var img = $.NSImage.alloc.initWithContentsOfFile("{icon_icns}");
@@ -557,10 +664,10 @@ def _create_mac_launcher(desktop, data_dir):
                 ws.setIconForFileOptions(img, "{launcher}", 0);
             '''], capture_output=True)
         except Exception:
-            pass
+            pass  # icon cosmetic only — don't abort install
 
-    # Create a Desktop alias pointing to the launcher (cleaner than symlink)
-    alias_name = "RPS Robot"
+    # Create a Finder alias on the Desktop pointing to the launcher
+    alias_name    = "RPS Robot"
     desktop_alias = desktop / alias_name
     try:
         subprocess.run(["osascript", "-e", f'''
@@ -573,7 +680,7 @@ def _create_mac_launcher(desktop, data_dir):
         '''], capture_output=True, timeout=10)
         ok(f"Desktop icon created: '{alias_name}'")
     except Exception:
-        # Fallback: symlink
+        # Fallback: create a regular symlink if Finder scripting fails
         try:
             if not desktop_alias.exists():
                 desktop_alias.symlink_to(launcher)
@@ -581,7 +688,7 @@ def _create_mac_launcher(desktop, data_dir):
         except Exception as e:
             warn(f"Could not create Desktop icon: {e}")
 
-    # Data folder shortcut
+    # Also put a shortcut to the data folder on the Desktop for easy access
     symlink = desktop / "RPS Robot Data"
     if not symlink.exists():
         try:
@@ -592,7 +699,14 @@ def _create_mac_launcher(desktop, data_dir):
 
 
 def _create_windows_launcher(desktop, data_dir):
-    # Store the .bat in the APP folder (not on Desktop - keeps Desktop clean)
+    """
+    Create a .bat launcher in the app folder and a .lnk shortcut on the Desktop.
+
+    Also builds a multi-size .ico from the PNG.  PIL's built-in ICO support
+    only produces a single-size 1KB file, so we write the ICO binary format
+    manually to get a proper multi-resolution icon (~140KB).
+    """
+    # Store the .bat in the app folder — only the shortcut goes on the Desktop
     bat = APP_DIR / "Launch RPS Robot.bat"
     try:
         bat.write_text(textwrap.dedent(f"""\
@@ -614,8 +728,7 @@ def _create_windows_launcher(desktop, data_dir):
         warn(f"Could not create launcher script: {e}")
         return
 
-    # Build high-quality .ico (up to 256px - Windows ICO format limit)
-    # Also save a separate 512px PNG for use where supported
+    # Build a multi-size .ico file
     ico_path = APP_DIR / "TheRPSRobot.ico"
     png_path = APP_DIR / "TheRPSRobot.png"
 
@@ -623,37 +736,46 @@ def _create_windows_launcher(desktop, data_dir):
         try:
             from PIL import Image
             import struct, io as _io
+
             src = Image.open(png_path).convert("RGBA")
-            # Build ICO manually - PIL's append_images is buggy and
-            # produces single-size 1KB files. Binary approach gets 140KB
-            # multi-size ICO with crisp rendering at all Windows icon sizes.
+
+            # Generate PNG-encoded frames at each standard Windows icon size
             ico_px = [16, 24, 32, 48, 64, 128, 256]
             frames = []
             for sz in ico_px:
                 buf = _io.BytesIO()
                 src.resize((sz, sz), Image.LANCZOS).save(buf, format="PNG", optimize=True)
                 frames.append((sz, buf.getvalue()))
-            n = len(frames)
-            hdr_size = 6 + n * 16
-            offset = hdr_size
+
+            # Manually write the ICO binary format (6-byte header + 16-byte entry per frame)
+            n        = len(frames)
+            hdr_size = 6 + n * 16  # total header bytes before image data starts
+            offset   = hdr_size    # byte offset of the first image data block
+
             entries = []
             for sz, data in frames:
+                # ICO format encodes 256px as 0 in the width/height fields
                 w = sz if sz < 256 else 0
                 entries.append((w, len(data), offset))
                 offset += len(data)
+
             out = _io.BytesIO()
+            # ICO header: reserved=0, type=1 (icon), count=n
             out.write(struct.pack("<HHH", 0, 1, n))
+            # One 16-byte directory entry per frame
             for (w, size, off) in entries:
                 out.write(struct.pack("<BBBBHHII", w, w, 0, 0, 1, 32, size, off))
+            # Append the raw PNG data for each frame
             for _, data in frames:
                 out.write(data)
+
             with open(str(ico_path), "wb") as f:
                 f.write(out.getvalue())
             ok(f"App icon (.ico) created ({len(out.getvalue())//1024}KB, {len(frames)} sizes)")
         except Exception as e:
             warn(f"Could not create .ico: {e}")
 
-    # Create ONE clean .lnk shortcut on Desktop with the high-quality icon
+    # Create a .lnk shortcut on the Desktop using PowerShell's WScript.Shell COM object
     lnk_path = desktop / "RPS Robot.lnk"
     app_str  = str(APP_DIR)
     bat_str  = str(bat)
@@ -676,7 +798,7 @@ def _create_windows_launcher(desktop, data_dir):
     except Exception as e:
         warn(f"Could not create Desktop icon: {e}")
 
-    # Data folder shortcut
+    # Also add a shortcut to the data folder on the Desktop
     data_lnk = desktop / "RPS Robot Data.lnk"
     if not data_lnk.exists():
         try:
@@ -691,7 +813,7 @@ def _create_windows_launcher(desktop, data_dir):
         except Exception:
             pass
 
-    # Refresh Windows icon cache so new icon shows immediately
+    # Restart Windows Explorer so the new icon appears immediately without a reboot
     try:
         subprocess.run([
             "powershell", "-Command",
@@ -705,6 +827,7 @@ def _create_windows_launcher(desktop, data_dir):
 
 
 def _create_linux_launcher(desktop):
+    """Create a minimal shell script launcher on the Desktop for Linux."""
     launcher = desktop / "Launch RPS Robot.sh"
     launcher.write_text(textwrap.dedent(f"""\
         #!/bin/bash
@@ -712,18 +835,25 @@ def _create_linux_launcher(desktop):
         source "{VENV_DIR}/bin/activate"
         python main.py
     """))
-    launcher.chmod(0o755)
+    launcher.chmod(0o755)  # make it executable
     ok(f"Launcher created: {launcher}")
 
 
 # ── Step 8: Verify ────────────────────────────────────────────────────────────
 
 def verify_installation():
+    """
+    Step 8 — confirm that every installed package can be imported correctly.
+
+    Runs a small Python snippet for each package in the venv and reports
+    pass/fail.  Returns True if everything passed.
+    """
     step("Step 8 -- Verifying installation")
     print()
 
     vosk_path = APP_DIR / VOSK_MODEL
 
+    # Each entry is (display_name, python_snippet_to_run)
     checks = [
         ("NumPy",        "import numpy"),
         ("OpenCV",       "import cv2"),
@@ -768,6 +898,7 @@ def verify_installation():
 # ── Step 9: ESP32 notice ──────────────────────────────────────────────────────
 
 def print_esp32_notice():
+    """Step 9 — print optional instructions for users with the physical robot arm."""
     step("Step 9 -- Optional: ESP32 Robot Arm")
     print()
     info("If you are using the physical RPS Robot arm (ESP32):")
@@ -784,11 +915,13 @@ def print_esp32_notice():
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 def print_done():
+    """Print the final success message with launch instructions."""
     line()
     print()
     ok("Installation complete!")
     print()
 
+    # Pick the right launcher filename for the current platform
     if IS_WIN:
         launcher_name = "Launch RPS Robot.bat"
     elif IS_MAC:
@@ -813,6 +946,12 @@ def print_done():
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
+    """
+    Run all installation steps in order, then optionally launch the app.
+
+    Each step is its own function so failures are easy to isolate and the
+    output is clearly sectioned.
+    """
     print_banner()
     check_system()
     ensure_git()
@@ -825,6 +964,7 @@ def main():
     print_esp32_notice()
     print_done()
 
+    # Ask whether to launch the app right now
     try:
         answer = input("  Launch RPS Robot now? [y/N]: ").strip().lower()
     except (EOFError, KeyboardInterrupt):
@@ -836,8 +976,10 @@ def main():
         os.chdir(APP_DIR)
         py = str(venv_python())
         if IS_WIN:
+            # os.execv is unreliable on Windows, so spawn a new process instead
             subprocess.run([py, "main.py"])
         else:
+            # On Mac/Linux, replace the current process in-place (cleaner, no zombie)
             os.execv(py, [py, "main.py"])
 
 

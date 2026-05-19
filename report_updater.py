@@ -4,6 +4,12 @@ report_updater.py
 Reads all four research Excel logs and rewrites every data table in the
 capstone Markdown report with live figures.
 
+This file is the "bridge" between the raw data the game records (Excel logs)
+and the human-readable research report (a Markdown file that can be opened in
+Word or converted to PDF).  It replaces every table and a handful of in-text
+numbers with fresh values every time it runs, so the report is always up to
+date without manual copy-pasting.
+
 Run from the project directory:
     python report_updater.py
 
@@ -11,7 +17,7 @@ Or call update_report() from main.py after a research data event.
 
 Tables updated
 --------------
-  Table 2    — Simulation robot win rates by strategy × AI
+  Table 2    — Simulation robot win rates by strategy x AI
   Table 3    — Challenge mode aggregate statistics
   Table 3b   — Streak distribution
   Table 3c   — Outcome-conditioned response rates (post-win / post-draw)
@@ -30,6 +36,7 @@ from pathlib import Path
 from collections import Counter, defaultdict
 from datetime import datetime
 
+# openpyxl reads .xlsx files without needing Excel installed.
 try:
     from openpyxl import load_workbook
     OPENPYXL_OK = True
@@ -37,46 +44,74 @@ except ImportError:
     OPENPYXL_OK = False
     print("[Updater] openpyxl not found — install with: pip install openpyxl")
 
-# ─── Paths ────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# File paths
+# ---------------------------------------------------------------------------
+# CAPSTONE_DIR is where the Excel logs and the output report live.
+# PROJECT_DIR  is where this Python file lives (i.e. the game source folder).
 CAPSTONE_DIR = Path.home() / "Desktop" / "CapStone"
 PROJECT_DIR  = Path(__file__).parent
 
-REPORT_SRC   = PROJECT_DIR / "RPS_Capstone_Research_Report-4.docx"  # stored as Markdown
+# The source report is stored as a Markdown file (despite the .docx extension).
+REPORT_SRC   = PROJECT_DIR / "RPS_Capstone_Research_Report-4.docx"
 REPORT_OUT   = CAPSTONE_DIR / "RPS_Capstone_Research_Report_Updated.md"
 
+# The four Excel data sources that feed the tables.
 PLAYER_LOG      = CAPSTONE_DIR / "player_research_log.xlsx"
 CHALLENGE_LOG   = CAPSTONE_DIR / "challenge_research_log.xlsx"
 SIM_RESULTS     = CAPSTONE_DIR / "simulation_results.xlsx"
 COMPARISON_RPT  = CAPSTONE_DIR / "research_comparison_report.xlsx"
 
 
-# ─── Excel helpers ────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Excel helpers
+# ---------------------------------------------------------------------------
 
 def _wb_rows(path: Path, sheet: str) -> list[dict]:
-    """Load an Excel sheet as a list of dicts keyed by the header row."""
+    """
+    Load a single worksheet from an Excel file and return it as a list of dicts.
+
+    The first row of the sheet is treated as the header.  Each subsequent row
+    becomes a dict keyed by those header values.  Completely empty rows are
+    dropped.  Returns an empty list if the file doesn't exist or can't be read.
+    """
     if not path.exists():
         return []
     try:
-        wb = load_workbook(path, data_only=True)
+        wb = load_workbook(path, data_only=True)  # data_only=True gives cell values, not formulas
         if sheet not in wb.sheetnames:
             return []
         ws = wb[sheet]
         rows = list(ws.iter_rows(values_only=True))
         if not rows:
             return []
-        headers = [str(h).strip() if h is not None else f"col{i}"
-                   for i, h in enumerate(rows[0])]
-        return [dict(zip(headers, row)) for row in rows[1:] if any(c is not None for c in row)]
+        # Build header list, replacing None headers with a positional fallback.
+        headers = [
+            str(h).strip() if h is not None else f"col{i}"
+            for i, h in enumerate(rows[0])
+        ]
+        # Zip each data row with the headers; skip rows that are entirely empty.
+        return [
+            dict(zip(headers, row))
+            for row in rows[1:]
+            if any(c is not None for c in row)
+        ]
     except Exception as exc:
         print(f"[Updater] Could not read {path.name}/{sheet}: {exc}")
         return []
 
 
 def _wb_summary(path: Path, sheet: str) -> dict:
-    """Load a two-column (Metric, Value) sheet as a dict."""
+    """
+    Load a two-column (Metric, Value) worksheet and return it as a plain dict.
+
+    This is used for "Summary" sheets that store key-value pairs rather than
+    tabular data.
+    """
     rows = _wb_rows(path, sheet)
     out  = {}
     for r in rows:
+        # Collect only the non-None values from this row.
         vals = [v for v in r.values() if v is not None]
         if len(vals) >= 2:
             out[str(vals[0]).strip()] = vals[1]
@@ -84,6 +119,7 @@ def _wb_summary(path: Path, sheet: str) -> dict:
 
 
 def _safe_float(v, default=0.0) -> float:
+    """Convert a cell value to float, returning `default` on any failure."""
     try:
         return float(v) if v is not None else default
     except (TypeError, ValueError):
@@ -91,6 +127,7 @@ def _safe_float(v, default=0.0) -> float:
 
 
 def _safe_int(v, default=0) -> int:
+    """Convert a cell value to int (via float to handle '3.0' strings), returning `default` on failure."""
     try:
         return int(float(v)) if v is not None else default
     except (TypeError, ValueError):
@@ -98,56 +135,79 @@ def _safe_int(v, default=0) -> int:
 
 
 def _pct(v) -> str:
+    """Format a 0–1 float as a percentage string with one decimal place."""
     return f"{_safe_float(v) * 100:.1f}%"
 
 
 def _pct_of(num, total) -> str:
+    """Format num/total as a percentage string, safely handling zero total."""
     if total == 0:
         return "0.0%"
     return f"{num / total * 100:.1f}%"
 
 
-# ─── Data extraction ──────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Data extraction — one function per data source
+# ---------------------------------------------------------------------------
 
 def _challenge_summary() -> dict:
-    """Read lifetime Challenge stats from challenge_research_log.xlsx."""
+    """
+    Read the Challenge mode logs and compute everything the report tables need.
+
+    Pulls data from three sheets:
+      - Summary        : pre-aggregated totals (fast path for simple counts)
+      - Challenge_Runs : one row per complete run, used for streak distribution
+      - Challenge_Rounds: one row per round, used for gesture counts and OCR
+
+    Returns a single dict with all the computed values so the table builders
+    don't need to know anything about the raw Excel structure.
+    """
     summary = _wb_summary(CHALLENGE_LOG, "Summary")
     runs    = _wb_rows(CHALLENGE_LOG, "Challenge_Runs")
     rounds  = _wb_rows(CHALLENGE_LOG, "Challenge_Rounds")
 
+    # Simple totals — read straight from the Summary sheet if possible.
     total_runs   = _safe_int(summary.get("total_runs",   0))
     longest      = _safe_int(summary.get("longest_streak", 0))
     total_rounds = sum(_safe_int(r.get("rounds_played", 0)) for r in runs)
 
-    # Aggregate gesture + outcome counts from rounds
-    p_wins = sum(1 for r in rounds if str(r.get("round_result", "")).strip() == "player_win")
+    # Count round outcomes directly from the rounds sheet.
+    p_wins     = sum(1 for r in rounds if str(r.get("round_result", "")).strip() == "player_win")
     robot_wins = sum(1 for r in rounds if str(r.get("round_result", "")).strip() == "robot_win")
-    draws = sum(1 for r in rounds if str(r.get("round_result", "")).strip() == "draw")
-    total_r = max(p_wins + robot_wins + draws, 1)
+    draws      = sum(1 for r in rounds if str(r.get("round_result", "")).strip() == "draw")
+    total_r    = max(p_wins + robot_wins + draws, 1)  # avoid division by zero
 
+    # Count how often each gesture was played.
     rock  = sum(1 for r in rounds if r.get("player_gesture") == "Rock")
     paper = sum(1 for r in rounds if r.get("player_gesture") == "Paper")
     sciss = sum(1 for r in rounds if r.get("player_gesture") == "Scissors")
     total_g = max(rock + paper + sciss, 1)
 
-    # Streak distribution
+    # Build a frequency table of final streak lengths (how many wins in a row
+    # before the player lost).  Used for Table 3b.
     streak_dist: Counter = Counter()
     for run in runs:
+        # Use "final_streak" column, falling back to "max_streak" if not present.
         s = _safe_int(run.get("final_streak", run.get("max_streak", 0)))
         streak_dist[s] += 1
 
-    # Outcome-conditioned response from rounds
-    # Look for response_type and previous_outcome columns
-    # Fallback: compute from consecutive rounds grouped by run_id
+    # Outcome-conditioned response (OCR): what gesture did the player pick
+    # after winning/losing/drawing?  We classify each transition as:
+    #   stay      = same gesture as last round
+    #   upgrade   = the gesture that beats the previous one  (Rock → Paper → Scissors → Rock)
+    #   downgrade = the gesture that loses to the previous one
     ocr = defaultdict(lambda: {"stay": 0, "upgrade": 0, "downgrade": 0})
     UPGRADE   = {"Rock": "Paper", "Paper": "Scissors", "Scissors": "Rock"}
     DOWNGRADE = {"Rock": "Scissors", "Paper": "Rock", "Scissors": "Paper"}
 
+    # Group rounds by their run_id so we can compare consecutive rounds within
+    # the same run (comparing across runs would give meaningless transitions).
     by_run: dict[str, list] = defaultdict(list)
     for r in rounds:
         run_id = str(r.get("run_id", ""))
         by_run[run_id].append(r)
 
+    # For each run, sort rounds by round number then walk the pairs.
     for run_rounds in by_run.values():
         run_rounds.sort(key=lambda r: _safe_int(r.get("round_number", 0)))
         for i in range(1, len(run_rounds)):
@@ -156,10 +216,14 @@ def _challenge_summary() -> dict:
             prev_result = str(prev.get("round_result", "")).strip()
             pg = prev.get("player_gesture")
             cg = curr.get("player_gesture")
+
+            # Skip any round with an unexpected gesture value.
             if pg not in ("Rock", "Paper", "Scissors"):
                 continue
             if cg not in ("Rock", "Paper", "Scissors"):
                 continue
+
+            # Convert the raw result string to a simple outcome label.
             if prev_result == "player_win":
                 outcome = "win"
             elif prev_result == "robot_win":
@@ -167,17 +231,20 @@ def _challenge_summary() -> dict:
             else:
                 outcome = "draw"
 
+            # Classify the transition type.
             if cg == pg:
                 rt = "stay"
             elif UPGRADE.get(pg) == cg:
                 rt = "upgrade"
             else:
                 rt = "downgrade"
+
             ocr[outcome][rt] += 1
 
     def _ocr_row(outcome):
+        """Convert raw counts for one outcome into proportions (0–1)."""
         d = ocr[outcome]
-        total = max(sum(d.values()), 1)
+        total = max(sum(d.values()), 1)  # avoid division by zero
         n = sum(d.values())
         return {
             "stay":      d["stay"] / total,
@@ -204,30 +271,43 @@ def _challenge_summary() -> dict:
 
 
 def _player_summary(player_name: str | None = None) -> dict:
-    """Read first player's profile from player_research_log.xlsx All_Rounds sheet."""
+    """
+    Build a full statistical profile for one player from the All_Rounds sheet.
+
+    If player_name is None, the first player found in the sheet is used.
+    Returns a dict with gesture frequencies, transition probabilities, OCR
+    rates, win rate, and the best-to-counter information.
+    """
     all_rounds = _wb_rows(PLAYER_LOG, "All_Rounds")
     if not all_rounds:
         return {}
 
-    # Use first player found, or requested name
+    # Default to the first player name seen in the data.
     if player_name is None:
         player_name = str(all_rounds[0].get("player_name", "Unknown")).strip()
 
+    # Filter to only this player's rounds; fall back to all rounds if no match.
     rounds = [r for r in all_rounds
               if str(r.get("player_name", "")).strip() == player_name]
     if not rounds:
-        rounds = all_rounds  # fallback to all
+        rounds = all_rounds
 
     total = max(len(rounds), 1)
     GESTURES = ("Rock", "Paper", "Scissors")
     UPGRADE  = {"Rock": "Paper",  "Paper": "Scissors", "Scissors": "Rock"}
 
-    # Gesture frequency
-    gest_c = Counter(r.get("player_gesture") for r in rounds if r.get("player_gesture") in GESTURES)
-    fav = gest_c.most_common(1)[0][0] if gest_c else "?"
+    # Count how often each gesture was used.
+    gest_c = Counter(
+        r.get("player_gesture")
+        for r in rounds
+        if r.get("player_gesture") in GESTURES
+    )
+    fav  = gest_c.most_common(1)[0][0] if gest_c else "?"
     least = gest_c.most_common()[-1][0] if len(gest_c) >= 3 else "?"
 
-    # Outcome-conditioned response
+    # Outcome-conditioned response from explicit columns in the log.
+    # (The challenge version had to compute this from pairs; here the log
+    #  stores response_type and previous_outcome directly — much easier.)
     ocr = defaultdict(lambda: {"stay": 0, "upgrade": 0, "downgrade": 0})
     for r in rounds:
         rt = str(r.get("response_type", "")).strip()
@@ -236,15 +316,20 @@ def _player_summary(player_name: str | None = None) -> dict:
             ocr[po][rt] += 1
 
     def _fmt_ocr(outcome):
+        """Return proportions (0–1) for one outcome bucket."""
         d = ocr[outcome]
         total_o = max(sum(d.values()), 1)
         return {k: d[k] / total_o for k in ("stay", "upgrade", "downgrade")}
 
-    # Overall response type
+    # Overall response-type totals (ignoring conditioning on outcome).
     all_rt = Counter(str(r.get("response_type", "")) for r in rounds)
-    rt_total = max(all_rt.get("stay", 0) + all_rt.get("upgrade", 0) + all_rt.get("downgrade", 0), 1)
+    rt_total = max(
+        all_rt.get("stay", 0) + all_rt.get("upgrade", 0) + all_rt.get("downgrade", 0),
+        1,
+    )
 
-    # Transition matrix
+    # Build the gesture-to-gesture transition matrix.
+    # trans[g1][g2] = number of times the player went from g1 to g2.
     trans = defaultdict(Counter)
     for i in range(1, len(rounds)):
         prev_g = rounds[i - 1].get("player_gesture")
@@ -253,15 +338,16 @@ def _player_summary(player_name: str | None = None) -> dict:
             trans[prev_g][curr_g] += 1
 
     def _trans_row(g):
+        """Return transition probabilities (0–1) from gesture g to each other gesture."""
         t = trans[g]
         tot = max(sum(t.values()), 1)
         return {g2: t[g2] / tot for g2 in GESTURES}
 
-    # Wins, losses for rates
+    # Simple win/loss counts.
     wins   = sum(1 for r in rounds if r.get("outcome") == "win")
     losses = sum(1 for r in rounds if r.get("outcome") == "lose")
 
-    # Best transition
+    # Find the single strongest (most probable) transition in the matrix.
     best_src, best_dst, best_pct = "Rock", "Scissors", 0.0
     for g in GESTURES:
         for g2 in GESTURES:
@@ -271,51 +357,56 @@ def _player_summary(player_name: str | None = None) -> dict:
                 best_src, best_dst = g, g2
 
     return {
-        "player_name":   player_name,
-        "total_rounds":  len(rounds),
-        "fav_gesture":   fav,
-        "fav_pct":       gest_c[fav] / total if fav in gest_c else 0,
-        "least_gesture": least,
-        "least_pct":     gest_c.get(least, 0) / total if least in gest_c else 0,
-        "rock_pct":      gest_c.get("Rock", 0) / total,
-        "paper_pct":     gest_c.get("Paper", 0) / total,
-        "scissors_pct":  gest_c.get("Scissors", 0) / total,
-        "ocr":           {o: _fmt_ocr(o) for o in ("win", "lose", "draw")},
-        "transition":    {g: _trans_row(g) for g in GESTURES},
-        "best_trans_src":  best_src,
-        "best_trans_dst":  best_dst,
-        "best_trans_pct":  best_pct,
-        "stay_pct":    all_rt.get("stay", 0) / rt_total,
-        "upgrade_pct": all_rt.get("upgrade", 0) / rt_total,
-        "downgrade_pct": all_rt.get("downgrade", 0) / rt_total,
-        "win_rate":    wins / total,
+        "player_name":    player_name,
+        "total_rounds":   len(rounds),
+        "fav_gesture":    fav,
+        "fav_pct":        gest_c[fav] / total if fav in gest_c else 0,
+        "least_gesture":  least,
+        "least_pct":      gest_c.get(least, 0) / total if least in gest_c else 0,
+        "rock_pct":       gest_c.get("Rock", 0) / total,
+        "paper_pct":      gest_c.get("Paper", 0) / total,
+        "scissors_pct":   gest_c.get("Scissors", 0) / total,
+        "ocr":            {o: _fmt_ocr(o) for o in ("win", "lose", "draw")},
+        "transition":     {g: _trans_row(g) for g in GESTURES},
+        "best_trans_src": best_src,
+        "best_trans_dst": best_dst,
+        "best_trans_pct": best_pct,
+        "stay_pct":       all_rt.get("stay", 0) / rt_total,
+        "upgrade_pct":    all_rt.get("upgrade", 0) / rt_total,
+        "downgrade_pct":  all_rt.get("downgrade", 0) / rt_total,
+        "win_rate":       wins / total,
     }
 
 
 def _simulation_summary() -> dict[tuple, dict]:
     """
-    Returns {(strategy, ai): {robot_win_rate, player_win_rate, draw_rate, runs}}.
-    Reads sim_results.xlsx Sim_Summary sheet.
+    Load the simulation results and group them by (player_strategy, ai_opponent).
+
+    Returns a dict keyed by (strategy_str, ai_str) tuples.  Each value is
+    another dict with robot_win_rate, player_win_rate, draw_rate, and run count.
     """
     rows = _wb_rows(SIM_RESULTS, "Sim_Summary")
     if not rows:
         return {}
 
-    # Group by (player_strategy, ai_opponent)
+    # Accumulate rows that share the same strategy+AI combination.
     groups: dict[tuple, list] = defaultdict(list)
     for r in rows:
-        key = (str(r.get("player_strategy", "")).strip(),
-               str(r.get("ai_opponent", "")).strip())
+        key = (
+            str(r.get("player_strategy", "")).strip(),
+            str(r.get("ai_opponent",     "")).strip(),
+        )
         groups[key].append(r)
 
+    # Aggregate each group into a single set of rates.
     result = {}
     for key, rlist in groups.items():
         total_rounds = sum(_safe_int(r.get("rounds_played", 0)) for r in rlist)
         if total_rounds == 0:
-            continue
-        p_wins  = sum(_safe_int(r.get("player_wins", 0))  for r in rlist)
-        r_wins  = sum(_safe_int(r.get("robot_wins",  0))  for r in rlist)
-        draws   = sum(_safe_int(r.get("draws",       0))  for r in rlist)
+            continue  # skip empty groups to avoid divide-by-zero
+        p_wins = sum(_safe_int(r.get("player_wins", 0)) for r in rlist)
+        r_wins = sum(_safe_int(r.get("robot_wins",  0)) for r in rlist)
+        draws  = sum(_safe_int(r.get("draws",       0)) for r in rlist)
         result[key] = {
             "robot_win_rate":  r_wins  / total_rounds,
             "player_win_rate": p_wins  / total_rounds,
@@ -326,10 +417,18 @@ def _simulation_summary() -> dict[tuple, dict]:
     return result
 
 
-# ─── Table builders ───────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Table builders — each function returns a list of Markdown table row strings
+# ---------------------------------------------------------------------------
 
 def _table2_rows(sim: dict) -> list[str]:
-    """Table 2 — simulation robot win rates."""
+    """
+    Build Table 2: robot win rate for each player strategy x AI opponent combo.
+
+    Columns appear only if that AI type exists in the simulation data, so the
+    table automatically adjusts when not all AIs have been run yet.
+    """
+    # Human-readable display names for the AI and strategy keys used in Excel.
     AI_MAP = {
         "random":     "Random AI",
         "fair_play":  "Heuristic FP",
@@ -337,17 +436,18 @@ def _table2_rows(sim: dict) -> list[str]:
         "ml":         "ML Predict",
     }
     STRATEGY_MAP = {
-        "random":      "Random",
-        "win_stay":    "Win-Stay",
-        "cycler":      "Cycler",
-        "rock_heavy":  "Rock Heavy",
+        "random":       "Random",
+        "win_stay":     "Win-Stay",
+        "cycler":       "Cycler",
+        "rock_heavy":   "Rock Heavy",
         "anti_pattern": "Anti-Pattern",
-        "mixed_human": "Mixed Human",
+        "mixed_human":  "Mixed Human",
     }
     AI_ORDER       = ["random", "fair_play", "challenge", "ml"]
     STRATEGY_ORDER = list(STRATEGY_MAP.keys())
 
-    # Check which AIs exist in the data
+    # Only include AI columns that have data — keeps the table clean during
+    # partial data collection.
     ai_present = [a for a in AI_ORDER if any(k[1] == a for k in sim)]
 
     rows = []
@@ -356,64 +456,67 @@ def _table2_rows(sim: dict) -> list[str]:
     rows.append("| --- | " + " | ".join("---" for _ in ai_present) + " |")
 
     for strat in STRATEGY_ORDER:
-        disp = STRATEGY_MAP.get(strat, strat)
+        disp  = STRATEGY_MAP.get(strat, strat)
         cells = []
         for ai in ai_present:
             entry = sim.get((strat, ai))
-            if entry:
-                cells.append(f"{entry['robot_win_rate'] * 100:.1f}%")
-            else:
-                cells.append("n/a")
+            cells.append(f"{entry['robot_win_rate'] * 100:.1f}%" if entry else "n/a")
         rows.append(f"| {disp} | " + " | ".join(cells) + " |")
 
     return rows
 
 
 def _table3_rows(ch: dict) -> list[str]:
-    """Table 3 — challenge aggregate stats."""
-    d = ch
-    tr = d["total_r"]
-    tg = d["total_g"]
-    rows = [
+    """Build Table 3: high-level challenge mode aggregate statistics."""
+    tr = ch["total_r"]
+    tg = ch["total_g"]
+    return [
         "| **Metric** | **Value** |",
         "| --- | --- |",
-        f"| Total Runs | {d['total_runs']} |",
-        f"| Total Rounds | {d['total_rounds']} |",
-        f"| Longest Streak | {d['longest']} |",
-        f"| Player Wins | {d['p_wins']} ({_pct_of(d['p_wins'], tr)}) |",
-        f"| Robot Wins | {d['robot_wins']} ({_pct_of(d['robot_wins'], tr)}) |",
-        f"| Draws | {d['draws_ch']} ({_pct_of(d['draws_ch'], tr)}) |",
-        f"| Player Rock | {d['rock']} ({_pct_of(d['rock'], tg)}) |",
-        f"| Player Paper | {d['paper']} ({_pct_of(d['paper'], tg)}) |",
-        f"| Player Scissors | {d['scissors']} ({_pct_of(d['scissors'], tg)}) |",
+        f"| Total Runs | {ch['total_runs']} |",
+        f"| Total Rounds | {ch['total_rounds']} |",
+        f"| Longest Streak | {ch['longest']} |",
+        f"| Player Wins | {ch['p_wins']} ({_pct_of(ch['p_wins'], tr)}) |",
+        f"| Robot Wins | {ch['robot_wins']} ({_pct_of(ch['robot_wins'], tr)}) |",
+        f"| Draws | {ch['draws_ch']} ({_pct_of(ch['draws_ch'], tr)}) |",
+        f"| Player Rock | {ch['rock']} ({_pct_of(ch['rock'], tg)}) |",
+        f"| Player Paper | {ch['paper']} ({_pct_of(ch['paper'], tg)}) |",
+        f"| Player Scissors | {ch['scissors']} ({_pct_of(ch['scissors'], tg)}) |",
     ]
-    return rows
 
 
 def _table3b_rows(ch: dict) -> list[str]:
-    """Table 3b — streak distribution."""
-    dist   = ch["streak_dist"]
-    total  = max(sum(dist.values()), 1)
-    max_s  = ch["longest"]
+    """Build Table 3b: distribution of final streak lengths across all runs."""
+    dist  = ch["streak_dist"]
+    total = max(sum(dist.values()), 1)
+    max_s = ch["longest"]
 
     rows = [
         "| **Streak** | **Runs** | **Percentage** |",
         "| --- | --- | --- |",
     ]
+    # Iterate from 0 (lost immediately) up to the longest recorded streak.
     for s in range(0, max_s + 1):
         n   = dist.get(s, 0)
-        lbl = f"{s} (immediate loss)" if s == 0 else (f"{s} (highest)" if s == max_s else str(s))
+        # Label the first and last rows for clarity.
+        if s == 0:
+            lbl = "0 (immediate loss)"
+        elif s == max_s:
+            lbl = f"{s} (highest)"
+        else:
+            lbl = str(s)
         rows.append(f"| {lbl} | {n} | {_pct_of(n, total)} |")
     return rows
 
 
 def _table3c_rows(ch: dict) -> list[str]:
-    """Table 3c — outcome-conditioned response."""
+    """Build Table 3c: how players respond after winning or drawing."""
     ocr = ch["ocr"]
     rows = [
         "| **After...** | **Stay** | **Upgrade** | **Downgrade** | **n** |",
         "| --- | --- | --- | --- | --- |",
     ]
+    # Only show "after win" and "after draw" — these are the interesting patterns.
     for outcome, label in [("win", "Win"), ("draw", "Draw")]:
         d = ocr.get(outcome, {"stay": 0, "upgrade": 0, "downgrade": 0, "n": 0})
         n = d.get("n", 0)
@@ -425,27 +528,26 @@ def _table3c_rows(ch: dict) -> list[str]:
 
 
 def _table4_rows(p: dict) -> list[str]:
-    """Table 4 — player profile traits."""
+    """Build Table 4: a human-readable summary of the player's behavioural traits."""
     if not p:
         return []
-    ocr     = p["ocr"]
-    w_ocr   = ocr.get("win",  {"stay": 0, "upgrade": 0, "downgrade": 0})
-    l_ocr   = ocr.get("lose", {"stay": 0, "upgrade": 0, "downgrade": 0})
-    d_ocr   = ocr.get("draw", {"stay": 0, "upgrade": 0, "downgrade": 0})
-    trans   = p["transition"]
-    bt_src  = p["best_trans_src"]
-    bt_dst  = p["best_trans_dst"]
-    bt_pct  = p["best_trans_pct"]
+    ocr   = p["ocr"]
+    w_ocr = ocr.get("win",  {"stay": 0, "upgrade": 0, "downgrade": 0})
+    l_ocr = ocr.get("lose", {"stay": 0, "upgrade": 0, "downgrade": 0})
+    d_ocr = ocr.get("draw", {"stay": 0, "upgrade": 0, "downgrade": 0})
+    bt_src = p["best_trans_src"]
+    bt_dst = p["best_trans_dst"]
+    bt_pct = p["best_trans_pct"]
 
-    # Determine lose pattern (most common response after a loss)
+    # Find the most common response the player makes after a loss.
     lose_max = max(l_ocr, key=l_ocr.get) if l_ocr else "upgrade"
     lose_val = l_ocr.get(lose_max, 0) * 100
 
-    # Best counter = gesture that beats favourite
+    # The gesture that beats the player's favourite — what the AI should play.
     beat_fav = {"Rock": "Paper", "Paper": "Scissors", "Scissors": "Rock"}
     counter  = beat_fav.get(p["fav_gesture"], "Rock")
 
-    rows = [
+    return [
         "| **Trait** | **Finding** |",
         "| --- | --- |",
         f"| Favourite gesture | {p['fav_gesture']} ({p['fav_pct'] * 100:.0f}% of throws) |",
@@ -461,33 +563,32 @@ def _table4_rows(p: dict) -> list[str]:
         f"| Best counter | Play {counter} often "
         f"(counters {p['fav_pct'] * 100:.0f}% {p['fav_gesture']}) |",
     ]
-    return rows
 
 
 def _table5_rows(p: dict) -> list[str]:
-    """Table 5 — transition matrix."""
+    """Build Table 5: the full gesture-to-gesture transition matrix for one player."""
     if not p:
         return []
     trans = p["transition"]
-    G = ("Rock", "Paper", "Scissors")
-    rows = [
+    G     = ("Rock", "Paper", "Scissors")
+    rows  = [
         "| **After...** | **→ Rock** | **→ Paper** | **→ Scissors** |",
         "| --- | --- | --- | --- |",
     ]
     for g in G:
-        t = trans.get(g, {})
+        t     = trans.get(g, {})
         cells = [f"{t.get(g2, 0) * 100:.0f}%" for g2 in G]
         rows.append(f"| {g} | {cells[0]} | {cells[1]} | {cells[2]} |")
     return rows
 
 
 def _table5b_rows(p: dict, ch: dict) -> list[str]:
-    """Table 5b — comparative analysis."""
+    """Build Table 5b: side-by-side comparison of player vs challenge pop vs Nash baseline."""
     if not p or not ch:
         return []
     ch_tr = ch["total_r"]
     ch_tg = ch["total_g"]
-    rows = [
+    return [
         "| **Metric** | "
         f"**{p['player_name']} ({p['total_rounds']} rounds)** | "
         f"**Challenge Pop. ({ch['total_rounds']} rounds)** | "
@@ -508,11 +609,10 @@ def _table5b_rows(p: dict, ch: dict) -> list[str]:
         f"| Win rate | {p['win_rate'] * 100:.1f}% | "
         f"{_pct_of(ch['p_wins'], ch_tr)} | 33.3% (Nash) |",
     ]
-    return rows
 
 
 def _module_line_counts() -> dict[str, int]:
-    """Count actual lines in each .py module."""
+    """Count the actual number of lines in each .py file in the project directory."""
     counts = {}
     for py_file in PROJECT_DIR.glob("*.py"):
         try:
@@ -523,60 +623,75 @@ def _module_line_counts() -> dict[str, int]:
     return counts
 
 
-# ─── Report rewriter ──────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Report rewriter utilities
+# ---------------------------------------------------------------------------
 
 def _replace_table(content: str, header_pattern: str, new_rows: list[str]) -> str:
     """
-    Find the markdown table whose first header row matches header_pattern
-    (a plain-text substring) and replace all its data rows with new_rows.
-    Preserves the caption line after the table.
+    Find a Markdown table by a substring of its header row and replace it.
+
+    The search is case-insensitive.  The replacement preserves everything
+    outside the table (paragraphs, captions, headings) — it only touches
+    lines that start with "|".
+
+    This is deliberately simple: it just finds the first table whose header
+    contains `header_pattern` and swaps out all the "|" lines.  The table
+    header patterns are chosen to be unique within the document.
     """
     if not new_rows:
-        return content
+        return content  # nothing to do
 
     lines = content.splitlines()
     out   = []
     i     = 0
     while i < len(lines):
         line = lines[i]
-        # Detect table start by header pattern
+        # A table header row: starts with "|" and contains our search pattern.
         if header_pattern.lower() in line.lower() and line.strip().startswith("|"):
-            # Emit new table rows
+            # Write all replacement rows in place.
             for nr in new_rows:
                 out.append(nr)
             i += 1
-            # Skip old table rows (lines starting with |)
+            # Skip every old table row (all the lines that start with "|").
             while i < len(lines) and lines[i].strip().startswith("|"):
                 i += 1
-            continue
+            continue  # don't fall through to the out.append below
         out.append(line)
         i += 1
     return "\n".join(out)
 
 
 def _update_inline_numbers(content: str, ch: dict, p: dict) -> str:
-    """Update key numbers mentioned inline in text (abstract, findings)."""
-    # Update total rounds in abstract / experimental sections
-    total_sim = 18000  # simulation is fixed at 18k
-    live_rounds = ch.get("total_rounds", 309)
+    """
+    Update key numbers mentioned in paragraph text (abstract, findings).
+
+    Uses regex to find and replace specific sentence patterns so that numbers
+    like round counts stay in sync with the Excel data without manual editing.
+    """
+    total_sim    = 18000  # the simulation dataset is fixed at 18,000 rounds
+    live_rounds  = ch.get("total_rounds", 309)
     player_rounds = p.get("total_rounds", 52)
 
+    # Update the live-round count wherever it appears in the text.
     content = re.sub(
         r"\b(\d{1,5}) live gameplay rounds\b",
         f"{live_rounds} live gameplay rounds",
         content,
     )
+    # Update the single-player round count.
     content = re.sub(
         r"\b(\d{1,5}) rounds from one player",
         f"{player_rounds} rounds from one player",
         content,
     )
+    # Update the Challenge run/round summary sentence.
     content = re.sub(
         r"122 Challenge mode runs totalling (\d+) rounds",
         f"{ch.get('total_runs', 122)} Challenge mode runs totalling {live_rounds} rounds",
         content,
     )
-    # Update timestamp in generated header if present
+    # Update the auto-generated timestamp line if present.
     content = re.sub(
         r"(Generated:.*?)\d{4}-\d{2}-\d{2}",
         f"\\g<1>{datetime.now().strftime('%Y-%m-%d')}",
@@ -586,16 +701,23 @@ def _update_inline_numbers(content: str, ch: dict, p: dict) -> str:
 
 
 def _update_table7_line_counts(content: str) -> str:
-    """Update the module inventory table with actual line counts."""
+    """
+    Scan the module inventory table and replace each module's line count with
+    the actual current count from disk.
+
+    Uses a regex to find Markdown table cells of the form "| module.py | ~NNN"
+    and updates the number in place.
+    """
     counts = _module_line_counts()
     if not counts:
         return content
 
     def _replace_line_count(m):
         module = m.group(1)
+        # Only replace if we actually counted that file.
         if module in counts:
             return f"| {module} | ~{counts[module]:,}"
-        return m.group(0)
+        return m.group(0)  # leave unchanged if we don't have a count
 
     return re.sub(
         r"\| ([\w_]+\.py) \| ~[\d,]+",
@@ -604,7 +726,9 @@ def _update_table7_line_counts(content: str) -> str:
     )
 
 
-# ─── Main ─────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
 
 def update_report(
     report_src: Path | None = None,
@@ -613,7 +737,12 @@ def update_report(
 ) -> Path | None:
     """
     Read all Excel files and write an updated copy of the research report.
-    Returns the output path on success, None on failure.
+
+    This is the single public function used by main.py.  It orchestrates
+    the full pipeline: load data → build table strings → find + replace in
+    the Markdown source → write output file.
+
+    Returns the output Path on success, or None if something went wrong.
     """
     if not OPENPYXL_OK:
         print("[Updater] openpyxl required. Install with: pip install openpyxl")
@@ -632,7 +761,7 @@ def update_report(
     with open(src, encoding="utf-8") as f:
         content = f.read()
 
-    # ── Gather data ──────────────────────────────────────────────────────
+    # -- Load data from all Excel sources --
     if verbose:
         print("[Updater] Reading Excel logs...")
 
@@ -648,7 +777,8 @@ def update_report(
               f"{p.get('total_rounds', 0)} rounds")
         print(f"  Simulation: {len(sim)} strategy-AI combos")
 
-    # ── Rewrite tables ───────────────────────────────────────────────────
+    # -- Replace each table if we have the required data for it --
+
     if sim:
         content = _replace_table(
             content, "**Strategy** | **Random AI**",
@@ -679,18 +809,19 @@ def update_report(
             _table5_rows(p),
         )
         if ch:
+            # Table 5b header includes the player name, so it's always unique.
             content = _replace_table(
                 content, f"**Metric** | **{p['player_name']}",
                 _table5b_rows(p, ch),
             )
 
-    # Module line counts
+    # Update module line counts in Table 7.
     content = _update_table7_line_counts(content)
 
-    # Inline number updates
+    # Update inline number mentions in the abstract / findings text.
     content = _update_inline_numbers(content, ch, p)
 
-    # ── Write output ─────────────────────────────────────────────────────
+    # -- Write the updated file --
     out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w", encoding="utf-8") as f:
         f.write(content)
@@ -702,6 +833,7 @@ def update_report(
 
 
 def main():
+    """Command-line entry point — prints a banner and runs the update."""
     print("=" * 60)
     print("RPS Capstone Report Auto-Updater")
     print(f"  Source : {REPORT_SRC}")

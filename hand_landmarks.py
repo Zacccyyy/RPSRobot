@@ -1,3 +1,21 @@
+# =============================================================================
+# hand_landmarks.py
+# -----------------
+# The main entry point for all camera-frame processing in this project.
+#
+# What it does:
+#   - Wraps MediaPipe Hands so the rest of the app never touches the library
+#     directly.
+#   - Exposes two high-level frame-processing functions:
+#       process_hand_frame()       — single-player: picks the closest hand
+#       process_two_hands_frame()  — two-player: returns one state dict per
+#                                    player, sorted left-to-right on screen
+#   - Keeps a 1-D Kalman filter (KalmanWrist1D) per hand for smooth wrist-Y
+#     tracking without the phase-lag that an EMA introduces.
+#   - Returns "hand_state" dicts that feed gesture detection, the game loop,
+#     and the UI renderer.
+# =============================================================================
+
 import cv2
 import math
 import mediapipe as mp
@@ -6,41 +24,49 @@ from finger_counter import count_hand_fingers
 from gesture_mapper import classify_rps_gesture
 from front_on_classifier import classify_front_on
 
-# MediaPipe 0.10.x compatibility
-# Some versions expose mp.solutions, others require direct import
+# MediaPipe changed its import path between versions.
+# Try the usual mp.solutions namespace first; fall back to direct import.
 try:
     mp_hands   = mp.solutions.hands
     mp_drawing = mp.solutions.drawing_utils
 except AttributeError:
-    # Newer MediaPipe versions - import solutions directly
+    # Newer MediaPipe versions expose solutions as top-level modules
     from mediapipe.python.solutions import hands as mp_hands
     from mediapipe.python.solutions import drawing_utils as mp_drawing
 
 
-# ── Kalman filter for wrist Y smoothing ───────────────────────────────────────
+# =============================================================================
+# Kalman filter for wrist-Y smoothing
+# =============================================================================
+
 class KalmanWrist1D:
     """
-    1-D Kalman filter for wrist Y position.
-    State: [position, velocity]
-    Replaces the EMA (α=0.35) used previously.
+    A 1-D Kalman filter that tracks the wrist's vertical position (Y, 0–1).
 
-    Advantages over EMA:
-      • Handles missing frames gracefully — predicts forward using velocity
-      • Separates process noise (smooth motion) from measurement noise (jitter)
-      • Recovers faster after occlusion because it knows the hand was moving
+    State vector: [position, velocity]
+    We use a simple constant-velocity motion model — the filter assumes the
+    wrist keeps moving at roughly the same speed from frame to frame.
 
-    Tuning:
-      process_noise  — how much we trust the motion model.  Higher = follows
-                       measured position more aggressively (acts like lower α).
-      measurement_noise — how noisy the raw MediaPipe wrist landmark is.
-                          Higher = smoother but more lag.
+    Why Kalman instead of an exponential moving average (EMA)?
+      - EMA always lags behind fast motion.  Kalman uses its velocity estimate
+        to *predict* where the wrist will be next, so it catches up faster.
+      - When the hand disappears (occlusion), Kalman predicts forward rather
+        than snapping to a fixed value.
+      - It separates "how noisy is MediaPipe" from "how fast is the hand
+        really moving", giving cleaner smoothing.
+
+    Tuning parameters:
+      process_noise     — trust the motion model more (higher = follows
+                          measurements more aggressively, lower = smoother)
+      measurement_noise — how jittery the raw MediaPipe landmark is
+                          (higher = smoother output but more lag)
     """
 
     def __init__(self, process_noise: float = 2e-3, measurement_noise: float = 4e-3):
-        self._x   = 0.5    # estimated position
-        self._v   = 0.0    # estimated velocity (in normalised units per frame)
-        self._p   = 1.0    # position variance
-        self._pv  = 0.0    # cross-covariance (pos × vel)
+        self._x   = 0.5    # current position estimate (0 = top, 1 = bottom)
+        self._v   = 0.0    # current velocity estimate (normalised units/frame)
+        self._p   = 1.0    # position variance (uncertainty)
+        self._pv  = 0.0    # cross-covariance between position and velocity
         self._vv  = 1.0    # velocity variance
         self._qp  = process_noise
         self._r   = measurement_noise
@@ -49,37 +75,43 @@ class KalmanWrist1D:
     def update(self, measurement):
         # type: (float | None) -> float  -- written for Python 3.9 compat
         """
-        Pass the raw wrist Y (0–1) or None if hand not detected.
+        Feed one new frame's raw wrist Y (0–1), or None if hand not detected.
         Returns the smoothed estimate.
         """
+        # First valid observation initialises the filter position directly
         if not self._initialized:
             if measurement is None:
-                return 0.5
+                return 0.5   # nothing to go on; return a neutral default
             self._x          = measurement
             self._initialized = True
             return self._x
 
-        # ── Predict ──────────────────────────────────────────────────────
-        x_pred = self._x + self._v
-        p_pred = self._p + self._pv * 2 + self._vv + self._qp
+        # ── Predict step ──────────────────────────────────────────────────
+        # Project the state forward by one frame using constant-velocity model
+        x_pred  = self._x + self._v
+        p_pred  = self._p + self._pv * 2 + self._vv + self._qp
         pv_pred = self._pv + self._vv
         vv_pred = self._vv + self._qp * 0.1
 
         if measurement is None:
-            # No observation — keep prediction, widen uncertainty
+            # No observation this frame — accept the prediction as-is and
+            # widen uncertainty slightly so the next real measurement can
+            # pull us back quickly
             self._x  = x_pred
-            self._v  = self._v * 0.92    # friction: velocity decays
-            self._p  = p_pred * 1.05
+            self._v  = self._v * 0.92    # "friction" — decay velocity when unseen
+            self._p  = p_pred * 1.05     # grow position uncertainty
             self._pv = pv_pred
-            self._vv = vv_pred * 1.05
+            self._vv = vv_pred * 1.05    # grow velocity uncertainty
             return float(self._x)
 
-        # ── Update ───────────────────────────────────────────────────────
-        innov = measurement - x_pred
-        s     = p_pred + self._r
-        kg_x  = p_pred  / s   # Kalman gain for position
-        kg_v  = pv_pred / s   # Kalman gain for velocity
+        # ── Update step ───────────────────────────────────────────────────
+        # We have a real observation — blend prediction with measurement
+        innov = measurement - x_pred          # how far off was our prediction?
+        s     = p_pred + self._r              # total uncertainty
+        kg_x  = p_pred  / s                  # Kalman gain for position
+        kg_v  = pv_pred / s                  # Kalman gain for velocity
 
+        # Correct the state using the Kalman gains
         self._x  = x_pred  + kg_x * innov
         self._v  = self._v + kg_v * innov
         self._p  = (1 - kg_x) * p_pred
@@ -89,6 +121,7 @@ class KalmanWrist1D:
         return float(self._x)
 
     def reset(self):
+        """Throw away all state — useful when switching players."""
         self._initialized = False
         self._x = 0.5; self._v = 0.0
         self._p = 1.0; self._pv = 0.0; self._vv = 1.0
@@ -96,20 +129,28 @@ class KalmanWrist1D:
 
 def create_kalman_wrist_state() -> dict:
     """
-    Creates a wrist state dict using a KalmanWrist1D filter.
-    Drop-in replacement for the old {"wrist_y": None} EMA dict.
-    The dict stores the filter object so it persists across frames.
+    Build the wrist-state dict that process_hand_frame() expects.
+    Stores the KalmanWrist1D object so it persists across frames without
+    being a module-level global.
+
+    Drop-in replacement for the old {"wrist_y": None} EMA dict — the key
+    names are the same so existing callers need no changes.
     """
     return {"kalman": KalmanWrist1D(), "wrist_y": None}
 
 
+# =============================================================================
+# MediaPipe detector factories
+# =============================================================================
+
 def create_hands_detector():
     """
-    Main game detector.
-    max_num_hands=2 is required for two-player modes.
-    model_complexity=0 is the fastest model.
-    Slightly higher confidence thresholds (0.6) hold tracking locks
-    better between frames and reduce jitter on fast pump movements.
+    Create the MediaPipe Hands detector used during gameplay.
+
+    Settings chosen for performance:
+      - max_num_hands=2  → needed for two-player local mode
+      - model_complexity=0  → fastest (lite) model, fine for RPS gestures
+      - confidence thresholds at 0.6  → reduces jitter on fast pump movements
     """
     return mp_hands.Hands(
         static_image_mode=False,
@@ -122,8 +163,10 @@ def create_hands_detector():
 
 def create_nav_detector():
     """
-    Lightweight single-hand detector for gesture nav on menu screens.
-    Lower confidence thresholds are fine here -- menu nav is forgiving.
+    Create a lighter MediaPipe Hands detector for menu/settings navigation.
+
+    Single hand only; lower confidence thresholds are fine because menu
+    nav doesn't need gesture-level precision — just rough position.
     """
     return mp_hands.Hands(
         static_image_mode=False,
@@ -134,56 +177,74 @@ def create_nav_detector():
     )
 
 
+# =============================================================================
+# Internal helpers
+# =============================================================================
+
 def _palm_scale(landmarks):
-    """Estimate hand size from wrist-to-MCP distances. Larger = closer to camera."""
+    """
+    Estimate the apparent size of the hand by averaging three wrist-to-MCP
+    distances (index, middle, pinky knuckles).
+
+    A larger value means the hand is closer to the camera.
+    This is used to pick the "closest hand" when multiple hands appear and
+    to flag when the hand is too far for reliable landmark accuracy.
+    """
     lm = landmarks.landmark
+
     def _d(a, b):
         return math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2)
+
     return (_d(lm[0], lm[5]) + _d(lm[0], lm[9]) + _d(lm[0], lm[17])) / 3.0
 
 
 def _select_closest_hand(results):
     """
-    When multiple hands are detected, select the one closest to the
-    camera (largest palm scale in the frame).
+    When MediaPipe returns multiple hands, choose the one closest to the
+    camera (i.e. the one with the largest palm scale in the frame).
 
-    Returns (hand_landmarks, hand_label, handedness_score) for the
-    chosen hand, or (None, "Unknown", 0.0) if no hands found.
+    Returns:
+        (hand_landmarks, hand_label, handedness_score)
+        or (None, "Unknown", 0.0) if no hands were detected.
     """
     if not results.multi_hand_landmarks:
         return None, "Unknown", 0.0
 
+    # Only one hand detected — no comparison needed
     if len(results.multi_hand_landmarks) == 1:
-        hand_landmarks = results.multi_hand_landmarks[0]
-        hand_label = "Unknown"
-        handedness_score = 0.0
+        hand_landmarks     = results.multi_hand_landmarks[0]
+        hand_label         = "Unknown"
+        handedness_score   = 0.0
         if results.multi_handedness:
             h = results.multi_handedness[0].classification[0]
-            hand_label = h.label
+            hand_label       = h.label
             handedness_score = h.score
         return hand_landmarks, hand_label, handedness_score
 
-    # Multiple hands: pick the largest (closest to camera).
-    best_idx = 0
+    # Multiple hands: find the one with the largest palm (closest to camera)
+    best_idx   = 0
     best_scale = 0.0
-
     for i, landmarks in enumerate(results.multi_hand_landmarks):
         scale = _palm_scale(landmarks)
         if scale > best_scale:
             best_scale = scale
-            best_idx = i
+            best_idx   = i
 
-    hand_landmarks = results.multi_hand_landmarks[best_idx]
-    hand_label = "Unknown"
+    hand_landmarks   = results.multi_hand_landmarks[best_idx]
+    hand_label       = "Unknown"
     handedness_score = 0.0
 
     if results.multi_handedness and best_idx < len(results.multi_handedness):
-        h = results.multi_handedness[best_idx].classification[0]
-        hand_label = h.label
+        h                = results.multi_handedness[best_idx].classification[0]
+        hand_label       = h.label
         handedness_score = h.score
 
     return hand_landmarks, hand_label, handedness_score
 
+
+# =============================================================================
+# Main single-hand frame processor
+# =============================================================================
 
 def process_hand_frame(
     frame,
@@ -196,67 +257,93 @@ def process_hand_frame(
     five_gesture_mode=False,   # True only for RPSLS
 ):
     """
-    Processes one camera frame and returns:
-    - the mirrored frame (with optional diagnostic landmarks drawn)
-    - a dictionary of hand / gesture / status values for the game loop
-    - the RGB frame (reusable for emotion tracking — avoids double conversion)
+    Process one camera frame and return everything the game loop needs.
 
-    _ema_state: {"wrist_y": float | None} — shared across calls for EMA smoothing.
+    Returns:
+        frame      — horizontally flipped (mirrored) frame; landmark overlay
+                     added in Diagnostic mode
+        hand_state — dict of gesture / position / quality values (see below)
+        rgb        — the RGB version of the frame, returned so the caller can
+                     reuse it (e.g. for emotion detection) without doing a
+                     second BGR→RGB conversion
+
+    hand_state keys:
+        count_text       — string finger count or "Unknown"
+        raw_gesture      — "Rock" / "Paper" / "Scissors" / "Spock" / "Lizard"
+                           / "Unknown"
+        status_text      — human-readable MediaPipe status
+        reason_text      — machine-readable reason for the current gesture call
+        ambiguous_count  — how many fingers were in an ambiguous position
+        wrist_y          — Kalman-smoothed wrist Y (for display)
+        raw_wrist_y      — direct MediaPipe wrist Y (for pump detection)
+        _landmarks       — raw MediaPipe landmark object (for downstream use)
+        hands_detected   — number of hands MediaPipe found this frame
+        up_fingers       — list of finger names currently extended
+        index_tip_x/y    — index fingertip position (for gesture nav cursor)
+        poor_lighting    — True when the frame is too dark for reliable detection
+        hand_too_far     — True when palm_scale suggests the hand is out of range
+        palm_scale       — estimated hand size (proxy for distance from camera)
+
+    _ema_state: pass the dict from create_kalman_wrist_state() to get smoothed
+                wrist_y across frames.  If None, raw landmark Y is used.
     """
+    # Mirror the frame so it feels like looking in a mirror
     frame = cv2.flip(frame, 1)
 
-    # Lighting quality check — warn if hand region is too dark
-    brightness = float(frame.mean())
-    poor_lighting = brightness < 55  # empirically tuned threshold
+    # Quick lighting check — if the frame is very dark, detection will be poor
+    brightness   = float(frame.mean())
+    poor_lighting = brightness < 55   # threshold tuned empirically
 
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    rgb.flags.writeable = False
-    results = hands.process(rgb)
+    # Convert to RGB once; reuse the result for both MediaPipe and the caller
+    rgb               = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    rgb.flags.writeable = False          # prevents an unnecessary copy inside MP
+    results           = hands.process(rgb)
     rgb.flags.writeable = True
-    # rgb is returned so callers can reuse it (e.g. for emotion tracking)
-    # without doing a second BGR→RGB conversion on the same frame.
 
     num_hands = len(results.multi_hand_landmarks) if results.multi_hand_landmarks else 0
 
+    # Default hand_state — filled in below if a hand is found
     hand_state = {
-        "count_text": "Unknown",
-        "raw_gesture": "Unknown",
-        "status_text": "No hand detected",
-        "reason_text": "no_hand",
+        "count_text":      "Unknown",
+        "raw_gesture":     "Unknown",
+        "status_text":     "No hand detected",
+        "reason_text":     "no_hand",
         "ambiguous_count": 0,
-        "wrist_y": None,        # Kalman-smoothed (for display)
-        "raw_wrist_y": None,    # unsmoothed landmark Y (for pump detection)
-        "_landmarks": None,
-        "hands_detected": num_hands,
+        "wrist_y":         None,        # Kalman-smoothed (for display)
+        "raw_wrist_y":     None,        # unsmoothed landmark Y (for pump detection)
+        "_landmarks":      None,
+        "hands_detected":  num_hands,
         # Gesture nav fields
-        "up_fingers":  [],
-        "index_tip_x": None,
-        "index_tip_y": None,
-        # Quality feedback
-        "poor_lighting": poor_lighting,
-        "hand_too_far":  False,
-        "palm_scale":    0.0,
+        "up_fingers":      [],
+        "index_tip_x":     None,
+        "index_tip_y":     None,
+        # Quality feedback for the UI
+        "poor_lighting":   poor_lighting,
+        "hand_too_far":    False,
+        "palm_scale":      0.0,
     }
 
+    # Pick the best hand (closest to camera if multiple detected)
     hand_landmarks, hand_label, handedness_score = _select_closest_hand(results)
 
     if hand_landmarks is not None:
-        tip_ids_for_debug = []
+        # Tag shown in status when multiple hands are visible simultaneously
         closest_tag = f" [{num_hands} hands]" if num_hands > 1 else ""
 
-        # Palm scale — proxy for hand distance from camera.
-        # Smaller = farther away; values < 0.10 typically mean the hand is
-        # too far for reliable landmark accuracy.
-        palm_sc = _palm_scale(hand_landmarks)
-        hand_state["palm_scale"]   = palm_sc
+        # Estimate hand distance from camera and flag if too far
+        palm_sc                  = _palm_scale(hand_landmarks)
+        hand_state["palm_scale"]  = palm_sc
         hand_state["hand_too_far"] = palm_sc < 0.09
 
-        # Always import these — used by both Front-On and Side-View paths
+        # Both imports are needed regardless of which orientation path runs
         from finger_counter import count_hand_fingers
         from gesture_mapper import classify_rps_gesture
 
         if hand_orientation == "Front":
-            # ----- FRONT-ON PATH -----
+            # ── Front-on path ─────────────────────────────────────────────
+            # The hand faces directly into the camera (palm toward lens).
+            # We try geometry first (more reliable for Spock/Lizard), then
+            # the ML front-on classifier for Rock/Paper/Scissors.
             count_result = count_hand_fingers(
                 hand_landmarks=hand_landmarks,
                 hand_label=hand_label,
@@ -265,16 +352,21 @@ def process_hand_frame(
                 handedness_threshold=handedness_threshold,
             )
             geo_result = classify_rps_gesture(
-                count_result, hand_landmarks=hand_landmarks,
-                five_gesture_mode=five_gesture_mode)
+                count_result,
+                hand_landmarks=hand_landmarks,
+                five_gesture_mode=five_gesture_mode,
+            )
 
+            # Geometry is the authoritative source for Spock and Lizard
+            # because the front-on ML model wasn't trained on them
             if geo_result["gesture"] in ("Spock", "Lizard"):
                 gesture = geo_result["gesture"]
                 reason  = f"geo_priority: {geo_result['reason']}"
             else:
+                # Fall back to the dedicated front-on ML classifier
                 front_result = classify_front_on(hand_landmarks)
-                gesture = front_result["gesture"]
-                reason  = front_result["reason"]
+                gesture      = front_result["gesture"]
+                reason       = front_result["reason"]
 
             hand_state["raw_gesture"]     = gesture
             hand_state["reason_text"]     = reason
@@ -285,23 +377,27 @@ def process_hand_frame(
             )
 
         else:
-            # ----- SIDE-VIEW PATH -----
+            # ── Side-view path ────────────────────────────────────────────
+            # Default mode: hand shown in profile (thumb side visible).
+            # Finger-counter runs first, then geometry classifier refines it.
             count_result = count_hand_fingers(
                 hand_landmarks=hand_landmarks,
                 hand_label=hand_label,
                 target_hand=target_hand,
                 handedness_score=handedness_score,
-                handedness_threshold=handedness_threshold
+                handedness_threshold=handedness_threshold,
             )
-
             gesture_result = classify_rps_gesture(
-                count_result, hand_landmarks=hand_landmarks,
-                five_gesture_mode=five_gesture_mode)
+                count_result,
+                hand_landmarks=hand_landmarks,
+                five_gesture_mode=five_gesture_mode,
+            )
 
             hand_state["count_text"]      = count_result["count_text"]
             hand_state["raw_gesture"]     = gesture_result["gesture"]
             hand_state["ambiguous_count"] = count_result["ambiguous"]
 
+            # Use the gesture mapper's reason only when finger counting succeeded
             reason_text = count_result["reason"]
             if reason_text == "ok":
                 reason_text = gesture_result["reason"]
@@ -311,51 +407,63 @@ def process_hand_frame(
                 f"Seen: {hand_label} ({handedness_score:.2f}){closest_tag}"
             )
 
-            tip_ids_for_debug = count_result["tip_ids_up"]
-            hand_state["up_fingers"] = count_result.get("up_fingers", [])
+            # tip_ids_up is only populated on the side-view path; used for
+            # drawing debug circles over extended fingertips in Diagnostic mode
+            tip_ids_for_debug         = count_result["tip_ids_up"]
+            hand_state["up_fingers"]  = count_result.get("up_fingers", [])
 
-        # Kalman filter smoothing on wrist_y.
-        # raw_wrist_y is always the direct MediaPipe landmark — used for pump detection.
-        # wrist_y is Kalman-smoothed — used for display only.
-        raw_wrist_y = hand_landmarks.landmark[0].y
+        # ── Wrist-Y smoothing ─────────────────────────────────────────────
+        # raw_wrist_y: straight from MediaPipe, used for pump-detection logic
+        # wrist_y:     smoothed by Kalman filter, used only for display
+        raw_wrist_y              = hand_landmarks.landmark[0].y
         hand_state["raw_wrist_y"] = raw_wrist_y
+
         if _ema_state is not None:
             kf = _ema_state.get("kalman")
             if kf is not None:
-                smoothed = kf.update(raw_wrist_y)
+                # Modern path: Kalman filter
+                smoothed            = kf.update(raw_wrist_y)
                 _ema_state["wrist_y"] = smoothed
                 hand_state["wrist_y"] = smoothed
             else:
-                # Legacy EMA path (old {"wrist_y": None} dicts)
-                prev = _ema_state.get("wrist_y")
+                # Legacy path: old {"wrist_y": None} dict without a Kalman object
+                # kept for backwards compat; uses simple EMA (α=0.35)
+                prev     = _ema_state.get("wrist_y")
                 smoothed = raw_wrist_y if prev is None else 0.35 * raw_wrist_y + 0.65 * prev
                 _ema_state["wrist_y"] = smoothed
                 hand_state["wrist_y"] = smoothed
         else:
+            # No smoothing state provided — use raw value directly
             hand_state["wrist_y"] = raw_wrist_y
 
         hand_state["_landmarks"] = hand_landmarks
 
-        # Always populate gesture-nav fields regardless of orientation path.
-        lm = hand_landmarks.landmark
+        # Index fingertip position is always populated for the nav cursor
+        lm                        = hand_landmarks.landmark
         hand_state["index_tip_x"] = lm[8].x
         hand_state["index_tip_y"] = lm[8].y
 
         if display_mode == "Diagnostic":
+            # Draw the full landmark skeleton on screen
             mp_drawing.draw_landmarks(
                 frame,
                 hand_landmarks,
-                mp_hands.HAND_CONNECTIONS
+                mp_hands.HAND_CONNECTIONS,
             )
-
+            # Highlight each extended fingertip with a red dot
             for tip_id in tip_ids_for_debug:
-                lm = hand_landmarks.landmark[tip_id]
+                lm_pt  = hand_landmarks.landmark[tip_id]
                 h, w, _ = frame.shape
-                cx = int(lm.x * w)
-                cy = int(lm.y * h)
+                cx     = int(lm_pt.x * w)
+                cy     = int(lm_pt.y * h)
                 cv2.circle(frame, (cx, cy), 10, (0, 0, 255), -1)
 
     return frame, hand_state, rgb
+
+
+# =============================================================================
+# Two-hand frame processor (for local two-player mode)
+# =============================================================================
 
 def process_two_hands_frame(
     frame,
@@ -366,63 +474,71 @@ def process_two_hands_frame(
     five_gesture_mode=False,   # True only for RPSLS
 ):
     """
-    Process a frame expecting up to 2 hands simultaneously.
+    Process a frame expecting up to 2 hands simultaneously (local 2-player mode).
 
     Returns:
-        frame  — mirrored, annotated
+        frame  — mirrored, optionally annotated
         p1     — hand_state dict for the LEFT-most detected hand (Player 1)
         p2     — hand_state dict for the RIGHT-most detected hand (Player 2)
-        rgb    — RGB frame for emotion tracking reuse
+        rgb    — RGB frame, returned so the caller can reuse it
 
-    Hands are sorted by wrist X-position: lowest X (left of frame) → P1,
-    highest X (right of frame) → P2.  Missing hands get a default state
-    with raw_gesture="Unknown".
+    Hands are assigned to players by wrist X-position after mirror-flip:
+        smallest X (left side of screen)  → Player 1
+        largest  X (right side of screen) → Player 2
+    Missing hands produce a default state with raw_gesture="Unknown".
     """
     frame = cv2.flip(frame, 1)
 
-    brightness = float(frame.mean())
+    brightness    = float(frame.mean())
     poor_lighting = brightness < 55
 
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    rgb               = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     rgb.flags.writeable = False
-    results = hands.process(rgb)
+    results           = hands.process(rgb)
     rgb.flags.writeable = True
 
+    # ── Inner helpers ─────────────────────────────────────────────────────────
+
     def _empty_state():
+        """Return a neutral hand_state when no hand is assigned to a player."""
         return {
-            "count_text":     "?",
-            "raw_gesture":    "Unknown",
-            "status_text":    "No hand",
-            "reason_text":    "no_hand",
+            "count_text":      "?",
+            "raw_gesture":     "Unknown",
+            "status_text":     "No hand",
+            "reason_text":     "no_hand",
             "ambiguous_count": 0,
-            "wrist_y":        None,
-            "_landmarks":     None,
-            "hands_detected": 0,
-            "up_fingers":     [],
-            "index_tip_x":    None,
-            "index_tip_y":    None,
-            "poor_lighting":  poor_lighting,
-            "hand_too_far":   False,
-            "palm_scale":     0.0,
+            "wrist_y":         None,
+            "_landmarks":      None,
+            "hands_detected":  0,
+            "up_fingers":      [],
+            "index_tip_x":     None,
+            "index_tip_y":     None,
+            "poor_lighting":   poor_lighting,
+            "hand_too_far":    False,
+            "palm_scale":      0.0,
         }
 
     def _extract_state(lm_obj, label, score, ema_state):
-        """Build a hand_state dict from a MediaPipe landmark object."""
-        state = _empty_state()
-        state["hands_detected"] = len(results.multi_hand_landmarks) \
-            if results.multi_hand_landmarks else 0
+        """
+        Build a full hand_state dict from a single MediaPipe landmark object.
+        Same logic as process_hand_frame() but extracted here so we can run
+        it twice (once per player) without duplicating code.
+        """
+        state                  = _empty_state()
+        state["hands_detected"] = (
+            len(results.multi_hand_landmarks) if results.multi_hand_landmarks else 0
+        )
 
-        palm_sc = _palm_scale(lm_obj)
+        palm_sc               = _palm_scale(lm_obj)
         state["palm_scale"]   = palm_sc
         state["hand_too_far"] = palm_sc < 0.09
 
-        # Imports hoisted — both branches need these
         from front_on_classifier import classify_front_on
-        from gesture_mapper import classify_rps_gesture
-        from finger_counter import count_hand_fingers
+        from gesture_mapper      import classify_rps_gesture
+        from finger_counter      import count_hand_fingers
 
         if hand_orientation == "Front":
-            # Geometry first — Spock/Lizard skip ML entirely (only in five_gesture_mode)
+            # Geometry first; let Spock/Lizard skip the ML model
             cr_geo = count_hand_fingers(
                 hand_landmarks=lm_obj,
                 hand_label=label,
@@ -430,21 +546,27 @@ def process_two_hands_frame(
                 handedness_score=score,
                 handedness_threshold=handedness_threshold,
             )
-            geo = classify_rps_gesture(cr_geo, hand_landmarks=lm_obj,
-                                       five_gesture_mode=five_gesture_mode)
+            geo = classify_rps_gesture(
+                cr_geo,
+                hand_landmarks=lm_obj,
+                five_gesture_mode=five_gesture_mode,
+            )
             if geo["gesture"] in ("Spock", "Lizard"):
                 gesture = geo["gesture"]
                 reason  = f"geo_priority: {geo['reason']}"
             else:
-                fr = classify_front_on(lm_obj)
+                fr      = classify_front_on(lm_obj)
                 gesture = fr["gesture"]
                 reason  = fr["reason"]
+
             state["raw_gesture"]     = gesture
             state["reason_text"]     = reason
             state["count_text"]      = gesture[:1] if gesture != "Unknown" else "?"
             state["ambiguous_count"] = 0
             state["status_text"]     = f"{label} ({score:.2f}) | front"
+
         else:
+            # Side-view path
             cr = count_hand_fingers(
                 hand_landmarks=lm_obj,
                 hand_label=label,
@@ -452,62 +574,69 @@ def process_two_hands_frame(
                 handedness_score=score,
                 handedness_threshold=handedness_threshold,
             )
-            gr = classify_rps_gesture(cr, hand_landmarks=lm_obj,
-                                      five_gesture_mode=five_gesture_mode)
+            gr = classify_rps_gesture(
+                cr,
+                hand_landmarks=lm_obj,
+                five_gesture_mode=five_gesture_mode,
+            )
             state["count_text"]      = cr["count_text"]
             state["raw_gesture"]     = gr["gesture"]
             state["ambiguous_count"] = cr["ambiguous"]
-            reason = cr["reason"]
+            reason                   = cr["reason"]
             if reason == "ok":
                 reason = gr["reason"]
-            state["reason_text"]  = reason
-            state["status_text"]  = f"{label} ({score:.2f})"
-            state["up_fingers"]   = cr.get("up_fingers", [])
+            state["reason_text"] = reason
+            state["status_text"] = f"{label} ({score:.2f})"
+            state["up_fingers"]  = cr.get("up_fingers", [])
 
-        # Kalman wrist smoothing — keep smoothed for display, raw for pump detection
-        raw_y = lm_obj.landmark[0].y
+        # Wrist smoothing — same dual raw/smoothed split as single-hand path
+        raw_y                = lm_obj.landmark[0].y
         state["raw_wrist_y"] = raw_y
+
         if ema_state is not None:
             kf = ema_state.get("kalman")
             if kf is not None:
-                smoothed = kf.update(raw_y)
+                smoothed             = kf.update(raw_y)
                 ema_state["wrist_y"] = smoothed
-                state["wrist_y"] = smoothed
+                state["wrist_y"]     = smoothed
             else:
-                # Legacy EMA path (old {"wrist_y": None} dicts)
-                prev = ema_state.get("wrist_y")
+                # Legacy EMA path
+                prev     = ema_state.get("wrist_y")
                 smoothed = raw_y if prev is None else 0.35 * raw_y + 0.65 * prev
                 ema_state["wrist_y"] = smoothed
-                state["wrist_y"] = smoothed
+                state["wrist_y"]     = smoothed
         else:
             state["wrist_y"] = raw_y
 
         state["_landmarks"]   = lm_obj
-        lm = lm_obj.landmark
-        state["index_tip_x"] = lm[8].x
-        state["index_tip_y"] = lm[8].y
+        lm                    = lm_obj.landmark
+        state["index_tip_x"]  = lm[8].x
+        state["index_tip_y"]  = lm[8].y
         return state
 
+    # Default to empty EMA state dicts if the caller didn't provide any
     if ema_states is None:
         ema_states = [{}, {}]
 
-    # ── Collect all detected hands ──────────────────────────────────────
+    # ── Collect and sort all detected hands ───────────────────────────────────
     detected = []
     if results.multi_hand_landmarks:
         for idx, lm_obj in enumerate(results.multi_hand_landmarks):
             label = "Unknown"
             score = 0.0
             if results.multi_handedness and idx < len(results.multi_handedness):
-                h = results.multi_handedness[idx].classification[0]
+                h     = results.multi_handedness[idx].classification[0]
                 label = h.label
                 score = h.score
-            # Use wrist X for sorting (after mirror-flip, MediaPipe "Right" is on left of screen)
+            # After the mirror-flip, wrist X increases left-to-right on screen.
+            # Sorting by wrist X puts the leftmost hand first (Player 1).
             wrist_x = lm_obj.landmark[0].x
             detected.append((wrist_x, lm_obj, label, score))
 
-    # Sort: smallest X = leftmost = Player 1 column
+    # Sort ascending by X so index 0 = left = Player 1
     detected.sort(key=lambda t: t[0])
 
+    # Unpack or fall back to empty state if fewer than 2 hands were found
     p1 = _extract_state(*detected[0][1:], ema_states[0]) if len(detected) >= 1 else _empty_state()
     p2 = _extract_state(*detected[1][1:], ema_states[1]) if len(detected) >= 2 else _empty_state()
 
