@@ -14,6 +14,7 @@ No extra dependencies — uses only Python stdlib.
 Repo: https://github.com/Zacccyyy/RPSRobot
 """
 
+from __future__ import annotations
 import json
 import os
 import subprocess

@@ -31,6 +31,7 @@ BLEBridge manages its own background asyncio event loop in a daemon thread
 and exposes everything as regular synchronous methods.
 """
 
+from __future__ import annotations
 import time
 import threading
 import asyncio
