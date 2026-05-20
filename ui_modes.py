@@ -1,5 +1,32 @@
 """
-ui_modes.py -- Per-mode screen renderers: 2-player, reflex, bluff, simon, squid, rpsls.
+ui_modes.py -- Per-mode screen renderers for every game variant.
+
+Each public draw_*() function takes a pre-built `game_state` dict and a raw
+OpenCV frame, then paints the complete UI for that frame.  They are called
+once per camera frame by the main game loop and should not mutate game_state.
+
+Covered modes
+-------------
+- draw_two_player_view          : 2-player PvP
+- draw_pvpvai_view              : 1v1v1 (P1 vs P2 vs AI)
+- draw_personality_settings     : AI personality selector menu
+- draw_reflex_solo_view         : Speed Reflex solo
+- draw_reflex_two_player_view   : Speed Reflex 2-player race
+- draw_bluff_mode_view          : Bluff mode (AI may lie)
+- draw_simon_says_solo_view     : Simon Says solo
+- draw_simon_says_two_player_view: Simon Says 2-player chain
+- draw_squid_game_view          : Red Light / Green Light solo
+- draw_squid_game_2p_view       : Red Light / Green Light 2-player
+- draw_prediction_race_view     : Prediction Race (beat the AI's read)
+- draw_gesture_rehab_view       : Gesture Trainer / rehab mode
+- draw_arcade_snake_view        : Gesture Snake arcade game
+- draw_rpsls_tutorial_screen    : RPSLS how-to-play tutorial (6 steps)
+- draw_rpsls_side_notice        : RPSLS warmup / gesture tick-off screen
+- draw_rpsls_view               : RPSLS main game screen
+- draw_two_player_diagnostic    : 2-player pipeline diagnostic overlay
+- draw_hand_enroll_view         : Hand geometry enrollment (biometric)
+- draw_hand_login_view          : Hand scan login screen
+- draw_hand_diag_view           : Hand identity diagnostic (z-score view)
 """
 import cv2
 import math
@@ -15,9 +42,13 @@ _COL_LOSE_TINT = (22,  6,  6)   # subtle red panel fill for lost state
 
 
 def _draw_start_prompt(frame, text, y, t, color=None):
-    """Pulsing centered start-prompt used across all INTRO / WAITING states."""
+    """
+    Pulsing centered start-prompt used across all INTRO / WAITING states.
+    The brightness oscillates ~1.2 Hz to draw the player's eye without being distracting.
+    """
     h, w = frame.shape[:2]
     col = color or COL_GREEN
+    # Sine-wave pulse: brightness swings between 45 % and 100 % of the target colour
     pulse = 0.45 + 0.55 * abs(math.sin(t * math.pi * 1.2))
     pc = tuple(min(255, int(c * pulse)) for c in col)
     draw_centered_text(frame, text, y, SCALE_BODY, pc, thickness=1, outline=2)
@@ -26,8 +57,12 @@ def _draw_start_prompt(frame, text, y, t, color=None):
 def _draw_tp_hand_panel(frame, x1, y1, x2, y2, label, gesture, tracker_state=None,
                         highlight_col=None, result_col=None):
     """
-    Draw a single player's panel in the two-player view.
-    Shows label, detected gesture icon + text, and optional lock bar.
+    Draw a single player's panel in the two-player / PvPvAI views.
+
+    Renders three zones stacked vertically: player label at the top, a large
+    gesture glyph in the middle, and the gesture name at the bottom.  When
+    tracker_state is provided a narrow vertical progress bar on the right edge
+    shows how close the gesture is to being locked in (streak 0-3 frames).
     """
     col   = highlight_col or COL_ACCENT
     fill  = result_col or COL_PANEL_BG
@@ -54,7 +89,8 @@ def _draw_tp_hand_panel(frame, x1, y1, x2, y2, label, gesture, tracker_state=Non
         (x1, y1 + _ix(ph * 0.72), x2, y1 + _ix(ph * 0.88)),
         base_scale=0.68, color=g_col, thickness=2, outline=3)
 
-    # LOCK confidence bar (right edge of panel)
+    # LOCK confidence bar — thin vertical bar on the right edge of the panel.
+    # Fills from 0 to full as the stable gesture streak reaches 3 frames.
     if tracker_state:
         streak   = tracker_state.get("stable_streak", 0)
         pct      = min(1.0, streak / 3)
@@ -62,7 +98,7 @@ def _draw_tp_hand_panel(frame, x1, y1, x2, y2, label, gesture, tracker_state=Non
         bar_x    = x2 - bar_w - _ix(pw * 0.02)
         bar_top  = y1 + _ix(ph * 0.20)
         bar_bot  = y1 + _ix(ph * 0.70)
-        fc = COL_GREEN if pct >= 1.0 else COL_ACCENT
+        fc = COL_GREEN if pct >= 1.0 else COL_ACCENT  # goes green once fully locked
         draw_progress_bar(frame, bar_x, bar_top, bar_x + bar_w, bar_bot, pct, color=fc)
 
 
@@ -88,6 +124,8 @@ def draw_two_player_view(frame, game_state,
     col_h = col_y2 - col_y1
 
     def _live_gest(tracker_st, game_key):
+        # During active play show the live tracker reading so players get immediate
+        # feedback; after a result has been committed fall back to the stored gesture.
         if cur_state not in ("ROUND_RESULT", "MATCH_RESULT") and tracker_st:
             for k in ("confirmed_gesture", "stable_gesture"):
                 g = tracker_st.get(k, "Unknown")
@@ -99,12 +137,14 @@ def draw_two_player_view(frame, game_state,
     p2_gesture = _live_gest(p2_tracker_state, "p2_gesture")
 
     def _draw_player_col(x1, x2, label, player_col, gesture, score_key):
+        """Render one player's full column: header with name + score, glyph, footer status."""
         col_w = x2 - x1
         col_cx = x1 + col_w // 2
 
         draw_panel(frame, x1, col_y1, x2, col_y2,
                    fill=COL_PANEL_BG, alpha=COL_PANEL_ALPHA,
                    border=COL_BORDER_HAIR, border_thickness=1)
+        # Coloured accent line at the very top of the panel to identify the player
         cv2.line(frame, (x1, col_y1), (x2, col_y1), player_col, 2)
 
         # Header: name left, score right
@@ -121,10 +161,12 @@ def draw_two_player_view(frame, game_state,
         radius   = 80
         committed = gesture in ("Rock", "Paper", "Scissors")
         if committed:
+            # Player has made a valid gesture — draw the glyph inside the circle area
             glyph_rect = (x1 + _ix(col_w * 0.10), glyph_cy - radius,
                           x2 - _ix(col_w * 0.10), glyph_cy + radius)
             draw_gesture_glyph(frame, gesture, glyph_rect)
         else:
+            # No gesture yet — draw a dashed circle spinner to indicate waiting
             for angle in range(0, 360, 20):
                 cv2.ellipse(frame, (col_cx, glyph_cy),
                             (radius, radius), 0, angle, angle + 12,
@@ -146,7 +188,7 @@ def draw_two_player_view(frame, game_state,
     _draw_player_col(p1_x1, p1_x2, "PLAYER 1", COL_ACCENT, p1_gesture, "p1_score")
     _draw_player_col(p2_x1, p2_x2, "PLAYER 2", COL_AMBER,  p2_gesture, "p2_score")
 
-    # Centre overlay: state / countdown
+    # Centre overlay: floats between the two player columns to show countdown / result.
     ov_x1 = _ix(w * 0.35);  ov_x2 = _ix(w * 0.65)
     ov_y1 = _ix(h * 0.28);  ov_y2 = _ix(h * 0.42)
     draw_panel(frame, ov_x1, ov_y1, ov_x2, ov_y2,
@@ -154,12 +196,14 @@ def draw_two_player_view(frame, game_state,
                border=COL_BORDER_HAIR, border_thickness=1)
 
     if cur_state == "COUNTDOWN" and main_text not in ("READY", ""):
+        # Pulse the countdown number so it feels rhythmic
         pulse   = 0.72 + 0.28 * abs(math.sin(t * math.pi * 1.4))
         num_col = tuple(min(255, int(c * pulse)) for c in COL_ACCENT)
         draw_centered_text_in_rect(frame, main_text,
             (ov_x1, ov_y1, ov_x2, ov_y2),
             base_scale=SCALE_DISPLAY_L, color=num_col, thickness=2, outline=3)
     elif cur_state in ("ROUND_RESULT", "MATCH_RESULT"):
+        # Show the win/draw/lose banner in the appropriate colour
         b_col = get_result_banner_color(banner, colourblind=colourblind)
         draw_centered_text_in_rect(frame, banner,
             (ov_x1 + 4, ov_y1, ov_x2 - 4, ov_y2),
@@ -193,10 +237,13 @@ def draw_pvpvai_view(frame, game_state,
                      p1_tracker_state=None, p2_tracker_state=None,
                      colourblind=False):
     """
-    1v1v1: Player 1 vs Player 2 vs AI - everyone for themselves.
-    Beat 1 opponent = +1 pt, beat 2 = +2 pts, 3-way draw = +0.
-    First to win_target wins.
-    Layout: [P1 panel] [Centre: AI + countdown/result] [P2 panel]
+    1v1v1 three-way screen: Player 1 vs Player 2 vs AI, everyone for themselves.
+
+    Scoring: beating 1 opponent = +1 pt, beating both = +2 pts, 3-way draw = +0.
+    First to win_target points wins the match.
+
+    Layout: [P1 panel | Centre AI panel + countdown | P2 panel]
+    A score-progress strip runs along the bottom for all three contestants.
     """
     w, h = frame.shape[1], frame.shape[0]
     t    = time.monotonic()
@@ -214,17 +261,21 @@ def draw_pvpvai_view(frame, game_state,
     pan_y1, pan_y2 = _ix(h * 0.08), _ix(h * 0.88)
     cent_ph = pan_y2 - pan_y1
 
-    # Per-player result tint
+    # Per-player result tint — green shade when the player scored this round.
     def _panel_fill(pts_this_round, score_key):
         if cur_state not in ("ROUND_RESULT", "MATCH_RESULT"):
             return COL_PANEL_BG
         if pts_this_round == 2:
+            # Beat both opponents — brightest green tint
             return _COL_CB_WIN if colourblind else (10, 55, 10)
         if pts_this_round == 1:
+            # Beat one opponent — dimmer green tint
             return (10, 35, 10)
-        return COL_PANEL_BG
+        return COL_PANEL_BG  # Lost or drew — no tint
 
     def _live_g(tracker_st, game_key):
+        # Prefer confirmed, then stable, then fall back to the stored game value.
+        # During a result phase we always show what was actually recorded.
         if cur_state not in ("ROUND_RESULT", "MATCH_RESULT") and tracker_st:
             conf = tracker_st.get("confirmed_gesture", "Unknown")
             stab = tracker_st.get("stable_gesture",   "Unknown")
@@ -241,7 +292,7 @@ def draw_pvpvai_view(frame, game_state,
                         "PLAYER 2", _live_g(p2_tracker_state, "p2_gesture"),
                         p2_tracker_state, COL_MAGENTA, _panel_fill(p2_pts, "p2_score"))
 
-    # +pts flash on player panels during result
+    # "+1" / "+2" flash at the bottom of each player's panel after the round is decided
     if cur_state in ("ROUND_RESULT", "MATCH_RESULT"):
         for px, pts, col in [
             ((p1_x1 + p1_x2) // 2, p1_pts, COL_CYAN),
@@ -305,7 +356,7 @@ def draw_pvpvai_view(frame, game_state,
                            pan_y1 + _ix(cent_ph * 0.92), 0.34, COL_TEXT_DIM,
                            thickness=1, outline=2)
 
-    # 3-score strip at bottom, with progress bar per player
+    # 3-score strip below all panels — shows P1, AI, P2 progress bars side by side.
     score_y = pan_y2 + _ix(h * 0.005)
     for label, score, col, sx in [
         ("P1", game_state.get("p1_score", 0), COL_ACCENT, _ix(w * 0.08)),
@@ -314,7 +365,7 @@ def draw_pvpvai_view(frame, game_state,
     ]:
         bar_w = _ix(w * 0.14)
         bar_h = _ix(h * 0.018)
-        pct   = min(1.0, score / max(win_target, 1))
+        pct   = min(1.0, score / max(win_target, 1))   # clamp so bar never overflows
         draw_progress_bar(frame, sx, score_y, sx + bar_w, score_y + bar_h, pct, color=col)
         draw_outlined_text(frame, f"{label}: {score}/{win_target}",
                            sx, score_y - 4, 0.34, col, thickness=1, outline=2)
@@ -331,7 +382,15 @@ def draw_pvpvai_view(frame, game_state,
 # ============================================================
 
 def draw_personality_settings(frame, selected_name, descriptions):
-    """AI Personality selector  -  left list, right detail card."""
+    """
+    AI Personality selector screen.
+
+    Left column: scrollable list of all personalities, each with a coloured dot
+    and a pulsing arrow pointing to the currently selected one.
+    Right panel: detail card for the selected personality, including flavour text,
+    four stat bars (Aggression / Pattern Use / Randomness / Adaptability), and
+    Strength / Weakness / How-to-beat-it coaching tips.
+    """
     w, h = frame.shape[1], frame.shape[0]
     t    = time.monotonic()
 
@@ -392,7 +451,8 @@ def draw_personality_settings(frame, selected_name, descriptions):
     desc_x2 = _ix(w * 0.97)
     y_start  = _ix(h * 0.13)
     n        = len(PERSONALITY_NAMES)
-    item_h   = int((h * 0.86 - y_start) / n)   # even split, no overflow
+    # Divide available vertical space evenly so all personalities fit without scrolling
+    item_h   = int((h * 0.86 - y_start) / n)
 
     # ── Left: personality list ──────────────────────────────────────────────
     for i, name in enumerate(PERSONALITY_NAMES):
@@ -403,6 +463,7 @@ def draw_personality_settings(frame, selected_name, descriptions):
         iy2    = iy1 + item_h - 3
         is_sel = (name == selected_name)
 
+        # Selected item gets a subtle tint of its personality colour; others stay near-black
         fill   = tuple(min(255, int(c * 0.15)) for c in col) if is_sel else (8, 8, 16)
         draw_panel(frame, list_x1, iy1, list_x2, iy2,
                    fill=fill, alpha=0.92,
@@ -424,11 +485,11 @@ def draw_personality_settings(frame, selected_name, descriptions):
             thickness=2 if is_sel else 1,
             outline=2 if is_sel else 1)
 
-        # Arrow to right panel when selected
+        # Pulsing right-pointing triangle bridging the list item to the detail card
         if is_sel:
             pulse = 0.6 + 0.4 * abs(math.sin(t * math.pi * 2.0))
             ac = tuple(min(255, int(c * pulse)) for c in col)
-            ax = desc_x1 - 8
+            ax = desc_x1 - 8    # tip of triangle, just left of the detail panel
             ay = dot_y
             pts = np.array([[ax, ay],
                              [ax-12, ay-8],
@@ -472,19 +533,19 @@ def draw_personality_settings(frame, selected_name, descriptions):
     bar_h   = max(6, _ix(h * 0.016))
 
     for stat_name, val in sel_meta.get("stats", []):
-        # Label left-aligned
+        # Stat label — left-aligned, dimmed so the bar is the focal point
         draw_outlined_text(frame, stat_name, bx1, py + bar_h,
                            0.26, COL_TEXT_DIM, thickness=1, outline=0)
-        # Bar background
+        # Empty track behind the filled portion
         cv2.rectangle(frame, (bar_x1, py), (bar_x2, py + bar_h), (25, 25, 35), -1)
-        # Bar fill
+        # Coloured fill — personality colour if high, yellow if medium, grey if low
         fill_end = bar_x1 + int((bar_x2 - bar_x1) * val)
         bar_col  = sel_col if val >= 0.6 else (COL_YELLOW if val >= 0.3 else COL_INACTIVE)
         if fill_end > bar_x1:
             cv2.rectangle(frame, (bar_x1, py), (fill_end, py + bar_h), bar_col, -1)
-        # Bar border
+        # Thin border around the track so it is visible on dark backgrounds
         cv2.rectangle(frame, (bar_x1, py), (bar_x2, py + bar_h), (60, 60, 80), 1)
-        # Percentage label  -  right-aligned within panel
+        # Percentage label to the right of the track
         pct_txt = f"{int(val*100)}%"
         draw_outlined_text(frame, pct_txt, bar_x2 + _ix(w * 0.005), py + bar_h,
                            0.24, sel_col, thickness=1, outline=0)
@@ -534,11 +595,18 @@ def draw_personality_settings(frame, selected_name, descriptions):
 # ============================================================
 
 def _draw_reflex_target(frame, target, cx, cy, radius, flash=False):
-    """Draw the gesture target circle with icon and name."""
+    """
+    Draw the gesture target circle for reflex mode.
+
+    Renders a hollow circle at (cx, cy) with the gesture glyph inside and the
+    gesture name below.  When flash=True the circle turns green to confirm a hit.
+    Used by both the solo and 2-player reflex renderers.
+    """
     col = get_gesture_color(target) if target else COL_TEXT_DIM
     if flash:
         col = COL_GREEN
     cv2.circle(frame, (cx, cy), radius, col, 3)
+    # Dark fill so the glyph inside is clearly readable against the camera feed
     cv2.circle(frame, (cx, cy), radius - 4, (10, 12, 20), -1)
     icon_rect = (cx - radius + 10, cy - radius + 10,
                  cx + radius - 10, cy + radius - 10)
@@ -549,6 +617,13 @@ def _draw_reflex_target(frame, target, cx, cy, radius, flash=False):
 
 
 def draw_reflex_solo_view(frame, game_state, voice_mode_active=False):
+    """
+    Solo Speed Reflex screen.
+
+    A random gesture target appears inside a large circle.  The player must match
+    it as quickly as possible.  The game runs for 30 seconds; hits score +1 and
+    show a green flash.  A live time bar and reaction-time average are displayed.
+    """
     w, h = frame.shape[1], frame.shape[0]
 
     cur_state = game_state.get("state", "")
@@ -586,30 +661,32 @@ def draw_reflex_solo_view(frame, game_state, voice_mode_active=False):
                                thickness=1, outline=2)
 
     else:
-        # 3px time bar just below top bar
+        # ── Active game ───────────────────────────────────────────────────
+        # Thin countdown bar spanning the full width just below the top bar
         pct   = min(1.0, time_left / 30.0)
         bar_y = _ix(h * 0.10)
+        # Colour shifts green → amber → red as time runs out
         col_t = COL_GREEN if pct > 0.5 else (COL_AMBER if pct > 0.25 else COL_RED)
         draw_progress_bar(frame, 0, bar_y, w, bar_y + 3, pct, color=col_t)
 
-        # Centre outlined circle (diameter=280 => radius=140)
+        # Centre target circle with dark fill so glyphs read clearly
         cx, cy = w // 2, _ix(h * 0.48)
         radius = 140
         circle_col = get_gesture_color(target) if target else COL_BORDER_HAIR
         cv2.circle(frame, (cx, cy), radius, circle_col, 2)
         cv2.circle(frame, (cx, cy), radius - 3, (10, 12, 20), -1)
 
-        # Gesture glyph inside circle
+        # Flash the ring green for a correct hit, then draw the glyph inside
         flash = (last_res == "hit" and cur_state == "RESULT_FLASH")
         if flash:
             cv2.circle(frame, (cx, cy), radius, COL_GREEN, 4)
-        glyph_pad = _ix(radius * 0.15)
+        glyph_pad = _ix(radius * 0.15)   # inset so the glyph doesn't touch the ring
         glyph_rect = (cx - radius + glyph_pad, cy - radius + glyph_pad,
                       cx + radius - glyph_pad, cy + radius - glyph_pad)
         if target:
             draw_gesture_glyph(frame, target, glyph_rect)
 
-        # Result feedback pill at y=86%
+        # Feedback text below the circle: HIT / MISS / TIME or running average
         pill_y = _ix(h * 0.86)
         if cur_state == "RESULT_FLASH":
             res_col = COL_GREEN if last_res == "hit" else \
@@ -628,6 +705,13 @@ def draw_reflex_solo_view(frame, game_state, voice_mode_active=False):
 
 def draw_reflex_two_player_view(frame, game_state,
                                 p1_tracker_state=None, p2_tracker_state=None):
+    """
+    2-player Speed Reflex race screen.
+
+    Both players see the same target.  The first to match it scores a point.
+    Vertical score bars on the left and right show progress toward win_target.
+    A horizontal timer bar beneath the target shows time remaining per round.
+    """
     w, h = frame.shape[1], frame.shape[0]
     t    = time.monotonic()
 
@@ -681,7 +765,9 @@ def draw_reflex_two_player_view(frame, game_state,
         fc = COL_GREEN if pct > 0.5 else (COL_AMBER if pct > 0.2 else COL_RED)
         draw_progress_bar(frame, bar_x1, bar_y, bar_x2, bar_y + bh, pct, color=fc)
 
-    # Score bars (vertical — drawn manually as draw_progress_bar is horizontal)
+    # Vertical score bars flanking the target circle.
+    # draw_progress_bar fills left-to-right, so we build the vertical bar manually:
+    # fill from the bottom up so a full bar reaches the top.
     for sx, score, col, lbl in [
         (_ix(w * 0.03), p1_score, COL_ACCENT, "P1"),
         (_ix(w * 0.80), p2_score, COL_AMBER,  "P2"),
@@ -690,10 +776,11 @@ def draw_reflex_two_player_view(frame, game_state,
         bw  = _ix(w * 0.14)
         bh2 = _ix(h * 0.60)
         by1 = int(h * 0.20)
+        # Dark track
         cv2.rectangle(frame, (sx, by1), (sx + bw, by1 + bh2), (28, 28, 28), -1)
         cv2.rectangle(frame, (sx, by1), (sx + bw, by1 + bh2), COL_BORDER_HAIR, 1)
         if pct > 0:
-            fy = by1 + bh2 - int(bh2 * pct)
+            fy = by1 + bh2 - int(bh2 * pct)   # top of the filled portion
             cv2.rectangle(frame, (sx, fy), (sx + bw, by1 + bh2), col, -1)
         draw_centered_text(frame, f"{lbl}: {score}/{win_target}",
                            by1 + bh2 + _ix(h * 0.02), 0.36, col,
@@ -708,6 +795,18 @@ def draw_reflex_two_player_view(frame, game_state,
 
 def draw_bluff_mode_view(frame, game_state, tracker_state=None, hand_state=None,
                          flash_info=None):
+    """
+    Bluff mode screen.
+
+    The AI announces what gesture it will play, but ~55 % of the time it lies.
+    The player must decide whether to counter the declared move or anticipate the
+    bluff.  Normal RPS win rules apply to the *actual* (not declared) moves.
+
+    Layout: a centred AI declaration panel dominates the screen.  After the round
+    a "BLUFF! AI played X" or "TRUTHFUL" reveal appears, followed by the result
+    banner and declaration history strip.  A running bluff-rate stat is shown at
+    the bottom-left for the player to build a mental model over time.
+    """
     w, h = frame.shape[1], frame.shape[0]
     t    = time.monotonic()
 
@@ -745,7 +844,8 @@ def draw_bluff_mode_view(frame, game_state, tracker_state=None, hand_state=None,
     draw_outlined_text(frame, ai_lbl, lbl_x, lbl_y,
                        SCALE_MICRO, COL_AMBER, thickness=1, outline=2)
 
-    # Show declaration from COUNTDOWN onward
+    # The declaration is only revealed once the AI has committed (DECLARATION state
+    # and later); before that the panel stays blank to build anticipation.
     show_decl = cur_state in ("DECLARATION", "COUNTDOWN", "SHOOT_WINDOW", "ROUND_RESULT", "MATCH_RESULT")
     if show_decl and declared and declared != "?":
         icon_rect = (cx1 + _ix(panel_w * 0.10),
@@ -807,17 +907,19 @@ def draw_bluff_mode_view(frame, game_state, tracker_state=None, hand_state=None,
         draw_centered_text(frame, score_text, pan_y2 + _ix(h * 0.19),
                            SCALE_BODY, COL_TEXT_SECONDARY, thickness=1, outline=2)
 
-    # -- Declaration history strip ----------------------------------------
+    # -- Declaration history strip — compact per-round record: declared letter + B/T marker
     decl_hist = game_state.get("declaration_history", [])
     if decl_hist:
         strip_y  = h - _ix(h * 0.11)
         n        = len(decl_hist)
         cell_w   = _ix(w * 0.09)
-        strip_x  = (w - n * cell_w) // 2
+        strip_x  = (w - n * cell_w) // 2   # centre the strip horizontally
         for idx, entry in enumerate(decl_hist):
             bx = strip_x + idx * cell_w
+            # Outcome colour tells the player whether they won/drew/lost that round
             outcome_col = COL_GREEN if entry["outcome"] == "win" \
                           else (COL_TEXT_SECONDARY if entry["outcome"] == "draw" else COL_RED)
+            # "B" = bluff (AI lied), "T" = truthful
             bluff_mark = "B" if entry["is_bluff"] else "T"
             bluff_col  = COL_RED if entry["is_bluff"] else COL_GREEN
             draw_outlined_text(frame, entry["declared"][:1].upper(), bx, strip_y,
@@ -844,11 +946,21 @@ _GESTURE_SHORT  = {"Rock": "R", "Paper": "P", "Scissors": "S"}
 
 
 def _draw_simon_sequence_bar(frame, sequence, step_index, show_step, showing_seq, w, h):
-    """Horizontal sequence bar showing all gestures, highlighting current."""
+    """
+    Horizontal mini sequence bar drawn near the bottom of the Simon Says screen.
+
+    Each gesture in the sequence is rendered as a small coloured circle.  The
+    display state changes per element:
+      - showing_seq + i == show_step  : filled, bright — currently being demonstrated
+      - not showing_seq + i < step_index : filled — player already completed this step
+      - not showing_seq + i == step_index: pulsing outline with "?" — player's next target
+      - otherwise                        : dark filled — future steps (hidden)
+    """
     n   = len(sequence)
     if n == 0:
         return
     bar_y   = _ix(h * 0.82)
+    # Shrink cell width if the sequence is long so all cells fit on screen
     cell_w  = min(_ix(w * 0.08), _ix(w * 0.85 / n))
     total_w = cell_w * n
     start_x = (w - total_w) // 2
@@ -858,32 +970,41 @@ def _draw_simon_sequence_bar(frame, sequence, step_index, show_step, showing_seq
         cy    = bar_y
         col   = _GESTURE_COLORS.get(g, COL_TEXT_DIM)
         r     = _ix(cell_w * 0.38)
-        # Current step highlight
+        # Determine draw style based on phase and position in sequence
         if showing_seq and i == show_step:
-            # Currently being shown
+            # This step is actively being shown to the player — filled and bright
             cv2.circle(frame, (cx, cy), r + 4, col, -1)
             draw_outlined_text(frame, _GESTURE_SHORT.get(g, "?"),
                                cx - _ix(r * 0.4), cy + _ix(r * 0.35),
                                0.50, (0, 0, 0), thickness=2, outline=0)
         elif not showing_seq and i < step_index:
-            # Already done
+            # Player has already matched this step — show solid as confirmation
             cv2.circle(frame, (cx, cy), r, col, -1)
             draw_outlined_text(frame, _GESTURE_SHORT.get(g, "?"),
                                cx - _ix(r * 0.4), cy + _ix(r * 0.35),
                                0.40, (0, 0, 0), thickness=1, outline=0)
         elif not showing_seq and i == step_index:
-            # Current target
+            # This is what the player must show next — pulsing ring with "?" to prompt
             pulse = 0.6 + 0.4 * abs(math.sin(time.monotonic() * math.pi * 2))
             pc    = tuple(min(255, int(c * pulse)) for c in col)
             cv2.circle(frame, (cx, cy), r + 2, pc, 3)
             draw_outlined_text(frame, "?", cx - _ix(r * 0.25), cy + _ix(r * 0.35),
                                0.45, pc, thickness=2, outline=3)
         else:
+            # Future step — hidden as a dark dot so the player can't peek ahead
             cv2.circle(frame, (cx, cy), r, (40, 40, 50), -1)
             cv2.circle(frame, (cx, cy), r, (70, 70, 80), 1)
 
 
 def draw_simon_says_solo_view(frame, game_state):
+    """
+    Solo Simon Says screen.
+
+    The system plays a growing sequence of gestures (WATCH phase), then the
+    player must reproduce each one in order within 2 seconds per step (YOUR TURN
+    phase).  A sequence progress bar at the top and a mini dot bar at the bottom
+    track how far through the current sequence the player is.
+    """
     w, h = frame.shape[1], frame.shape[0]
 
     showing_seq = game_state.get("showing_sequence", False)
@@ -911,7 +1032,7 @@ def draw_simon_says_solo_view(frame, game_state):
                            thickness=1, outline=2)
         return
 
-    # 3px progress bar below top bar
+    # Thin progress bar just below the top bar — shows position within current sequence
     pct_prog = step_index / max(seq_len, 1) if not showing_seq else (show_step / max(seq_len, 1))
     bar_y    = _ix(h * 0.10)
     draw_progress_bar(frame, 0, bar_y, w, bar_y + 3, pct_prog, color=COL_ACCENT)
@@ -952,7 +1073,7 @@ def draw_simon_says_solo_view(frame, game_state):
             draw_centered_text(frame, target, _ix(h * 0.64), SCALE_HEADING, col,
                                thickness=2, outline=3)
 
-        # Time bar at y=42% (urgency indicator for per-step timer)
+        # Urgency timer bar — 2 second window per step, colour shifts red as time runs out
         pct  = min(1.0, time_left / 2.0)
         bx1  = _ix(w * 0.20);  bx2 = _ix(w * 0.80)
         by   = _ix(h * 0.70);  bh  = _ix(h * 0.016)
@@ -969,6 +1090,14 @@ def draw_simon_says_solo_view(frame, game_state):
 
 def draw_simon_says_two_player_view(frame, game_state,
                                     p1_tracker_state=None, p2_tracker_state=None):
+    """
+    2-player cooperative Simon Says chain screen.
+
+    P1 adds a gesture to the shared chain, then P2 must recite the full chain and
+    add one more — players alternate as the chain grows.  A wrong gesture or
+    timeout ends the game for both.  Both hands are tracked simultaneously (left =
+    P1, right = P2).
+    """
     w, h = frame.shape[1], frame.shape[0]
 
     showing_seq  = game_state.get("showing_sequence", False)
@@ -1071,6 +1200,17 @@ def draw_simon_says_two_player_view(frame, game_state,
 # ============================================================
 
 def draw_squid_game_view(frame, game_state, hand_state=None):
+    """
+    Solo Red Light / Green Light (Squid Game) screen.
+
+    The player guides their extended index finger to a dot on screen.  When the
+    light is GREEN they can move freely; when it turns RED they must freeze or be
+    eliminated.  A capture progress ring appears around the dot as the player
+    dwells on it — completing it scores a point and spawns a new dot.
+
+    Background colour shifts to a red tint on RED LIGHT and green tint on GREEN
+    to reinforce the current state.
+    """
     w, h = frame.shape[1], frame.shape[0]
 
     light        = game_state.get("light", "GREEN")
@@ -1089,17 +1229,18 @@ def draw_squid_game_view(frame, game_state, hand_state=None):
     state        = game_state.get("state", "PLAYING")
     t            = time.monotonic()
 
-    # -- Background tint based on light -----------------------------------
+    # -- Background tint — fast pulsing red on RED LIGHT, subtle green on GREEN
     if game_over:
-        bg_col = (0, 0, 20)
+        bg_col = (0, 0, 20)   # near-black for the elimination screen
     elif light == "RED":
         pulse = 0.15 + 0.08 * abs(math.sin(t * math.pi * 3))
-        bg_col = (0, 0, int(40 * pulse + 10))
+        bg_col = (0, 0, int(40 * pulse + 10))   # flickering red tint
     else:
-        bg_col = (0, 20, 0)
+        bg_col = (0, 20, 0)   # soft green tint when safe to move
 
     overlay = frame.copy()
     cv2.rectangle(overlay, (0, 0), (w, h), bg_col, -1)
+    # Blend overlay at 45 % so the camera feed remains visible underneath
     cv2.addWeighted(overlay, 0.45, frame, 0.55, 0, frame)
 
     if state == "INTRO":
@@ -1122,6 +1263,7 @@ def draw_squid_game_view(frame, game_state, hand_state=None):
                            SCALE_DISPLAY_L, COL_RED, thickness=2, outline=3)
         go_text = game_state.get("game_over_reason",
                   game_state.get("game_over_text", ""))
+        # The reason string may contain "|"-separated lines — render each on its own row
         parts = go_text.split("|")
         for i, part in enumerate(parts[:3]):
             draw_centered_text(frame, part.strip(),
@@ -1168,13 +1310,14 @@ def draw_squid_game_view(frame, game_state, hand_state=None):
     cv2.circle(frame, (dx, dy), dot_r, dot_col, 2)
     cv2.circle(frame, (dx, dy), max(dot_r - 4, 2), dot_col, -1)
 
-    # Capture progress ring
+    # Capture progress ring — grows clockwise around the dot as the player dwells on it
     if capture_pct > 0:
         angle = int(360 * capture_pct)
         cv2.ellipse(frame, (dx, dy), (dot_r + 10, dot_r + 10), -90,
                     0, angle, COL_GREEN, 4)
 
-    # -- Finger cursor -----------------------------------------------------
+    # -- Finger cursor — a filled circle at the index finger tip position --------
+    # Colour is green on GREEN LIGHT and red on RED LIGHT as an extra visual cue
     if hand_state:
         ix = hand_state.get("index_tip_x")
         iy = hand_state.get("index_tip_y")
@@ -1184,7 +1327,7 @@ def draw_squid_game_view(frame, game_state, hand_state=None):
             cur_col = (0, 200, 0) if light == "GREEN" else (200, 0, 0)
             cv2.circle(frame, (fx, fy), _ix(w * 0.012), cur_col, -1)
             cv2.circle(frame, (fx, fy), _ix(w * 0.018), cur_col, 2)
-            # Line to dot
+            # Dim line connecting finger to the target dot so direction is obvious
             cv2.line(frame, (fx, fy), (dx, dy), (60, 60, 60), 1)
 
     # -- Score strip -------------------------------------------------------
@@ -1296,7 +1439,7 @@ def draw_squid_game_2p_view(frame, game_state, p1_hand=None, p2_hand=None):
     draw_outlined_text(frame, "P2", _ix(w * 0.53), play_y1 + _ix(h * 0.04),
                        0.36, COL_MAGENTA, thickness=1, outline=1)
 
-    # Draw dots and cursors for each player
+    # Draw dots and finger cursors for both players in one pass using the definition list
     player_defs = [
         ("p1", COL_CYAN,    p1_hand, "p1_dot_x", "p1_dot_y",
          "p1_dwell_pct", "p1_flash", "p1_eliminated", "p1_dots"),
@@ -1315,7 +1458,7 @@ def draw_squid_game_2p_view(frame, game_state, p1_hand=None, p2_hand=None):
         dots       = game_state.get(dots_key, 0)
 
         if eliminated:
-            col = (80, 80, 80)
+            col = (80, 80, 80)   # grey out everything for eliminated players
 
         dx    = int(dot_x * w)
         dy    = int(play_y1 + dot_y * play_h)
@@ -1329,9 +1472,11 @@ def draw_squid_game_2p_view(frame, game_state, p1_hand=None, p2_hand=None):
         cv2.circle(frame, (dx, dy), max(dot_r - 5, 2), dc, -1)
 
         if dwell_pct > 0:
+            # Capture arc grows clockwise as the player dwells on the dot
             sweep = int(360 * dwell_pct)
             cv2.ellipse(frame, (dx, dy), (dot_r + 10, dot_r + 10), -90, 0, sweep, col, 4)
         if flash:
+            # Large outer ring flash when a dot is collected
             cv2.circle(frame, (dx, dy), dot_r + 16, col, 3)
 
         if hand_st and not eliminated:
@@ -1340,9 +1485,11 @@ def draw_squid_game_2p_view(frame, game_state, p1_hand=None, p2_hand=None):
             if ix is not None:
                 fx = int(ix * w)
                 fy = int(play_y1 + iy * play_h)
+                # Turn cursor red on RED LIGHT as an extra freeze reminder
                 cur_col = col if light == "GREEN" else COL_RED
                 cv2.circle(frame, (fx, fy), _ix(w * 0.014), cur_col, -1)
                 cv2.circle(frame, (fx, fy), _ix(w * 0.020), cur_col, 2)
+                # Dim guide line connecting cursor to target dot
                 cv2.line(frame, (fx, fy), (dx, dy), tuple(c // 3 for c in col), 1)
 
     # Score strip
@@ -1363,7 +1510,7 @@ def draw_squid_game_2p_view(frame, game_state, p1_hand=None, p2_hand=None):
     draw_bottom_bar(frame,
         "P1=Left finger  |  P2=Right finger  |  Guide to your dot  |  FREEZE on RED  |  Q Quit")
 
-# Gesture colours for the two new gestures (legacy, used by _draw_rpsls_gesture_icon)
+# Gesture colours used by _draw_rpsls_gesture_icon for the simple vector glyphs
 _RPSLS_COLS = {
     "Rock":     COL_CYAN,
     "Paper":    COL_GREEN,
@@ -1398,7 +1545,19 @@ _RPSLS_RULES = [
 
 
 def _draw_rpsls_gesture_icon(frame, gesture, rect, show_name=True):
-    """Draw gesture icon with RPSLS-specific colours."""
+    """
+    Draw a simple vector glyph for a RPSLS gesture inside `rect`.
+
+    Each gesture has a distinct geometric shape so they are distinguishable at
+    small sizes even without the gesture name label:
+      Rock     = circle
+      Paper    = square
+      Scissors = two crossing lines (X)
+      Lizard   = oval head with two eye dots
+      Spock    = four finger lines with a palm arc (Vulcan salute silhouette)
+
+    show_name=False lets the caller draw the label separately.
+    """
     col = _RPSLS_COLS.get(gesture, COL_TEXT_DIM)
     x1, y1, x2, y2 = rect
     pw = x2 - x1; ph = y2 - y1
@@ -1413,7 +1572,7 @@ def _draw_rpsls_gesture_icon(frame, gesture, rect, show_name=True):
         cv2.line(frame, (cx - r, cy - r), (cx + r, cy + r), col, 3)
         cv2.line(frame, (cx + r, cy - r), (cx - r, cy + r), col, 3)
     elif gesture == "Lizard":
-        # Snake/lizard head: oval with eyes
+        # Lizard head: horizontal oval (top half solid, bottom half lighter) with two eyes
         axes_x = max(4, r)
         axes_y = max(3, _ix(r * 0.55))
         cv2.ellipse(frame, (cx, cy), (axes_x, axes_y), 0, 0, 180, col, 3)
@@ -1424,10 +1583,12 @@ def _draw_rpsls_gesture_icon(frame, gesture, rect, show_name=True):
         cv2.circle(frame, (cx - eye_ox, cy - eye_oy), eye_r, col, -1)
         cv2.circle(frame, (cx + eye_ox, cy - eye_oy), eye_r, col, -1)
     elif gesture == "Spock":
-        # Four fingers with palm arc — Vulcan salute
+        # Vulcan salute: four vertical finger lines with outer fingers slightly shorter,
+        # joined at the base by a palm arc
         finger_h = max(4, _ix(r * 0.85))
         offsets  = [-_ix(r*0.65), -_ix(r*0.22), _ix(r*0.22), _ix(r*0.65)]
         for i, fx in enumerate(offsets):
+            # Outer fingers (index 0, 3) are slightly shorter than inner pair
             top = cy - finger_h - (_ix(r * 0.15) if i in (0, 3) else 0)
             cv2.line(frame, (cx + fx, cy + max(1, _ix(r*0.3))),
                      (cx + fx, top), col, 3)
@@ -1436,9 +1597,10 @@ def _draw_rpsls_gesture_icon(frame, gesture, rect, show_name=True):
         cv2.ellipse(frame, (cx, cy + max(1, _ix(r*0.3))),
                     (palm_ax, palm_ay), 0, 0, 180, col, 3)
     else:
+        # Unknown gesture — fallback placeholder circle
         cv2.circle(frame, (cx, cy), r, COL_TEXT_DIM, 1)
 
-    # Name  -  only when caller hasn't already drawn it
+    # Gesture name below the glyph — only when caller hasn't already drawn it
     if show_name and gesture not in ("Unknown", ""):
         draw_centered_text_in_rect(frame, gesture,
             (x1, y2, x2, y2 + _ix(ph * 0.28)),
@@ -1476,11 +1638,12 @@ def draw_prediction_race_view(frame, game_state, tracker_state=None):
                        _ix(w * 0.04), _ix(h * 0.10), SCALE_CAPTION, COL_TEXT_SECONDARY,
                        thickness=1, outline=2)
 
+    # Score pip rows — filled circle = won, outline = remaining
     for i in range(win_target):
-        px = _ix(w * 0.04) + i * _ix(w * 0.028)
+        px = _ix(w * 0.04) + i * _ix(w * 0.028)   # player pips grow left-to-right
         pc = COL_ACCENT if i < player_score else COL_INACTIVE
         cv2.circle(frame, (px, _ix(h * 0.145)), _ix(h * 0.012), pc, -1 if i < player_score else 2)
-        ax = w - _ix(w * 0.04) - i * _ix(w * 0.028)
+        ax = w - _ix(w * 0.04) - i * _ix(w * 0.028)   # AI pips grow right-to-left
         ac = COL_RED if i < ai_score else COL_INACTIVE
         cv2.circle(frame, (ax, _ix(h * 0.145)), _ix(h * 0.012), ac, -1 if i < ai_score else 2)
 
@@ -1655,12 +1818,13 @@ def draw_gesture_rehab_view(frame, game_state):
         ly = py1 + _ix(ph2 * 0.22)
         for line in left_lines:
             if line:
+                # Citation lines get a distinct muted colour; key clinical claims get BODY
                 col = CITE if line.startswith("(") else (BODY if "movement" in line or "ability" in line or "injury" in line else DIM)
                 draw_outlined_text(frame, line, col1_x, ly,
                                    txt_sc, col, thickness=1, outline=1)
                 ly += gap
             else:
-                ly += _ix(ph2 * 0.022)
+                ly += _ix(ph2 * 0.022)   # blank line → half a gap
 
         # Vertical divider
         cv2.line(frame,
@@ -1696,7 +1860,7 @@ def draw_gesture_rehab_view(frame, game_state):
                                    txt_sc, col, thickness=1, outline=1)
                 ry += gap
             else:
-                ry += _ix(ph2 * 0.022)
+                ry += _ix(ph2 * 0.022)   # blank tuple → half a gap
 
         # Horizontal separator + pulsing start prompt at panel bottom
         sep_y = py2 - _ix(ph2 * 0.10)
@@ -1707,6 +1871,7 @@ def draw_gesture_rehab_view(frame, game_state):
         return
 
     if cur_state == "COMPLETE":
+        # Green heading if the player passed (≥80 % accuracy), amber otherwise
         done_col = COL_GREEN if accuracy >= 0.8 else COL_ACCENT
         draw_centered_text(frame, "SESSION COMPLETE!", cy-_ix(h*0.14),
                            SCALE_HEADING, done_col, thickness=2, outline=3)
@@ -1722,6 +1887,7 @@ def draw_gesture_rehab_view(frame, game_state):
         return
 
     if cur_state == "REST":
+        # Brief inter-rep rest: flash green or red depending on whether the last rep succeeded
         log = game_state.get("session_log", [])
         was_ok = log[-1]["success"] if log else True
         flash_col = COL_GREEN if was_ok else COL_RED
@@ -1757,6 +1923,7 @@ def draw_gesture_rehab_view(frame, game_state):
             draw_centered_text(frame, "Show the gesture above", by+bh2+_ix(h*0.025),
                                SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
 
+        # Session progress dots: green=pass, red=miss, pulsing ring=current, grey=future
         dot_y  = _ix(h*0.88)
         dot_sp = min(_ix(w*0.06), _ix(w*0.85/total_steps))
         start_x = w//2 - (total_steps*dot_sp)//2
@@ -1764,20 +1931,34 @@ def draw_gesture_rehab_view(frame, game_state):
         for i in range(total_steps):
             dx = start_x + i*dot_sp
             if i < len(log):
+                # Past rep — solid colour shows outcome
                 cv2.circle(frame, (dx, dot_y), _ix(w*0.010),
                            COL_GREEN if log[i]["success"] else COL_RED, -1)
             elif i == step:
+                # Current rep — pulsing outline in the target gesture colour
                 pulse2 = 0.6 + 0.4*abs(math.sin(t*math.pi*2))
                 pc2    = tuple(min(255, int(c*pulse2)) for c in target_col)
                 cv2.circle(frame, (dx, dot_y), _ix(w*0.012), pc2, 2)
             else:
+                # Future rep — dim unfilled circle
                 cv2.circle(frame, (dx, dot_y), _ix(w*0.010), (50,50,60), 1)
 
 
 
 
 def draw_arcade_snake_view(frame, game_state, tracker_state=None):
-    """Gesture Snake  -  Rock=straight, Scissors=left, Paper=right."""
+    """
+    Gesture Snake arcade game screen.
+
+    The snake is steered purely by hand gestures — no keyboard input:
+      Rock     = continue straight
+      Scissors = turn left
+      Paper    = turn right
+
+    Screens: INTRO (leaderboard), PLAYING (grid + live glyph HUD), GAME_OVER
+    (score + leaderboard + restart prompt).  A "HAND NOT IN FRAME" badge warns
+    the player if the tracker loses the hand during play.
+    """
     w, h = frame.shape[1], frame.shape[0]
     t    = time.monotonic()
 

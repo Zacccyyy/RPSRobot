@@ -4,37 +4,38 @@ reflex_state.py
 Speed Reflex game mode — two controllers:
 
   ReflexSoloController
-    - Random target gesture flashes on screen
-    - Player must match it as fast as possible
-    - 30-second sprint, score = number of hits
-    - No penalty for misses; timeout after 3s = miss, next target
+    - A random target gesture flashes on screen.
+    - The player must match it as fast as possible.
+    - 30-second sprint; score = number of correct hits.
+    - No penalty for misses; any target unanswered after 3s counts as a miss
+      and the next target appears automatically.
 
   ReflexTwoPlayerController
-    - Same shared target displayed centre-screen
-    - First player to correctly match the gesture wins the point
-    - First to win_target (default 10) wins the match
+    - Same shared target is shown centre-screen to both players.
+    - First player to correctly match the gesture wins the point.
+    - First to win_target (default 10) wins the match.
 
-This file lives entirely in game-logic space — it owns no camera or
-drawing code.  The main loop calls update() every frame and passes the
-returned dict straight to the appropriate draw_reflex_*_view() function.
+This file is pure game logic — no camera or drawing code lives here.
+The main loop calls update() every frame and passes the returned dict
+straight to the appropriate draw_reflex_*_view() function.
 """
 
 import time
 import random
 from reflex_highscore_store import ReflexHighscoreStore
 
-# The only three gestures the camera tracker can confirm
+# The only three gestures the camera tracker can reliably confirm
 VALID_GESTURES = ["Rock", "Paper", "Scissors"]
 
-# ── Timing constants — DO NOT change, these are calibrated values ─────────────
-SOLO_DURATION       = 30.0   # seconds total for one solo sprint
-TARGET_TIMEOUT      = 3.0    # seconds before an unmatched target counts as a miss
-RESULT_FLASH_SECS   = 0.55   # brief "HIT / MISS" flash before the next target appears
-INTRO_SECS          = 2.0    # countdown intro shown before the sprint begins
-GAME_OVER_SECS      = 4.0    # show final score before resetting (unused directly, kept for reference)
+# ── Timing constants (calibrated — do not change) ────────────────────────────
+SOLO_DURATION      = 30.0   # total sprint length in seconds
+TARGET_TIMEOUT     = 3.0    # seconds before an unmatched target counts as a miss
+RESULT_FLASH_SECS  = 0.55   # brief "HIT / MISS" flash duration before next target
+INTRO_SECS         = 2.0    # splash screen shown before the sprint begins
+GAME_OVER_SECS     = 4.0    # how long to show the final score (kept for reference)
 
-TWO_PLAYER_TARGET   = 10     # first player to this score wins the 2P match
-RESULT_FLASH_2P     = 0.70   # slightly longer flash for 2P so both players can register what happened
+TWO_PLAYER_TARGET  = 10     # first player to this score wins the 2P match
+RESULT_FLASH_2P    = 0.70   # slightly longer flash in 2P so both players can register it
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -43,126 +44,129 @@ RESULT_FLASH_2P     = 0.70   # slightly longer flash for 2P so both players can 
 
 class ReflexSoloController:
     """
-    30-second sprint.  Target appears → player matches → score+1 → next target.
-    Timeout after TARGET_TIMEOUT seconds = miss, next target immediately.
+    30-second sprint mode.
+    A target gesture appears → the player matches it → score+1 → next target.
+    If the player doesn't match within TARGET_TIMEOUT seconds, it's a miss.
 
-    update() signature:
+    update() is called every frame:
         controller.update(tracker_state=..., now=..., player_name="")
 
     Returns a dict consumed by draw_reflex_solo_view().
     """
 
     def __init__(self):
-        # Load the persistent highscore store so we can compare at game-over
+        # Load the persistent highscore store from disk on startup
         self._hs_store = ReflexHighscoreStore()
         self.reset()
 
     def reset(self):
-        """Wipe all per-run state and go back to the INTRO countdown."""
-        self.state           = "INTRO"
-        self.target          = ""          # current gesture the player must match
-        self.score           = 0
-        self.misses          = 0
-        self.reaction_times  = []          # list of per-hit reaction times in ms
-        self.target_shown    = 0.0         # monotonic timestamp when current target appeared
-        self.result_until    = 0.0         # timestamp when the RESULT_FLASH ends
-        self.last_result     = ""          # "hit" or "timeout" — drives the flash label
-        self.last_rt_ms      = 0           # reaction time for the most recent hit
-        self.game_end_time   = 0.0         # timestamp when the 30-second sprint ends
-        self._intro_until    = time.monotonic() + INTRO_SECS
-        # Highscore metadata set at game-over — used by the results screen
-        self._is_new_best    = False
-        self._run_rank       = 0
+        """Wipe all per-run state and return to the INTRO countdown."""
+        self.state          = "INTRO"
+        self.target         = ""          # the gesture the player must currently match
+        self.score          = 0
+        self.misses         = 0
+        self.reaction_times = []          # list of per-hit reaction times in milliseconds
+        self.target_shown   = 0.0         # monotonic timestamp when the current target appeared
+        self.result_until   = 0.0         # when the current RESULT_FLASH ends
+        self.last_result    = ""          # "hit" or "timeout" — drives the flash label
+        self.last_rt_ms     = 0           # reaction time for the most recent hit (ms)
+        self.game_end_time  = 0.0         # when the 30-second sprint ends
+
+        self._intro_until   = time.monotonic() + INTRO_SECS
+
+        # Highscore metadata filled in at game-over, used by the results screen
+        self._is_new_best = False
+        self._run_rank    = 0
+
         self._next_target()
 
     def _next_target(self):
-        """Pick a new random gesture and record when it was shown."""
+        """Pick a new random target gesture and record when it appeared."""
         self.target       = random.choice(VALID_GESTURES)
         self.target_shown = time.monotonic()
 
     def _avg_rt(self):
-        """Return average reaction time in milliseconds, or 0 if no hits yet."""
+        """Return the average reaction time in milliseconds, or 0 if no hits yet."""
         if not self.reaction_times:
             return 0
         return int(sum(self.reaction_times) / len(self.reaction_times))
 
     def _build_output(self, now):
         """
-        Package the current game state into a flat dict for the renderer.
-        Called at the end of every update() branch so the view always gets
-        a consistent snapshot — never a partial update.
+        Package current game state into a flat dict for the renderer.
+        Called at the end of every update() branch so the view always
+        gets a consistent, complete snapshot.
         """
-        # Time remaining is only meaningful while the sprint is active
+        # time_left is only meaningful while the sprint clock is running
         time_left = 0.0
         if self.game_end_time > 0:
             time_left = max(0.0, self.game_end_time - now)
 
-        # Pull the all-time best from disk so the results screen is up to date
+        # Read the current all-time best from disk for the results screen
         best = self._hs_store.get_best()
         return {
-            "play_mode_label":  "Speed Reflex",
-            "state":            self.state,
-            "target":           self.target,
-            "score":            self.score,
-            "misses":           self.misses,
-            "time_left":        time_left,
-            "last_result":      self.last_result,
-            "last_rt_ms":       self.last_rt_ms,
-            "avg_reaction_ms":  self._avg_rt(),
-            "two_player":       False,
-            # Highscore fields (renderer shows these on the GAME_OVER screen)
-            "best_score":       best["score"]  if best else 0,
-            "best_player":      best["player"] if best else "",
-            "best_avg_rt":      best["avg_rt"] if best else 0,
-            "is_new_best":      self._is_new_best,
-            "run_rank":         self._run_rank,
-            "top_scores":       self._hs_store.get_top(),
+            "play_mode_label": "Speed Reflex",
+            "state":           self.state,
+            "target":          self.target,
+            "score":           self.score,
+            "misses":          self.misses,
+            "time_left":       time_left,
+            "last_result":     self.last_result,
+            "last_rt_ms":      self.last_rt_ms,
+            "avg_reaction_ms": self._avg_rt(),
+            "two_player":      False,
+            # Highscore fields — shown on the GAME_OVER screen
+            "best_score":      best["score"]  if best else 0,
+            "best_player":     best["player"] if best else "",
+            "best_avg_rt":     best["avg_rt"] if best else 0,
+            "is_new_best":     self._is_new_best,
+            "run_rank":        self._run_rank,
+            "top_scores":      self._hs_store.get_top(),
         }
 
     def update(self, tracker_state, now=None, player_name=""):
         """
-        Main tick function — call once per frame.
+        Main tick — call once per frame.
 
-        tracker_state  : dict from the gesture tracker (needs "confirmed_gesture")
-        now            : optional monotonic timestamp (uses time.monotonic() if omitted)
-        player_name    : used when submitting the run to the highscore store
+        tracker_state : dict from the gesture tracker (needs "confirmed_gesture")
+        now           : optional monotonic timestamp
+        player_name   : used when submitting the completed run to the highscore store
         """
         if now is None:
             now = time.monotonic()
 
-        # The tracker's confirmed gesture — "Unknown" when nothing is detected
+        # The tracker's best current reading — "Unknown" when nothing is detected
         confirmed = tracker_state.get("confirmed_gesture", "Unknown")
 
-        # ── INTRO: show a countdown splash before the sprint starts ──────────
+        # ── INTRO: show a splash screen before the sprint clock starts ────────
         if self.state == "INTRO":
             if now >= self._intro_until:
-                # Intro finished — start the clock and show the first target
+                # Intro done — start the sprint clock and show the first target
                 self.state         = "PLAYING"
                 self.game_end_time = now + SOLO_DURATION
                 self._next_target()
             return self._build_output(now)
 
-        # ── GAME_OVER: show results screen, wait for the player to press Enter
+        # ── GAME_OVER: show results; the main loop handles the Enter key ──────
         if self.state == "GAME_OVER":
-            # Nothing to do here — the main loop handles the Enter key
             return self._build_output(now)
 
-        # ── RESULT_FLASH: brief pause after a hit or timeout ─────────────────
+        # ── RESULT_FLASH: brief pause after each hit or timeout ───────────────
         if self.state == "RESULT_FLASH":
             if now >= self.result_until:
-                # Flash is done — check if the game is also over
                 if now >= self.game_end_time:
+                    # Sprint has also ended — submit the score and go to results
                     self._submit_score(player_name)
                     self.state = "GAME_OVER"
                 else:
-                    # Game still running — show the next target
+                    # Sprint still going — show the next target
                     self.state = "PLAYING"
                     self._next_target()
             return self._build_output(now)
 
         # ── PLAYING: the core reflex loop ─────────────────────────────────────
         if self.state == "PLAYING":
-            # Check if time has run out first (avoids processing an extra gesture)
+            # Check for sprint end first (avoids processing a gesture on the last frame)
             if now >= self.game_end_time:
                 self._submit_score(player_name)
                 self.state           = "GAME_OVER"
@@ -171,7 +175,7 @@ class ReflexSoloController:
 
             elapsed = now - self.target_shown
 
-            # Target timed out — the player was too slow, count a miss
+            # Target timed out — player was too slow, count a miss
             if elapsed >= TARGET_TIMEOUT:
                 self.misses      += 1
                 self.last_result  = "timeout"
@@ -180,7 +184,7 @@ class ReflexSoloController:
                 self.result_until = now + RESULT_FLASH_SECS
                 return self._build_output(now)
 
-            # Player matched the target gesture — count a hit and record how fast
+            # Player matched the target gesture — count a hit and record reaction time
             if confirmed == self.target:
                 rt_ms = int((now - self.target_shown) * 1000)
                 self.reaction_times.append(rt_ms)
@@ -194,7 +198,7 @@ class ReflexSoloController:
         return self._build_output(now)
 
     def _submit_score(self, player_name: str):
-        """Submit the completed run to the highscore store and save rank info."""
+        """Submit the completed run to the persistent highscore store."""
         name = (player_name or "Unknown").strip()
         self._is_new_best, self._run_rank = self._hs_store.submit(
             player_name=name,
@@ -209,10 +213,11 @@ class ReflexSoloController:
 
 class ReflexTwoPlayerController:
     """
-    Shared target centre-screen.  First player to match the gesture scores.
-    First to win_target wins the match.
+    Shared-target two-player mode.
+    The same random gesture appears centre-screen; the first player to
+    match it scores a point. First to win_target wins the match.
 
-    update() signature:
+    update() is called every frame:
         controller.update(p1_tracker=..., p2_tracker=..., now=...)
 
     Returns a dict consumed by draw_reflex_two_player_view().
@@ -223,21 +228,22 @@ class ReflexTwoPlayerController:
         self.reset()
 
     def reset(self):
-        """Wipe all match state and go back to INTRO."""
-        self.state          = "INTRO"
-        self.target         = ""
-        self.p1_score       = 0
-        self.p2_score       = 0
-        self.last_winner    = ""     # "P1", "P2", or "NONE" (timeout)
-        self.match_winner   = ""     # "P1 WINS!" or "P2 WINS!" — set at match end
-        self.result_until   = 0.0
-        self.target_shown   = 0.0
-        self._intro_until   = time.monotonic() + INTRO_SECS
+        """Wipe all match state and return to INTRO."""
+        self.state        = "INTRO"
+        self.target       = ""
+        self.p1_score     = 0
+        self.p2_score     = 0
+        self.last_winner  = ""     # "P1", "P2", or "NONE" (timeout)
+        self.match_winner = ""     # "P1 WINS!" or "P2 WINS!" — set at match end
+        self.result_until = 0.0
+        self.target_shown = 0.0
+
+        self._intro_until = time.monotonic() + INTRO_SECS
         self._next_target()
 
     def _next_target(self):
         """Pick a new random target and clear the last-winner label."""
-        self.target       = random.choice(VALID_GESTURES)
+        self.target      = random.choice(VALID_GESTURES)
         self.target_shown = time.monotonic()
         self.last_winner  = ""
 
@@ -246,7 +252,7 @@ class ReflexTwoPlayerController:
         Package current state for the renderer.
         time_left counts down from TARGET_TIMEOUT only while actively playing.
         """
-        # Only show a time countdown during the active PLAYING state
+        # Only show a live countdown during PLAYING
         if self.state == "PLAYING":
             tl = max(0.0, TARGET_TIMEOUT - (now - self.target_shown))
         else:
@@ -268,7 +274,7 @@ class ReflexTwoPlayerController:
     def update(self, p1_tracker, p2_tracker, now=None):
         """
         Main tick — called once per frame with both players' tracker states.
-        P1 wins ties (both players match on the same frame).
+        On a tie (both players match on the same frame), P1 wins the point.
         """
         if now is None:
             now = time.monotonic()
@@ -284,7 +290,7 @@ class ReflexTwoPlayerController:
                 self._next_target()
             return self._build_output(now)
 
-        # ── MATCH_OVER: show the winner for a few seconds then auto-reset ────
+        # ── MATCH_OVER: show the winner for a moment, then auto-reset ────────
         if self.state == "MATCH_OVER":
             if now >= self.result_until:
                 self.reset()
@@ -295,38 +301,37 @@ class ReflexTwoPlayerController:
             if now >= self.result_until:
                 # Check if either player has reached the win target
                 if self.p1_score >= self.win_target or self.p2_score >= self.win_target:
-                    winner = "P1 WINS!" if self.p1_score >= self.win_target else "P2 WINS!"
-                    self.match_winner = winner
+                    self.match_winner = "P1 WINS!" if self.p1_score >= self.win_target else "P2 WINS!"
                     self.state        = "MATCH_OVER"
                     self.result_until = now + 4.0
                 else:
-                    # Match is still going — show the next target
+                    # Match continues — show the next target
                     self.state = "PLAYING"
                     self._next_target()
             return self._build_output(now)
 
-        # ── PLAYING: check both players each frame ────────────────────────────
+        # ── PLAYING: check both players every frame ───────────────────────────
         if self.state == "PLAYING":
-            # Nobody matched in time — skip to the next target
             elapsed = now - self.target_shown
+
+            # Neither player matched in time — skip to the next target
             if elapsed >= TARGET_TIMEOUT:
+                self.last_winner  = "NONE"
                 self.state        = "RESULT_FLASH"
                 self.result_until = now + RESULT_FLASH_2P
-                self.last_winner  = "NONE"
                 return self._build_output(now)
 
-            # Evaluate both players on the same frame; P1 wins on a tie
+            # Check who hit the target; P1 wins on a same-frame tie
             p1_hit = (p1_confirmed == self.target)
             p2_hit = (p2_confirmed == self.target)
 
             if p1_hit or p2_hit:
-                # Award the point and enter the flash state
                 if p1_hit:
-                    self.p1_score    += 1
-                    self.last_winner  = "P1"
+                    self.p1_score   += 1
+                    self.last_winner = "P1"
                 else:
-                    self.p2_score    += 1
-                    self.last_winner  = "P2"
+                    self.p2_score   += 1
+                    self.last_winner = "P2"
                 self.state        = "RESULT_FLASH"
                 self.result_until = now + RESULT_FLASH_2P
 

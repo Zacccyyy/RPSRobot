@@ -9,17 +9,17 @@ the opponent can practice against a "ghost" version of themselves or someone
 else whose data was collected.
 
 How it works — four layers of decision-making (most specific first):
-  1. Outcome + last gesture  → "After losing with Rock, this player plays Paper 60% of the time"
+  1. Outcome + last gesture  → "After losing with Rock, this player plays Paper 60%"
   2. Last gesture only       → "After Rock, this player usually moves to Paper"
-  3. Outcome only (response type) → "After a loss, this player upgrades 55% of the time"
-  4. Overall gesture frequency    → "This player throws Rock 45% of the time"
+  3. Outcome only            → "After a loss, this player upgrades 55% of the time"
+  4. Overall gesture frequency → "This player throws Rock 45% of the time"
 
-Each layer falls through to the next if there is not enough data for it.
-A configurable `accuracy` parameter adds random noise so the clone is not
+Each layer falls through to the next if there isn't enough data for it.
+A configurable `accuracy` parameter adds noise so the clone isn't
 perfectly predictable, which makes the game feel more natural.
 
 The pattern_tables dict comes from PlayerProfileStore.build_pattern_tables()
-(see player_profile_store.py).  The class interface mirrors FairPlayAI so it
+in player_profile_store.py.  The class interface mirrors FairPlayAI so it
 drops into FairPlayController without changes.
 """
 
@@ -28,9 +28,9 @@ import random
 # The three legal gestures in standard RPS.
 GESTURES = ("Rock", "Paper", "Scissors")
 
-# What gesture "beats" the key.  Used to compute "upgrade" transitions.
+# What gesture beats the key — used to compute "upgrade" transitions.
 UPGRADE   = {"Rock": "Paper",    "Paper": "Scissors", "Scissors": "Rock"}
-# What gesture "loses to" the key.  Used to compute "downgrade" transitions.
+# What gesture loses to the key — used to compute "downgrade" transitions.
 DOWNGRADE = {"Rock": "Scissors", "Paper": "Rock",     "Scissors": "Paper"}
 
 
@@ -47,19 +47,17 @@ class PlayerCloneAI:
         """
         Build the clone from pre-computed pattern tables.
 
-        Parameters
-        ----------
         pattern_tables : dict
             Output of PlayerProfileStore.build_pattern_tables().  Expected keys:
-              "player_name"       — display name of the cloned player
-              "round_count"       — how many rounds of data the clone is based on
-              "gesture_freq"      — {gesture: probability} overall frequency
-              "transition"        — {gesture: {gesture: probability}} move-to-move matrix
-              "outcome_response"  — {outcome: {response_type: probability}}
-              "outcome_transition"— {outcome: {gesture: {gesture: probability}}}
+              "player_name"        — display name of the cloned player
+              "round_count"        — how many rounds of data the clone is based on
+              "gesture_freq"       — {gesture: probability} overall frequency
+              "transition"         — {gesture: {gesture: probability}} move-to-move matrix
+              "outcome_response"   — {outcome: {response_type: probability}}
+              "outcome_transition" — {outcome: {gesture: {gesture: probability}}}
         accuracy : float (0–1)
             Fraction of moves made using the statistical pattern rather than a
-            completely random gesture.  0.85 means 85% pattern-based, 15% noise.
+            random gesture.  0.85 means 85% pattern-based, 15% noise.
         """
         self.tables      = pattern_tables
         self.accuracy    = accuracy
@@ -78,36 +76,28 @@ class PlayerCloneAI:
         previous gesture and the inverse of the player's outcome to understand
         what the clone "experienced" last round.
 
-        Parameters
-        ----------
         history      : list of round dicts, each containing at minimum:
                          "robot_gesture"  — what the clone (robot) threw last round
                          "player_outcome" — "win" / "lose" / "draw" from the human's POV
         round_number : int — used to skip the lookup on round 1 (no prior history)
-        **kwargs     : ignored (keeps the interface compatible with FairPlayAI)
+        **kwargs     : ignored — keeps the interface compatible with FairPlayAI
 
-        Returns
-        -------
-        str : one of "Rock", "Paper", "Scissors"
+        Returns one of "Rock", "Paper", "Scissors".
         """
-        # On the very first round there is no prior history, so fall back to
+        # On the very first round there's no prior history, so fall back to
         # the clone's overall gesture frequency.
         if not history or round_number <= 1:
             return self._sample_from_frequency()
 
-        last_round     = history[-1]
+        last_round      = history[-1]
         clone_last_move = last_round.get("robot_gesture", None)  # what the clone threw
         player_outcome  = last_round.get("player_outcome", "draw")  # from human's perspective
 
         # Invert the player's outcome to get the clone's outcome.
         # If the human won, the clone lost — and vice versa.
-        clone_outcome = {
-            "win":  "lose",
-            "lose": "win",
-            "draw": "draw",
-        }.get(player_outcome, "draw")
+        clone_outcome = {"win": "lose", "lose": "win", "draw": "draw"}.get(player_outcome, "draw")
 
-        # If the last move was unrecognised (e.g. a glitch), use the frequency fallback.
+        # If the last move was unrecognised (e.g. a glitch), use frequency fallback.
         if clone_last_move not in GESTURES:
             return self._sample_from_frequency()
 
@@ -148,7 +138,7 @@ class PlayerCloneAI:
             if self._has_data(response_probs):
                 response = self._weighted_sample(response_probs)
                 if response == "stay":
-                    return clone_last_move          # play the same gesture again
+                    return clone_last_move           # play the same gesture again
                 elif response == "upgrade":
                     return UPGRADE[clone_last_move]  # move up the RPS cycle
                 else:
@@ -157,7 +147,7 @@ class PlayerCloneAI:
         # ---------------------------------------------------------------
         # Layer 4: overall gesture frequency fallback
         # ---------------------------------------------------------------
-        # None of the more specific layers had data — just use how often the
+        # None of the more specific layers had data — use how often the
         # player throws each gesture overall.
         return self._sample_from_frequency()
 
@@ -169,7 +159,7 @@ class PlayerCloneAI:
         """
         Sample a gesture weighted by the clone's overall gesture frequency.
 
-        Falls back to a uniform random choice if no frequency data is available.
+        Falls back to uniform random if no frequency data is available.
         """
         freq = self.tables.get("gesture_freq", {})
         if not freq or not self._has_data(freq):
@@ -181,15 +171,14 @@ class PlayerCloneAI:
         Draw one key from a {key: weight} dict using weighted random sampling.
 
         Weights are floored at 0.001 so zero-probability items can't cause a
-        divide-by-zero or an infinite loop, and they can still occasionally
-        appear (which adds natural noise to the clone's behaviour).
+        divide-by-zero, and they can still occasionally appear (natural noise).
         """
         items   = list(prob_dict.items())
         weights = [max(v, 0.001) for _, v in items]
         total   = sum(weights)
         pick    = random.uniform(0, total)
 
-        # Walk through the items, accumulating weight until we reach the pick point.
+        # Walk through items, accumulating weight until we pass the pick point.
         current = 0.0
         for item, w in zip(items, weights):
             current += w
@@ -203,7 +192,7 @@ class PlayerCloneAI:
         """
         Return True if the probability dict has any meaningful data.
 
-        A total weight below 0.01 means all values are effectively zero, so
+        A total weight below 0.01 means all values are essentially zero, so
         sampling from it would produce garbage — better to fall through to the
         next layer.
         """

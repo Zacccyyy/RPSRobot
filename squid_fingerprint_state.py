@@ -1,34 +1,29 @@
-"""
-squid_fingerprint_state.py
-==========================
-Fingerprint enrollment and verification built on top of Squid Game.
-
-The game collects biometric data silently while the player plays normally.
-Two channels of data are captured per dot:
-
-  PRIMARY (geometry)  -- Hand landmark coordinates sampled every frame while
-                         the finger is held inside the dot (dwell phase).
-                         At ~30fps with a 1s dwell this gives ~30 clean
-                         snapshots of the hand's shape.
-
-  SECONDARY (movement) -- (x, y) tip positions collected during the approach
-                          trajectory (transit phase), i.e. before the finger
-                          enters the dot radius.  Collection stops the moment
-                          the finger enters the dot.
-
-Both channels are combined into a single 32-element feature vector per dot
-capture and stored/used for ML classification.
-
-The controller subclasses SquidGameController and layers the enrollment
-logic on top — the player just plays the game and data is collected silently.
-
-States (fp_phase, separate from the game state machine):
-  COLLECTING  -- accumulating feature vectors until MIN_SAMPLES_FOR_TRAINING
-  TRAINING    -- background thread is training the SVM classifier
-  VERIFYING   -- enough data collected; testing prediction accuracy on new dots
-  VERIFIED    -- 80%+ accuracy confirmed, fingerprint saved
-  FAILED      -- accuracy never reached threshold after extended play
-"""
+# squid_fingerprint_state.py
+# ---------------------------
+# Fingerprint enrollment and login built on top of the Squid Game mini-game.
+#
+# The player plays the dot-touching game normally; the biometric system
+# collects hand shape data silently in the background. No extra UI is needed.
+#
+# Two data channels are captured per dot touch:
+#
+#   DWELL (geometry)   -- MediaPipe landmark snapshots taken every frame
+#                         while the fingertip is held inside the dot.
+#                         At ~30fps this gives ~30 clean shape samples per dot.
+#
+#   TRANSIT (movement) -- (x, y) tip positions collected during the approach
+#                         to the dot (before the fingertip enters the radius).
+#                         Stops the moment the finger enters the dot.
+#
+# Both channels are combined into a single feature vector per dot and handed
+# to gesture_fingerprint.py for storage or classification.
+#
+# Fingerprint phases (stored in fp_phase, separate from the game's state machine):
+#   COLLECTING  -- gathering feature vectors until we hit MIN_SAMPLES_FOR_TRAINING
+#   TRAINING    -- background thread is fitting the classifier
+#   VERIFYING   -- testing accuracy by predicting on new dot captures
+#   VERIFIED    -- accuracy confirmed at 80%+, profile saved as verified
+#   FAILED      -- accuracy never reached threshold after extended play
 
 import time
 import threading
@@ -48,54 +43,59 @@ from gesture_fingerprint import (
     MIN_DWELL_FRAMES,
 )
 
-# Minimum confidence for a single-dot prediction to count as "correct".
-# Intentionally lower than VERIFY_THRESHOLD (which is an accuracy ratio
-# across many dots) so individual shaky captures don't block verification.
+# Minimum classifier confidence for a single prediction to count as "correct"
+# during the verification phase. Set lower than VERIFY_THRESHOLD so a slightly
+# shaky capture doesn't unfairly block the player from being verified.
 _MIN_PRED_CONFIDENCE = 0.55
 
 
+# =============================================================================
+# Enrollment controller
+# =============================================================================
+
 class SquidFingerprintController(SquidGameController):
     """
-    Squid Game with silent dual-channel fingerprint enrollment.
+    Squid Game with silent dual-channel fingerprint enrollment layered on top.
 
-    Dwell phase:   geometry landmarks sampled every frame while inside dot
-    Transit phase: (x,y) positions collected while approaching the dot
-    On capture:    combine both channels -> one 32-element feature vector -> store
+    The player just plays the game. This controller intercepts each dot capture,
+    extracts geometry (dwell) and movement (transit) features, and either stores
+    them (COLLECTING phase) or uses them to test accuracy (VERIFYING phase).
     """
 
     def __init__(self, player_name, store=None):
         super().__init__()
-        self.player_name      = player_name
-        self._store           = store or FingerprintStore()
-        self._clf             = FingerprintClassifier()
+        self.player_name = player_name
+        self._store      = store or FingerprintStore()
+        self._clf        = FingerprintClassifier()
 
-        # Transit trajectory: raw (x,y) tip positions collected before dot entry
+        # Approach trajectory: (x, y) tip positions before the finger enters the dot.
         self._transit_traj    = []
-        self._in_dot          = False   # True once finger has entered the dot radius
+        self._in_dot          = False   # True once the fingertip has entered the dot
 
-        # Dwell landmark collection: raw MediaPipe landmark lists, one per frame inside dot
+        # Per-dot landmark buffer: one MediaPipe landmark list per frame inside the dot.
         self._dwell_landmarks = []
 
-        # Combined feature vectors collected so far in this session
+        # All feature vectors collected so far this session.
         self._session_samples = []
 
-        # Load any previously collected (v2, 32-element) samples for this player
+        # Load any previously saved samples for this player so enrollment
+        # can pick up where it left off across multiple sessions.
         existing = self._store.load_samples(player_name)
         if existing and existing.get("samples"):
-            # Only reuse v2 (32-element) vectors; discard old format data
+            # Only keep 32-element vectors — older format data is incompatible.
             self._session_samples = [
                 s for s in existing["samples"] if len(s) == 32
             ]
 
-        # Fingerprint phase (separate from the game state machine)
-        self.fp_phase          = "COLLECTING"
-        self.verify_results    = []    # list of True/False per verification dot
-        self.verify_total      = 0     # total dots used for verification
-        self.verify_accuracy   = 0.0   # rolling accuracy in the last VERIFY_WINDOW dots
-        self.enroll_start      = time.strftime("%Y-%m-%dT%H:%M:%S")
+        # Fingerprint phase (independent of the Squid Game's own state machine).
+        self.fp_phase        = "COLLECTING"
+        self.verify_results  = []    # per-dot True/False accuracy log
+        self.verify_total    = 0     # total dots used in verification so far
+        self.verify_accuracy = 0.0   # rolling accuracy over the last VERIFY_WINDOW dots
+        self.enroll_start    = time.strftime("%Y-%m-%dT%H:%M:%S")
 
     def reset(self):
-        """Reset game state and clear the per-dot collection buffers."""
+        """Reset the game state and clear the per-dot collection buffers."""
         super().reset()
         self._transit_traj    = []
         self._dwell_landmarks = []
@@ -103,27 +103,29 @@ class SquidFingerprintController(SquidGameController):
 
     def _on_capture(self, dwell_lms, transit_traj):
         """
-        Called each time the player captures a dot.
-
-        Extracts geometry features from the dwell landmarks and movement
-        features from the approach trajectory, combines them into one feature
-        vector, and either stores it (COLLECTING) or tests it (VERIFYING).
+        Called once per dot capture with the buffered dwell landmarks and transit
+        trajectory. Extracts features from both channels, combines them, and
+        either stores the vector (COLLECTING) or tests it for accuracy (VERIFYING).
 
         Args:
-            dwell_lms:    list of landmark lists (one per frame) from the dwell phase
+            dwell_lms:    list of landmark snapshots from the dwell phase
             transit_traj: list of (x, y) positions from the approach phase
         """
+        # Extract the geometry (hand shape) features from the dwell frames.
         geo = extract_geometry_features(dwell_lms)
-        # Only extract movement features if we have at least 5 transit positions
+
+        # Only attempt movement features if we have enough transit points.
         mov = extract_movement_features(transit_traj) if len(transit_traj) >= 5 else None
+
+        # Combine the two channels into one vector (movement is a no-op stub for now).
         vec = combine_features(geo, mov)
 
-        # If neither channel produced usable data, skip this capture
+        # Nothing useful was extracted — skip this dot.
         if vec is None:
             return
 
         if self.fp_phase == "COLLECTING":
-            # Store the sample and persist to disk
+            # Add the new sample and immediately persist to disk.
             self._session_samples.append(vec)
             self._store.save_samples(
                 self.player_name,
@@ -137,18 +139,18 @@ class SquidFingerprintController(SquidGameController):
                       f"({len(dwell_lms)} dwell frames), "
                       f"movement {'OK' if mov else 'skipped'}")
 
-            # Start training once we have enough samples
+            # Once we have enough samples, kick off training in the background.
             if n >= MIN_SAMPLES_FOR_TRAINING:
                 self._train()
 
         elif self.fp_phase == "VERIFYING":
-            # Use the classifier to predict whose fingerprint this is
+            # Ask the trained classifier whose fingerprint this looks like.
             predicted, conf = self._clf.predict(vec)
             correct = (predicted == self.player_name and conf >= _MIN_PRED_CONFIDENCE)
             self.verify_results.append(correct)
             self.verify_total += 1
 
-            # Rolling accuracy over the last VERIFY_WINDOW dots
+            # Rolling accuracy: only look at the most recent VERIFY_WINDOW dots.
             window = self.verify_results[-VERIFY_WINDOW:]
             self.verify_accuracy = sum(window) / len(window)
 
@@ -156,23 +158,23 @@ class SquidFingerprintController(SquidGameController):
                   f"pred={predicted} conf={conf:.0%} "
                   f"acc={self.verify_accuracy:.0%}")
 
-            # Mark as VERIFIED if accuracy exceeds threshold over a full window
-            if (len(window) >= VERIFY_WINDOW
-                    and self.verify_accuracy >= VERIFY_THRESHOLD):
+            # If accuracy is high enough across a full window, mark as verified.
+            if len(window) >= VERIFY_WINDOW and self.verify_accuracy >= VERIFY_THRESHOLD:
                 self.fp_phase = "VERIFIED"
                 self._store.mark_verified(self.player_name)
                 print(f"[Fingerprint] {self.player_name} VERIFIED "
                       f"({self.verify_accuracy:.0%})")
 
-            # Give up if we've tried 3 full windows and accuracy is still below 50%
-            elif self.verify_total >= VERIFY_WINDOW * 3 \
-                    and self.verify_accuracy < 0.50:
+            # Give up if accuracy is still below 50% after 3 full windows.
+            elif (self.verify_total >= VERIFY_WINDOW * 3
+                  and self.verify_accuracy < 0.50):
                 self.fp_phase = "FAILED"
 
     def _train(self):
         """
-        Kick off background training if not already in progress.
-        Uses a daemon thread so it doesn't block the game loop.
+        Start the classifier training on a background thread.
+        Using a daemon thread means it won't block the game loop or prevent exit.
+        Guards against starting a second training run if one is already in progress.
         """
         if getattr(self, "_training_in_progress", False):
             return
@@ -181,25 +183,27 @@ class SquidFingerprintController(SquidGameController):
         threading.Thread(target=self._do_train, daemon=True).start()
 
     def _do_train(self):
-        """Background thread: train the SVM on all stored samples."""
+        """
+        Background thread body: fits the classifier on all stored samples.
+        Transitions to VERIFYING on success, or back to COLLECTING if it fails.
+        """
         try:
             ok = self._clf.train(self._store, include_unverified_for=self.player_name)
-            # Move to VERIFYING on success, back to COLLECTING if training failed
             self.fp_phase = "VERIFYING" if ok else "COLLECTING"
         finally:
             self._training_in_progress = False
 
     def update(self, hand_state, now=None):
         """
-        Frame update.  Layers fingerprint data collection on top of the base
-        Squid Game update.
+        Per-frame update. Runs the fingerprint collection pipeline on top of
+        the base Squid Game update.
 
-        The collection pipeline works like this each frame:
-          1. Determine if tip is inside or outside the dot
-          2. OUTSIDE: accumulate transit trajectory (approach positions)
-          3. INSIDE:  accumulate dwell landmarks (shape snapshots)
-          4. After base update, check if a new dot was captured
-          5. If captured, call _on_capture() then reset the buffers
+        Each frame:
+          1. Check whether the fingertip is inside or outside the dot.
+          2. Outside: record (x, y) position into the transit trajectory.
+          3. Inside:  record landmark snapshot into the dwell buffer.
+          4. Run the base game update (which triggers a capture when dwell time is met).
+          5. If a dot was captured, call _on_capture() then clear the buffers.
         """
         if now is None:
             now = time.monotonic()
@@ -207,53 +211,53 @@ class SquidFingerprintController(SquidGameController):
         tip    = _landmark_pos(hand_state)
         lm_obj = hand_state.get("_landmarks") if hand_state else None
 
-        # ── Track transit vs dwell phases ──────────────────────────────────
         if tip is not None:
             dist   = self._dist_to_dot(tip[0], tip[1])
             inside = dist <= DOT_RADIUS_NORM
 
             if not self._in_dot and not inside:
-                # Still approaching — record position for movement features
+                # Approaching the dot — accumulate transit positions.
                 self._transit_traj.append(tip)
 
             elif not self._in_dot and inside:
-                # Just entered the dot — switch from transit to dwell collection
+                # Just entered the dot — switch from transit to dwell mode.
                 self._in_dot          = True
                 self._dwell_landmarks = []
-                # Keep _transit_traj intact; it'll be consumed on capture
+                # Transit trajectory is kept; it's consumed when the dot is captured.
 
             if inside and lm_obj is not None:
-                # Inside dot — record landmark snapshot for geometry features
+                # Inside the dot — record a landmark snapshot this frame.
                 self._dwell_landmarks.append(lm_obj.landmark)
 
             if not inside and self._in_dot:
-                # Left the dot without capturing (drifted out) — discard buffers
+                # Drifted out of the dot without capturing — discard stale data.
                 self._in_dot = False
                 self._transit_traj.clear()
                 self._dwell_landmarks.clear()
+
         else:
-            # Hand not visible — clear everything so stale data doesn't carry over
+            # Hand is no longer visible — clear everything so old data doesn't bleed
+            # into the next capture when the hand reappears.
             self._transit_traj.clear()
             self._dwell_landmarks.clear()
             self._in_dot = False
 
-        # Run the base game update; capture happens inside here
+        # Let the base game run its own logic (dwell timer, capture detection, etc.).
         prev_dots = self.dots_collected
         result    = super().update(hand_state=hand_state, now=now)
 
-        # ── A new dot was captured this frame ──────────────────────────────
+        # If a new dot was captured this frame, extract features and reset buffers.
         if self.dots_collected > prev_dots:
-            # Pass copies so buffers can be cleared immediately after
+            # Pass copies so we can safely clear the buffers right after.
             self._on_capture(
                 dwell_lms    = list(self._dwell_landmarks),
                 transit_traj = list(self._transit_traj),
             )
-            # Reset for the next dot
             self._transit_traj.clear()
             self._dwell_landmarks.clear()
             self._in_dot = False
 
-        # Inject fingerprint status into the output dict the UI reads
+        # Inject fingerprint status fields into the result dict so the UI can display them.
         result["fp_phase"]           = self.fp_phase
         result["fp_samples"]         = len(self._session_samples)
         result["fp_target"]          = MIN_SAMPLES_FOR_TRAINING
@@ -265,20 +269,20 @@ class SquidFingerprintController(SquidGameController):
         return result
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Login via Fingerprint: short session, predict identity
-# ─────────────────────────────────────────────────────────────────────────────
+# =============================================================================
+# Login controller
+# =============================================================================
 
 class SquidFingerprintLoginController(SquidGameController):
     """
-    Short Squid Game session for fingerprint login.
+    Short Squid Game session used for biometric login.
 
-    Collects dual-channel features from each dot capture and votes on identity.
-    After MIN_LOGIN_DOTS captures, the most-voted name with >= VERIFY_THRESHOLD
-    vote share is accepted as the logged-in player.
+    Collects dual-channel features from each dot capture and builds up a tally
+    of predicted identities. After MIN_LOGIN_DOTS captures, the most-voted name
+    is accepted as the logged-in player if its vote share meets VERIFY_THRESHOLD.
     """
 
-    # How many dot captures we need before committing to a login decision
+    # How many dot captures we need before we're confident enough to commit.
     MIN_LOGIN_DOTS = 8
 
     def __init__(self, store=None):
@@ -288,14 +292,15 @@ class SquidFingerprintLoginController(SquidGameController):
         self._transit_traj    = []
         self._dwell_landmarks = []
         self._in_dot          = False
-        self._predictions     = []    # accumulated (name, confidence) pairs
-        self.login_result     = None  # set to the predicted player name on commit
+        self._predictions     = []    # list of (name, confidence) pairs from each dot
+        self.login_result     = None  # set to the winning player name once decided
         self.login_confidence = 0.0
-        # Train immediately on all verified fingerprints so we're ready to predict
+
+        # Train immediately on all verified profiles so the classifier is ready.
         self._clf.train(self._store)
 
     def reset(self):
-        """Reset game state and clear all login buffers."""
+        """Reset the game and clear all login state."""
         super().reset()
         self._transit_traj    = []
         self._dwell_landmarks = []
@@ -306,11 +311,12 @@ class SquidFingerprintLoginController(SquidGameController):
 
     def update(self, hand_state, now=None):
         """
-        Frame update.  Same dual-channel collection as SquidFingerprintController
-        but uses predictions for identity voting rather than accuracy testing.
+        Per-frame update for the login session.
 
-        After MIN_LOGIN_DOTS captures the top-voted name is committed as the
-        login result if its vote share meets VERIFY_THRESHOLD.
+        Uses the same dual-channel collection logic as the enrollment controller.
+        On each dot capture, the classifier makes a prediction and we record
+        the (name, confidence) pair. Once we have MIN_LOGIN_DOTS predictions
+        we tally the votes and commit to a login result.
         """
         if now is None:
             now = __import__("time").monotonic()
@@ -318,65 +324,73 @@ class SquidFingerprintLoginController(SquidGameController):
         tip    = _landmark_pos(hand_state)
         lm_obj = hand_state.get("_landmarks") if hand_state else None
 
-        # ── Same transit/dwell tracking as the enrollment controller ──────
+        # Same transit/dwell tracking logic as the enrollment controller.
         if tip is not None:
             dist   = self._dist_to_dot(tip[0], tip[1])
             inside = dist <= DOT_RADIUS_NORM
+
             if not self._in_dot and not inside:
                 self._transit_traj.append(tip)
             elif not self._in_dot and inside:
-                # Entering the dot — stop transit, start dwell
+                # Entering the dot — stop transit collection, start dwell.
                 self._in_dot          = True
                 self._dwell_landmarks = []
+
             if inside and lm_obj is not None:
                 self._dwell_landmarks.append(lm_obj.landmark)
+
             if not inside and self._in_dot:
-                # Left dot without capture — reset buffers
+                # Left the dot without capturing — discard stale buffers.
                 self._in_dot = False
                 self._transit_traj.clear()
                 self._dwell_landmarks.clear()
+
         else:
-            # Hand lost — clear buffers
+            # Hand disappeared — clear everything.
             self._transit_traj.clear()
             self._dwell_landmarks.clear()
             self._in_dot = False
 
-        # Run base game update
+        # Run the base game update.
         prev_dots = self.dots_collected
         result    = super().update(hand_state=hand_state, now=now)
 
-        # ── Dot captured: extract features and record a prediction ────────
+        # On each new dot capture, extract features and record a prediction.
         if self.dots_collected > prev_dots:
             geo = extract_geometry_features(list(self._dwell_landmarks))
-            mov = extract_movement_features(list(self._transit_traj)) \
-                  if len(self._transit_traj) >= 5 else None
+            mov = (extract_movement_features(list(self._transit_traj))
+                   if len(self._transit_traj) >= 5 else None)
             vec = combine_features(geo, mov)
+
             if vec is not None:
                 name, conf = self._clf.predict(vec)
                 if name:
                     self._predictions.append((name, conf))
-            # Reset buffers for next dot
+
+            # Clear buffers for the next dot.
             self._transit_traj.clear()
             self._dwell_landmarks.clear()
             self._in_dot = False
 
-        # ── Commit login decision after enough captures ───────────────────
-        if len(self._predictions) >= self.MIN_LOGIN_DOTS \
-                and self.login_result is None:
+        # Once we have enough predictions, decide who's logging in.
+        if len(self._predictions) >= self.MIN_LOGIN_DOTS and self.login_result is None:
             from collections import Counter
-            # Count votes for each name
-            votes = Counter(n for n, _ in self._predictions)
-            top, n = votes.most_common(1)[0]
-            ratio  = n / len(self._predictions)
-            # Average confidence of the top-voted name's captures
-            top_confs = [c for nm, c in self._predictions if nm == top]
+
+            # Count how many times each name was predicted.
+            votes    = Counter(name for name, _ in self._predictions)
+            top, n   = votes.most_common(1)[0]
+            ratio    = n / len(self._predictions)
+
+            # Average confidence across all captures that voted for the top name.
+            top_confs = [conf for name, conf in self._predictions if name == top]
             avg_conf  = sum(top_confs) / max(len(top_confs), 1)
-            # Only commit if the vote share is convincing enough
+
+            # Only accept the login if the vote share meets the threshold.
             if ratio >= VERIFY_THRESHOLD:
                 self.login_result     = top
                 self.login_confidence = avg_conf
 
-        # Inject login status into the output dict
+        # Add login status to the result dict for the UI to read.
         result["fp_phase"]         = "LOGIN"
         result["fp_predictions"]   = len(self._predictions)
         result["fp_target"]        = self.MIN_LOGIN_DOTS

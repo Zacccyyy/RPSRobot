@@ -1,19 +1,26 @@
 # ============================================================
 # fair_play_state.py
 #
-# Game-state machine for "Fair Play" mode.
+# Purpose:
+#   State machine for "Fair Play" mode — a best-of-N match
+#   between the player and the robot.
 #
-# What this file does:
-#   Manages everything that happens during a Fair Play match —
-#   the countdown (physical pump or voice), the SHOOT window,
-#   round resolution, score tracking, and the match-result screen.
+# How it works:
+#   The main game loop calls FairPlayController.update() every
+#   frame, passing the wrist Y position and a gesture tracker
+#   dict. The controller advances through a sequence of states
+#   (countdown → shoot window → result) and hands back a plain
+#   dict of UI values for the renderer to display.
 #
-# Where it fits:
-#   The main loop calls FairPlayController.update() every frame,
-#   passing the current wrist Y position and tracker state.
-#   The controller returns a dict of UI data to be rendered.
-#   FairPlayAI (from fair_play_ai.py) is used internally to
-#   choose the robot's locked move before the player throws.
+#   The robot's move is locked in on beat 3 of the countdown so
+#   it can't cheat by watching the player's final gesture.
+#   FairPlayAI (fair_play_ai.py) picks that move.
+#
+# State flow:
+#   ROUND_INTRO → WAITING_FOR_ROCK → COUNTDOWN
+#     → SHOOT_WINDOW → ROUND_RESULT
+#     → MATCH_RESULT (when the match is decided)
+#     → loops back to ROUND_INTRO for the next run
 # ============================================================
 
 import time
@@ -22,17 +29,10 @@ from collections import Counter
 from fair_play_ai import FairPlayAI
 
 
-# Gestures the game accepts — anything else is treated as "Unknown".
+# The three gestures the game recognises. Anything else is "Unknown".
 VALID_GESTURES = {"Rock", "Paper", "Scissors"}
 
-# What each gesture beats — used to decide the round outcome.
-COUNTER_MOVE = {
-    "Rock": "Paper",
-    "Paper": "Scissors",
-    "Scissors": "Rock",
-}
-
-# The reverse: for each gesture, which gesture does it beat?
+# Maps each gesture to the one that beats it (used for outcome checks).
 BEATS = {
     "Rock": "Scissors",
     "Paper": "Rock",
@@ -42,15 +42,16 @@ BEATS = {
 
 def compare_rps(player_move, robot_move):
     """
-    Determine the outcome of a single round.
+    Work out who won a single round from the player's point of view.
 
     Returns:
-      "draw"  — both threw the same thing
-      "win"   — player's gesture beats the robot's
-      "lose"  — robot's gesture beats the player's
+      "draw"  — same gesture thrown by both sides
+      "win"   — the player's gesture beats the robot's
+      "lose"  — the robot's gesture beats the player's
     """
     if player_move == robot_move:
         return "draw"
+    # If the thing the player's move beats equals the robot's move, the player wins.
     if BEATS[player_move] == robot_move:
         return "win"
     return "lose"
@@ -61,22 +62,17 @@ class FairPlayController:
     Fair Play Mode state machine.
 
     Rules:
-      - First player to win `win_target` rounds (default 2) wins the match.
-      - The robot locks in its move on beat 3 of the countdown.
-      - The player throws during the SHOOT window after beat 3.
-      - Draws replay the same round (round number doesn't increment).
+      - First to win `win_target` rounds (default 2) wins the match.
+      - The robot locks its move on beat 3 so it can't react to the throw.
+      - Draws replay the same round (round number stays the same).
 
-    State flow (normal physical path):
-      ROUND_INTRO
-        → WAITING_FOR_ROCK   (player makes a fist)
-        → COUNTDOWN          (pump fist up/down for beats 1, 2, 3)
-        → SHOOT_WINDOW       (player throws — resolved instantly)
-        → ROUND_RESULT       (brief result display)
-        → MATCH_RESULT       (if match is over)
-        → ROUND_INTRO        (next round, or reset if match ended)
+    Physical path:
+      Player makes a fist → pumps wrist 1-2-3 → throws on SHOOT.
 
-    Voice mode path uses inject_voice_beat() and inject_voice_throw() instead
-    of wrist-motion detection — the state names stay the same.
+    Voice path (enabled with set_voice_mode(True)):
+      Speaks "ready", "one", "two", "three", then the gesture name.
+      inject_voice_beat() / inject_voice_throw() drive those transitions
+      instead of wrist-motion detection.
     """
 
     def __init__(
@@ -96,147 +92,186 @@ class FairPlayController:
         round_result_seconds=2.00,
         match_result_seconds=2.40
     ):
-        # robot_output: optional hardware/BLE output bridge (can be None).
+        # Hardware/BLE bridge — can be None when running without a physical robot.
         self.robot_output = robot_output
+
+        # Whether the player is using voice instead of wrist pumps.
         self._voice_mode = False
-        # Use the provided AI or create a default FairPlayAI instance.
+
+        # AI that chooses the robot's move each round.
         self.ai = ai or FairPlayAI()
+
+        # How many round wins are needed to claim the match.
         self.win_target = win_target
+
+        # Label shown in the UI for this game mode.
         self.play_mode_label = play_mode_label
+
+        # Label shown next to the robot's score.
         self.opponent_label = "ROBOT"
 
-        # Wrist motion thresholds — how far the wrist must move to register a beat.
+        # --- Wrist-pump detection thresholds ---
+        # down_threshold: how far (in normalised Y) the wrist must drop to count as a beat.
+        # up_threshold: how far it must rise to signal the end of a beat, ready for the next.
         self.down_threshold = down_threshold
         self.up_threshold = up_threshold
-        # Minimum seconds between beats so rapid micro-movements don't double-count.
+
+        # Minimum seconds between two registered beats — prevents rapid jitter from
+        # accidentally counting as two separate beats.
         self.beat_cooldown = beat_cooldown
-        # How long after the last Rock detection to keep tracking motion.
+
+        # After the gesture classifier loses "Rock", keep counting beats for this long.
+        # Fast pumping can cause the classifier to flicker off for a frame or two.
         self.rock_grace_period = rock_grace_period
 
-        # How long the SHOOT window stays open.
+        # --- SHOOT window timing ---
+        # How long the window stays open for the player to throw.
         self.shoot_window_seconds = shoot_window_seconds
-        # Guard: ignore gestures for this many seconds right after the window opens
-        # so the Rock from the final beat doesn't immediately resolve as a throw.
+
+        # Right after the window opens, ignore gestures for this many seconds.
+        # This prevents the Rock from the final pump beat from instantly resolving as Rock.
         self.shoot_change_guard_seconds = shoot_change_guard_seconds
-        # If this many seconds pass with no Paper/Scissors, assume the player kept Rock.
+
+        # If the player holds Rock for this long without switching, assume they threw Rock.
+        # Slightly longer than the change guard so Paper/Scissors still get a fair window.
         self.rock_assume_seconds = rock_assume_seconds
 
-        # Timing for each display phase.
-        self.round_intro_seconds = round_intro_seconds
+        # --- Display phase durations ---
+        self.round_intro_seconds  = round_intro_seconds
         self.round_result_seconds = round_result_seconds
         self.match_result_seconds = match_result_seconds
 
+        # Kick off the first match straight away.
         self.reset_match()
 
     def reset(self):
-        """Public alias for reset_match() — called by the menu system."""
+        """
+        Public alias for reset_match(). The menu system calls this when the
+        player navigates back to the mode selection screen.
+        """
         self.reset_match()
 
     def reset_match(self, now=None):
         """
-        Fully reset the controller for a new match.
-        Clears all scores, history, and per-round state.
+        Fully reset everything for a brand-new match.
+        Clears scores, round history, and all round state, then starts ROUND_INTRO.
         """
         if now is None:
             now = time.monotonic()
 
+        # Tell the AI to forget previous rounds so it starts fresh.
         self.ai.reset()
+
+        # Full history of every round — the AI reads this to predict the next move.
         self.history = []
 
         self.player_score = 0
-        self.robot_score = 0
+        self.robot_score  = 0
         self.round_number = 1
 
+        # Banner text shown on the MATCH_RESULT screen (set when match ends).
         self.match_result_banner = ""
         self.match_until = None
 
-        # Session-level stats that survive across rounds within a match.
-        self._session_reaction_times = []
-        self._session_gestures       = []
+        # Session-level stats that accumulate across all rounds of one match.
+        self._session_reaction_times = []   # how fast the player threw each round (ms)
+        self._session_gestures       = []   # which gesture the player threw each round
+
+        # Cached for the "last round" replay overlay.
         self._last_round_player_gest = None
         self._last_round_robot_gest  = None
-        # NOTE: _last_round_banner is intentionally NOT reset here.
-        # Keeping it lets the ESC overlay and replay display show the previous
-        # round's outcome banner while the new round's countdown starts.
-        # Only reset_match() clears it — and this IS reset_match, so it's set below.
 
+        # NOTE: _last_round_banner is intentionally set here (not just in
+        # _reset_round_motion) so the ESC overlay still shows it during play.
+        self._last_round_banner = ""
+
+        # Clear per-round motion state and jump to the first state.
         self._reset_round_motion()
         self.state = "ROUND_INTRO"
         self.intro_until = now + self.round_intro_seconds
 
     def _reset_round_motion(self):
         """
-        Reset only the per-round motion-tracking and gesture state.
-        Called at the start of each round without touching match-level data.
+        Reset only the motion-tracking and gesture fields for a new round.
+        Called at the start of each round so we don't accidentally carry
+        wrist position or gesture data from the previous round.
         """
-        # Countdown pump tracking.
+        # Beat counter and which phase of the pump we're waiting for next.
         self.beat_count = 0
-        self.phase = "ready_for_down"   # alternates between "ready_for_down" and "waiting_for_up"
-        self.top_y = None               # highest Y seen during this beat cycle
-        self.bottom_y = None            # lowest Y seen during this beat cycle
+        self.phase = "ready_for_down"   # alternates: "ready_for_down" / "waiting_for_up"
+
+        # Peak and trough wrist Y during the current beat cycle.
+        self.top_y    = None
+        self.bottom_y = None
+
+        # Timestamps for cooldown and grace-period calculations.
         self.last_beat_time = 0.0
         self.last_rock_time = 0.0
 
-        # SHOOT window timing.
-        self.shoot_open_time = None
+        # Open/close timestamps for the SHOOT window.
+        self.shoot_open_time  = None
         self.shoot_close_time = None
 
-        # Robot move state — PENDING until beat 3 locks it.
-        self.robot_locked_move = None
+        # Robot's chosen move — None until beat 3 locks it in.
+        self.robot_locked_move  = None
         self.robot_move_command = "PENDING"
 
-        # Current-round gesture display values (set when the round resolves).
-        self.player_gesture = "Unknown"
+        # What each side threw this round (shown in the result overlay).
+        self.player_gesture   = "Unknown"
         self.computer_gesture = "Unknown"
 
-        # Result display for this round.
-        self.result_banner = ""
+        # Banner text for the round result ("YOU WIN THE ROUND" etc.).
+        self.result_banner    = ""
         self.last_round_result = None
-        self.result_until = None
+        self.result_until      = None
 
-        # One-shot flag: True = main loop should clear the gesture tracker once.
-        # Prevents the Rock from countdown from leaking into the SHOOT window.
+        # One-shot flag: when True, the main loop should flush the gesture tracker
+        # once then call consume_tracker_reset_request() to clear this flag.
         self.tracker_reset_requested = False
+
+        # True if Rock was assumed (player didn't explicitly throw it).
         self.gesture_assumed = False
+
+        # Reaction time for this round (ms from shoot-window open to throw).
         self._last_reaction_ms = None
 
-        # Tell the hardware bridge to cancel any staged-but-not-sent command.
+        # Tell the hardware bridge to drop any staged-but-unsent command.
         if self.robot_output is not None:
             self.robot_output.clear_pending_locked()
 
     def consume_tracker_reset_request(self):
         """
-        Called by the main loop after it has cleared the gesture tracker.
-        Clears the one-shot flag so we don't keep asking for resets.
+        The main loop calls this after it has flushed the gesture tracker.
+        Clears the one-shot flag so we don't keep asking for resets every frame.
         """
         self.tracker_reset_requested = False
 
     # ------------------------------------------------------------------ #
-    # Voice input injection                                                #
+    # Voice input                                                          #
     # ------------------------------------------------------------------ #
 
     def set_voice_mode(self, enabled):
         """
-        Enable or disable voice-based input.
-        In voice mode the wrist-pump detection is skipped entirely — the player
-        speaks "ready / one / two / three / [gesture]" instead.
-        Must be set before a round starts for it to take effect cleanly.
+        Switch between physical (wrist-pump) and voice input.
+        Should be called before a round starts for a clean transition.
+        In voice mode the wrist-pump detection is skipped entirely.
         """
         self._voice_mode = bool(enabled)
 
     def inject_voice_beat(self, word, now=None):
         """
-        Advance the countdown from a spoken word.
+        Advance the countdown from a recognised spoken word.
 
-        Expected sequence: "ready" → "one" → "two" → "three" → [gesture]
+        Expected spoken sequence: "ready" → "one" → "two" → "three"
 
-        "three" immediately locks the robot and opens the SHOOT window.
-        Voice windows are wider (2.5s minimum) so the player has time to speak.
+        "three" simultaneously locks the robot's move and opens the SHOOT window.
+        The window is at least 2.5 seconds long in voice mode so the player
+        has enough time to say the gesture name.
         """
         if now is None:
             now = time.monotonic()
 
-        # "ready" in WAITING_FOR_ROCK kicks off the countdown.
+        # "ready" is the trigger word that gets us out of the idle wait state.
         if self.state == "WAITING_FOR_ROCK" and word == "ready":
             self.state = "COUNTDOWN"
             self.phase = "ready_for_down"
@@ -245,63 +280,76 @@ class FairPlayController:
             self.last_rock_time = now
             return
 
-        # All other beats only work during COUNTDOWN.
+        # All other voice beats only matter during an active countdown.
         if self.state != "COUNTDOWN":
             return
 
+        # Keep the grace timer alive so the countdown doesn't time out between words.
         self.last_rock_time = now
+
+        # Enforce the same cooldown as physical beats to avoid double-counting.
         cooldown_ok = (now - self.last_beat_time) >= self.beat_cooldown
 
         if word in ("one", "two") and cooldown_ok:
-            # Each spoken beat advances the counter.
+            # "one" and "two" just advance the beat counter.
             self.beat_count += 1
             self.last_beat_time = now
 
         elif word == "three" and cooldown_ok:
-            # Final beat: lock the robot's move and open the shoot window now.
+            # "three" is the final beat — lock the robot and open SHOOT immediately.
             self.last_beat_time = now
             self._lock_robot_move()
-            self.beat_count = 4
+            self.beat_count = 4   # jump past the normal 4-beat threshold
             self.state = "SHOOT_WINDOW"
             self.shoot_open_time  = now
-            # Voice needs more time to say the gesture — enforce a 2.5s minimum.
+            # Voice mode gets a bigger minimum window because speaking takes longer than gesturing.
             self.shoot_close_time = now + max(self.shoot_window_seconds, 2.50)
             self.tracker_reset_requested = True
 
     def inject_voice_throw(self, gesture, now=None):
         """
-        Resolve the current round with a spoken gesture.
-        Called by the main loop when it receives a voice "throw" event during SHOOT_WINDOW.
+        Resolve the current round with a spoken gesture name.
+        The main loop calls this when the voice recogniser fires during SHOOT_WINDOW.
         """
         if now is None:
             now = time.monotonic()
 
+        # Only accept a valid gesture during an open shoot window.
         if self.state == "SHOOT_WINDOW" and gesture in VALID_GESTURES:
             self._resolve_round(gesture, now)
 
+    # ------------------------------------------------------------------ #
+    # Internal state helpers                                               #
+    # ------------------------------------------------------------------ #
+
     def _prepare_next_round(self, now):
-        """Reset per-round state and transition to ROUND_INTRO for the next round."""
+        """Clear per-round state and start the intro pause before the next round begins."""
         self._reset_round_motion()
         self.state = "ROUND_INTRO"
         self.intro_until = now + self.round_intro_seconds
 
     def _lock_robot_move(self):
         """
-        Ask the AI to choose the robot's move and lock it in.
+        Ask the AI to pick the robot's move and commit it for this round.
 
-        Guard: if already locked (e.g. called twice in one round), do nothing.
-        Also stages the move with the hardware bridge so the physical arm
-        can prepare before the player throws.
+        The move is locked on beat 3 (before the player throws) so the robot
+        can't react to what it sees. Guard prevents locking twice in one round.
+        The hardware bridge is notified so the physical arm can start preparing.
         """
+        # If already locked (shouldn't happen normally), do nothing.
         if self.robot_locked_move is not None:
             return
 
+        # Let the AI decide based on match history and current round number.
         self.robot_locked_move = self.ai.choose_robot_move(
             history=self.history,
             round_number=self.round_number
         )
+
+        # Build the command string the hardware bridge understands.
         self.robot_move_command = f"ROBOT_PLAY_{self.robot_locked_move.upper()}"
 
+        # Stage the move with the physical robot if one is connected.
         if self.robot_output is not None:
             self.robot_output.stage_locked_move(
                 command=self.robot_move_command,
@@ -309,102 +357,92 @@ class FairPlayController:
                 metadata={
                     "round_number": self.round_number,
                     "player_score": self.player_score,
-                    "robot_score": self.robot_score,
+                    "robot_score":  self.robot_score,
                 }
             )
 
     def _fallback_throw(self, tracker_state):
         """
-        Last-resort gesture picker when the SHOOT window closes without a clear throw.
+        Last-resort gesture lookup when the SHOOT window closes without a clear throw.
 
-        Checks stable_gesture → confirmed_gesture → raw_gesture in order of reliability.
-        Returns "Unknown" if none of them are valid (round is then replayed).
+        Tries three tracker fields in order of confidence:
+          stable_gesture → confirmed_gesture → raw_gesture
+        Returns "Unknown" if none of them hold a valid gesture.
         """
-        stable_gesture    = tracker_state.get("stable_gesture", "Unknown")
-        confirmed_gesture = tracker_state.get("confirmed_gesture", "Unknown")
-        raw_gesture       = tracker_state.get("raw_gesture", "Unknown")
-
-        if stable_gesture in VALID_GESTURES:
-            return stable_gesture
-        if confirmed_gesture in VALID_GESTURES:
-            return confirmed_gesture
-        if raw_gesture in VALID_GESTURES:
-            return raw_gesture
-
+        for key in ("stable_gesture", "confirmed_gesture", "raw_gesture"):
+            gesture = tracker_state.get(key, "Unknown")
+            if gesture in VALID_GESTURES:
+                return gesture
         return "Unknown"
 
     def _resolve_round(self, player_gesture, now):
         """
-        Lock in both gestures, determine the outcome, update scores, and
-        record the round in history for the AI to learn from.
+        Finalise the round: record both gestures, score the outcome, update
+        the AI's learning model, and set the result banner.
 
-        Also updates the Thompson Sampling bandit inside the AI so it can
-        adjust which prediction layers it trusts going forward.
+        Also pushes the result to the hardware bridge and appends the round
+        to history so the AI can learn from it next round.
         """
-        # If the robot never got locked (e.g. edge case), lock it now.
+        # Edge case: if the robot never got locked (e.g. countdown was skipped), lock now.
         if self.robot_locked_move is None:
             self._lock_robot_move()
 
-        # Calculate how fast the player threw after the SHOOT window opened.
+        # Measure how quickly the player threw after the window opened.
         reaction_ms = None
         if self.shoot_open_time is not None:
             reaction_ms = round((now - self.shoot_open_time) * 1000)
-            if not hasattr(self, "_session_reaction_times"):
-                self._session_reaction_times = []
-            # Sanity filter: only record plausible reaction times.
+            # Only keep plausible values — anything over 5 seconds is probably a fluke.
             if 0 < reaction_ms < 5000:
                 self._session_reaction_times.append(reaction_ms)
 
-        # Track the gesture sequence for the end-of-match summary.
-        if not hasattr(self, "_session_gestures"):
-            self._session_gestures = []
-        if player_gesture in ("Rock", "Paper", "Scissors"):
+        # Track which gestures the player used over the whole match for the summary.
+        if player_gesture in VALID_GESTURES:
             self._session_gestures.append(player_gesture)
 
-        # Store the round's gestures so the replay overlay can show them.
+        # Cache both gestures for the replay overlay and the result screen.
+        self.player_gesture          = player_gesture
+        self.computer_gesture        = self.robot_locked_move
         self._last_round_player_gest = player_gesture
         self._last_round_robot_gest  = self.robot_locked_move
 
-        self.player_gesture   = player_gesture
-        self.computer_gesture = self.robot_locked_move
-
         outcome = compare_rps(self.player_gesture, self.computer_gesture)
 
-        # Update scores and set the result banner text.
+        # Set the score change, banner text, and history label based on outcome.
         if outcome == "win":
             self.player_score += 1
-            self.result_banner = "YOU WIN THE ROUND"
-            round_result = "player_win"
+            self.result_banner         = "YOU WIN THE ROUND"
+            round_result               = "player_win"
             player_outcome_for_history = "win"
 
         elif outcome == "lose":
             self.robot_score += 1
-            self.result_banner = f"{self.opponent_label} TAKES THE ROUND"
-            round_result = "robot_win"
+            self.result_banner         = f"{self.opponent_label} TAKES THE ROUND"
+            round_result               = "robot_win"
             player_outcome_for_history = "lose"
 
         else:
-            # Draw — round replays, scores unchanged.
-            self.result_banner = "DRAW - THROW AGAIN"
-            round_result = "draw"
+            # Draw — replay the same round, don't change any scores.
+            self.result_banner         = "DRAW - THROW AGAIN"
+            round_result               = "draw"
             player_outcome_for_history = "draw"
 
-        # Append this round to the AI's history so it can learn from it.
+        # Append this round to the match history so the AI can learn from it.
         self.history.append({
-            "round_number": self.round_number,
+            "round_number":   self.round_number,
             "player_gesture": self.player_gesture,
-            "robot_gesture": self.computer_gesture,
+            "robot_gesture":  self.computer_gesture,
             "player_outcome": player_outcome_for_history,
         })
 
-        # Let the AI bandit know whether its prediction was accurate.
+        # Tell the AI's Thompson Sampling bandit which prediction layer was right,
+        # so it can up-weight accurate layers in future rounds.
         if hasattr(self.ai, "update_bandit") and hasattr(self.ai, "last_prediction"):
             pred = self.ai.last_prediction or {}
             predicted_player = pred.get("used_predicted_move")
             if predicted_player:
                 self.ai.update_bandit(predicted_player, self.player_gesture)
 
-        # Notify the hardware bridge of the round result.
+        # Push the round result to the physical robot if connected.
         if self.robot_output is not None:
             self.robot_output.publish_round_result(
                 command=self.robot_move_command,
@@ -415,11 +453,12 @@ class FairPlayController:
                 metadata={
                     "round_number": self.round_number,
                     "player_score": self.player_score,
-                    "robot_score": self.robot_score,
-                    "banner": self.result_banner,
+                    "robot_score":  self.robot_score,
+                    "banner":       self.result_banner,
                 }
             )
 
+        # Store state needed for the next frame before transitioning.
         self.last_round_result  = round_result
         self._last_round_banner = self.result_banner
         self._last_reaction_ms  = reaction_ms
@@ -427,66 +466,69 @@ class FairPlayController:
         self.result_until = now + self.round_result_seconds
 
     def _round_is_over(self):
-        """Return True if either player has reached the win target."""
+        """Return True if either side has reached the win target (match is decided)."""
         return self.player_score >= self.win_target or self.robot_score >= self.win_target
 
     def _build_output(self, now):
         """
-        Build the dict of UI data for the current frame.
+        Assemble the UI data dict for the current frame.
 
-        Every state returns the same base fields plus state-specific
-        main_text / sub_text / time_left. The renderer reads this dict
-        directly — nothing is rendered here.
+        Every state returns the same base fields. Each state branch then
+        adds state-specific keys (main_text, sub_text, time_left).
+        The renderer reads this dict directly — no rendering happens here.
         """
         score_text = f"YOU {self.player_score} - {self.opponent_label} {self.robot_score}"
         round_text = f"ROUND {self.round_number}"
 
-        # Pull AI metadata for display (opponent type, personality name).
-        pred = getattr(self.ai, "last_prediction", None) or {}
+        # Pull AI metadata so the UI can show who the player is facing.
+        pred        = getattr(self.ai, "last_prediction", None) or {}
         opp_type    = pred.get("opponent_type", "")
         personality = pred.get("personality", getattr(self.ai, "personality", "Normal"))
 
-        # Fields common to every state.
+        # Fields sent to the renderer on every frame regardless of state.
         base = {
-            "play_mode_label": self.play_mode_label,
-            "state": self.state,
-            "beat_count": self.beat_count,
-            "time_left": 0.0,
-            "player_gesture": self.player_gesture,
+            "play_mode_label":  self.play_mode_label,
+            "state":            self.state,
+            "beat_count":       self.beat_count,
+            "time_left":        0.0,
+            "player_gesture":   self.player_gesture,
             "computer_gesture": self.computer_gesture,
             "robot_move_command": self.robot_move_command,
-            "result_banner": self.result_banner,
-            "score_text": score_text,
-            "round_text": round_text,
-            "round_number": self.round_number,
-            "player_score": self.player_score,
-            "robot_score": self.robot_score,
+            "result_banner":    self.result_banner,
+            "score_text":       score_text,
+            "round_text":       round_text,
+            "round_number":     self.round_number,
+            "player_score":     self.player_score,
+            "robot_score":      self.robot_score,
             "request_tracker_reset": self.tracker_reset_requested,
-            "gesture_assumed": self.gesture_assumed,
-            "opponent_type": opp_type,
-            "ai_personality": personality,
-            "reaction_ms": self._last_reaction_ms,
-            # Last-round gestures for the brief replay shown in WAITING_FOR_ROCK.
+            "gesture_assumed":  self.gesture_assumed,
+            "opponent_type":    opp_type,
+            "ai_personality":   personality,
+            "reaction_ms":      self._last_reaction_ms,
+            # Previous round's gestures — the "replay" overlay during WAITING_FOR_ROCK.
             "last_player_gesture": getattr(self, "_last_round_player_gest", None),
             "last_robot_gesture":  getattr(self, "_last_round_robot_gest",  None),
             "last_banner":         getattr(self, "_last_round_banner", ""),
-            # Full session lists for the summary screen.
+            # Accumulated session data for the end-of-match summary screen.
             "session_reaction_times": list(getattr(self, "_session_reaction_times", [])),
             "session_gestures":       list(getattr(self, "_session_gestures", [])),
         }
 
+        # Each if-block below adds the state-specific text fields.
+
         if self.state == "ROUND_INTRO":
             base.update({
                 "state_label": "Round Intro",
-                "main_text": round_text,
-                "sub_text": f"FIRST TO {self.win_target} | {score_text}",
+                "main_text":   round_text,
+                "sub_text":    f"FIRST TO {self.win_target} | {score_text}",
             })
             return base
 
         if self.state == "WAITING_FOR_ROCK":
             base.update({
                 "state_label": "Waiting",
-                "main_text": "MAKE A FIST" if not self._voice_mode else "VOICE MODE",
+                # Different prompt depending on input mode.
+                "main_text": "VOICE MODE" if self._voice_mode else "MAKE A FIST",
                 "sub_text": (
                     "Say READY  then  ONE  TWO  THREE"
                     if self._voice_mode
@@ -496,11 +538,11 @@ class FairPlayController:
             return base
 
         if self.state == "COUNTDOWN":
-            # Show "READY" until the first beat, then show the beat number.
+            # Show "READY" before the first beat lands, then the beat number.
             main_text = "READY" if self.beat_count == 0 else str(min(self.beat_count, 3))
             base.update({
                 "state_label": "Countdown",
-                "main_text": main_text,
+                "main_text":   main_text,
                 "sub_text": (
                     "Say ONE  TWO  THREE  SHOOT"
                     if self._voice_mode
@@ -512,63 +554,62 @@ class FairPlayController:
         if self.state == "SHOOT_WINDOW":
             base.update({
                 "state_label": "Shoot Window",
-                "main_text": "SHOOT!",
+                "main_text":   "SHOOT!",
                 "sub_text": (
                     "Say ROCK, PAPER, or SCISSORS"
                     if self._voice_mode
                     else "Robot already locked its move"
                 ),
-                # In voice mode the window never times out, so time_left stays 0.
+                # In voice mode there's no real countdown bar — the window stays
+                # open until the player speaks, so time_left is always 0.
                 "time_left": 0.0 if self._voice_mode else max(0.0, self.shoot_close_time - now),
             })
             return base
 
         if self.state == "ROUND_RESULT":
-            rxn = getattr(self, "_last_reaction_ms", None)
+            rxn = self._last_reaction_ms
             # Only show reaction time if it looks plausible (under 3 seconds).
             rxn_text = f"Reaction: {rxn}ms" if rxn and rxn < 3000 else ""
             base.update({
                 "state_label": "Round Result",
-                "main_text": self.result_banner,
-                "sub_text": rxn_text if rxn_text else score_text,
-                "time_left": max(0.0, self.result_until - now),
+                "main_text":   self.result_banner,
+                "sub_text":    rxn_text or score_text,
+                "time_left":   max(0.0, self.result_until - now),
             })
             return base
 
         if self.state == "MATCH_RESULT":
-            # Build session summary stats for the summary screen.
-            rt_list = getattr(self, "_session_reaction_times", [])
-            avg_rt = round(sum(rt_list) / len(rt_list)) if rt_list else None
-            gestures = getattr(self, "_session_gestures", [])
-            gest_counts = Counter(gestures)
-            top_gest = gest_counts.most_common(1)[0][0] if gest_counts else "?"
-            total_rounds = self.round_number
-            player_won = self.player_score > self.robot_score
+            # Build summary stats for the end-of-match screen.
+            rt_list = self._session_reaction_times
+            avg_rt  = round(sum(rt_list) / len(rt_list)) if rt_list else None
+
+            gestures  = self._session_gestures
+            top_gest  = Counter(gestures).most_common(1)[0][0] if gestures else "?"
 
             base.update({
-                "state_label": "Match Result",
-                "main_text": self.match_result_banner,
-                "sub_text": f"FINAL SCORE | {score_text}",
-                "result_banner": self.match_result_banner,
-                "time_left": max(0.0, self.match_until - now),
+                "state_label":    "Match Result",
+                "main_text":      self.match_result_banner,
+                "sub_text":       f"FINAL SCORE | {score_text}",
+                "result_banner":  self.match_result_banner,
+                "time_left":      max(0.0, self.match_until - now),
                 "session_summary": {
-                    "player_won":   player_won,
-                    "player_score": self.player_score,
-                    "robot_score":  self.robot_score,
-                    "total_rounds": total_rounds,
-                    "win_rate":     self.player_score / max(total_rounds, 1),
-                    "avg_reaction_ms": avg_rt,
-                    "top_gesture":  top_gest,
-                    "opponent_type": opp_type,
+                    "player_won":       self.player_score > self.robot_score,
+                    "player_score":     self.player_score,
+                    "robot_score":      self.robot_score,
+                    "total_rounds":     self.round_number,
+                    "win_rate":         self.player_score / max(self.round_number, 1),
+                    "avg_reaction_ms":  avg_rt,
+                    "top_gesture":      top_gest,
+                    "opponent_type":    opp_type,
                 },
             })
             return base
 
-        # Catch-all for any unexpected state value.
+        # Catch-all — should never be reached with a valid state value.
         base.update({
             "state_label": "Unknown",
-            "main_text": "UNKNOWN",
-            "sub_text": "",
+            "main_text":   "UNKNOWN",
+            "sub_text":    "",
         })
         return base
 
@@ -576,30 +617,32 @@ class FairPlayController:
         """
         Main per-frame update — call this every game loop tick.
 
-        wrist_y:       normalised Y position of the player's wrist (None if no hand).
-        tracker_state: dict from the gesture tracker with "confirmed_gesture",
-                       "stable_gesture", "raw_gesture" keys.
-        now:           monotonic timestamp (defaults to time.monotonic()).
+        wrist_y:       normalised Y position of the player's wrist
+                       (None when no hand is visible).
+        tracker_state: dict from the gesture tracker, expected keys:
+                         "confirmed_gesture", "stable_gesture", "raw_gesture"
+        now:           monotonic timestamp; defaults to time.monotonic().
 
-        Returns the UI output dict from _build_output().
+        Returns the UI output dict produced by _build_output().
         """
         if now is None:
             now = time.monotonic()
 
+        # Pull the two most-used gesture fields up front.
         confirmed_gesture = tracker_state.get("confirmed_gesture", "Unknown")
-        stable_gesture    = tracker_state.get("stable_gesture", "Unknown")
+        stable_gesture    = tracker_state.get("stable_gesture",    "Unknown")
 
-        # ── ROUND_INTRO: wait for the intro timer, then ask for a Rock. ──
+        # ── ROUND_INTRO: wait for the intro timer, then show the fist prompt. ──
         if self.state == "ROUND_INTRO":
             if now >= self.intro_until:
                 self.state = "WAITING_FOR_ROCK"
             return self._build_output(now)
 
-        # ── ROUND_RESULT: wait for the display timer, then move on. ──
+        # ── ROUND_RESULT: hold the result banner, then decide next state. ──
         if self.state == "ROUND_RESULT":
             if now >= self.result_until:
                 if self._round_is_over():
-                    # Match decided — show the final banner.
+                    # Someone reached the win target — show the final banner.
                     self.state = "MATCH_RESULT"
                     self.match_result_banner = (
                         "YOU WIN THE MATCH"
@@ -608,143 +651,148 @@ class FairPlayController:
                     )
                     self.match_until = now + self.match_result_seconds
                 else:
-                    # Round finished, match still going — increment round number
-                    # unless it was a draw (draws replay the same round).
+                    # Match still going — increment round unless it was a draw.
                     if self.last_round_result != "draw":
                         self.round_number += 1
                     self._prepare_next_round(now)
             return self._build_output(now)
 
-        # ── MATCH_RESULT: auto-reset to a new match after the display time. ──
+        # ── MATCH_RESULT: hold the game-over screen, then start a new match. ──
         if self.state == "MATCH_RESULT":
             if now >= self.match_until:
                 self.reset_match(now)
             return self._build_output(now)
 
-        # Precompute rock booleans — used in WAITING_FOR_ROCK and COUNTDOWN.
+        # Pre-compute Rock booleans — used in both WAITING_FOR_ROCK and COUNTDOWN.
         confirmed_rock = confirmed_gesture == "Rock"
-        stable_rock    = stable_gesture == "Rock"
+        stable_rock    = stable_gesture    == "Rock"
 
         # ── WAITING_FOR_ROCK: hold until the player makes a fist. ──
         if self.state == "WAITING_FOR_ROCK":
             if self._voice_mode:
-                # In voice mode, "ready" spoken → inject_voice_beat() handles the transition.
+                # Voice: inject_voice_beat("ready") handles the transition.
                 return self._build_output(now)
             if confirmed_rock and wrist_y is not None:
-                # Fist detected — kick off the countdown.
-                self.state = "COUNTDOWN"
-                self.phase = "ready_for_down"
-                self.top_y = wrist_y
-                self.bottom_y = wrist_y
+                # Physical fist detected — start the countdown.
+                self.state     = "COUNTDOWN"
+                self.phase     = "ready_for_down"
+                self.top_y     = wrist_y
+                self.bottom_y  = wrist_y
                 self.last_rock_time = now
             return self._build_output(now)
 
-        # ── COUNTDOWN: track wrist pumps to count beats. ──
+        # ── COUNTDOWN: count wrist pumps (beats) up to 4. ──
         if self.state == "COUNTDOWN":
             if self._voice_mode:
-                # Voice countdown advances only when spoken — nothing to track here.
+                # Voice countdown is fully handled by inject_voice_beat().
                 return self._build_output(now)
 
-            # We keep tracking even if the gesture briefly drops (fast pumping can
-            # cause the classifier to lose the Rock for a frame). The grace window
-            # (rock_grace_period) lets us continue if the wrist is still moving.
+            # We keep tracking even if Rock flickers off for a frame during a fast pump.
+            # The grace window (rock_grace_period) gives a short forgiveness period.
             rock_detected = (confirmed_rock or stable_rock) and wrist_y is not None
             within_grace  = (now - self.last_rock_time) <= self.rock_grace_period
+
+            # can_track: True if there's an active rock OR we're inside the grace window
+            # (and the player has already started pumping — beat_count > 0).
             can_track = rock_detected or (within_grace and wrist_y is not None and self.beat_count > 0)
 
             if rock_detected:
-                # Reset the grace timer while a solid Rock is visible.
+                # Reset the grace timer while Rock is actively visible.
                 self.last_rock_time = now
 
             if can_track:
                 if self.phase == "ready_for_down":
-                    # Track the highest wrist position seen (the "top" of the pump).
+                    # Track the highest wrist Y so we can measure how far it drops.
+                    # (Y increases downward in screen coords, so "highest" = smallest Y.)
                     if self.top_y is None:
                         self.top_y = wrist_y
                     self.top_y = min(self.top_y, wrist_y)
 
+                    # A beat fires when the wrist drops far enough AND the cooldown has passed.
                     moved_down_enough = (wrist_y - self.top_y) >= self.down_threshold
-                    cooldown_ok = (now - self.last_beat_time) >= self.beat_cooldown
+                    cooldown_ok       = (now - self.last_beat_time) >= self.beat_cooldown
 
                     if moved_down_enough and cooldown_ok:
-                        # Downward pump detected — count the beat.
-                        self.beat_count += 1
+                        # Downward pump counted — advance the beat counter.
+                        self.beat_count    += 1
                         self.last_beat_time = now
-                        self.phase = "waiting_for_up"
-                        self.bottom_y = wrist_y
+                        self.phase          = "waiting_for_up"
+                        self.bottom_y       = wrist_y
 
                         if self.beat_count >= 3:
-                            # Beat 3 reached — lock the robot's move now so it's
-                            # committed before the player throws.
+                            # Beat 3: lock the robot's move now so it's committed
+                            # before the player forms their throw gesture.
                             self._lock_robot_move()
 
                         if self.beat_count >= 4:
-                            # Beat 4 — open the SHOOT window.
-                            self.state = "SHOOT_WINDOW"
+                            # Beat 4: open the SHOOT window.
+                            self.state            = "SHOOT_WINDOW"
                             self.shoot_open_time  = now
                             self.shoot_close_time = now + self.shoot_window_seconds
-                            # Ask the main loop to flush the tracker so the Rock
-                            # from the final beat doesn't resolve as the throw.
+                            # Ask the main loop to flush the gesture tracker so the
+                            # Rock from the final beat doesn't leak into SHOOT detection.
                             self.tracker_reset_requested = True
 
                 elif self.phase == "waiting_for_up":
-                    # Track the lowest wrist position seen (the "bottom" of the pump).
+                    # Track the lowest wrist Y (the bottom of the current pump).
                     if self.bottom_y is None:
                         self.bottom_y = wrist_y
                     self.bottom_y = max(self.bottom_y, wrist_y)
 
+                    # Wait until the wrist rises far enough back up.
                     moved_up_enough = (self.bottom_y - wrist_y) >= self.up_threshold
 
                     if moved_up_enough:
-                        # Upward return detected — ready for the next downward beat.
+                        # Upward return confirmed — ready to count the next downward beat.
                         self.phase = "ready_for_down"
                         self.top_y = wrist_y
 
             else:
-                # Neither rock detected nor within grace — the player dropped out.
-                # Cancel this round and go back to WAITING_FOR_ROCK.
+                # Rock disappeared AND the grace period has expired — player dropped out.
+                # Reset the round so they can start over from WAITING_FOR_ROCK.
                 if not within_grace:
                     self._prepare_next_round(now)
 
             return self._build_output(now)
 
-        # ── SHOOT_WINDOW: watch for the player's throw. ──
+        # ── SHOOT_WINDOW: watch for the player's throw gesture. ──
         if self.state == "SHOOT_WINDOW":
             time_since_open = now - self.shoot_open_time
 
             if self._voice_mode:
-                # Voice throw is handled externally by inject_voice_throw().
+                # Voice throw is handled by inject_voice_throw() — nothing to do here.
                 return self._build_output(now)
 
-            # Wait for the change guard to pass before accepting a new gesture.
-            # This prevents the Rock from the final countdown beat from counting.
+            # Change guard: ignore gestures for a brief moment right after the window
+            # opens. This stops the Rock from the final pump beat from instantly resolving.
             if time_since_open >= self.shoot_change_guard_seconds:
+                # Paper or Scissors thrown — resolve immediately.
                 if confirmed_gesture in {"Paper", "Scissors"}:
                     self._resolve_round(confirmed_gesture, now)
                     return self._build_output(now)
-
                 if stable_gesture in {"Paper", "Scissors"}:
                     self._resolve_round(stable_gesture, now)
                     return self._build_output(now)
 
-            # If the player holds Rock past the rock_assume threshold, count it as Rock.
-            # This is intentionally slightly later than the Paper/Scissors check so the
-            # player has a fair window to form those gestures first.
+            # Rock assumption: if the player hasn't changed gesture by this point,
+            # count it as Rock. The threshold is slightly larger than shoot_change_guard
+            # so Paper/Scissors still get a fair window to be recognised first.
             if time_since_open >= self.rock_assume_seconds:
                 self.gesture_assumed = True
                 self._resolve_round("Rock", now)
                 return self._build_output(now)
 
-            # Window expired — try one final fallback read from the tracker.
+            # Window expired without any of the above triggering — do one last
+            # grab from the tracker and resolve whatever we find.
             if now >= self.shoot_close_time:
-                fallback_throw = self._fallback_throw(tracker_state)
-                if fallback_throw in VALID_GESTURES:
-                    self._resolve_round(fallback_throw, now)
+                fallback = self._fallback_throw(tracker_state)
+                if fallback in VALID_GESTURES:
+                    self._resolve_round(fallback, now)
                 else:
-                    # No valid gesture found — replay the round.
+                    # Nothing usable — replay the round.
                     self._prepare_next_round(now)
 
             return self._build_output(now)
 
-        # Should never reach here, but return a valid output just in case.
+        # Should never reach here, but always return a valid dict.
         return self._build_output(now)

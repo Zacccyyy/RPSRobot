@@ -3,9 +3,9 @@ commentary_engine.py
 ====================
 Live AI commentary for RPS games using the Claude API.
 
-After each resolved round this module sends a one-sentence "scouting
-observation" to the Claude API and stores the reply as a subtitle for
-the renderer to display during the ROUND_RESULT state.
+After each resolved round this module sends a short game-state summary to
+Claude and stores the reply as a subtitle for the renderer to display during
+the ROUND_RESULT state.
 
 Commentary can cover:
     - What the player threw and whether the AI predicted it
@@ -14,9 +14,11 @@ Commentary can cover:
     - Streak momentum
     - Running session tendencies
 
-Uses claude-sonnet-4-20250514.  The API call runs in a background daemon
-thread so it NEVER blocks the 30 fps camera/render loop.  If the API is
-unavailable, the commentary is simply empty — the game always continues.
+Model: claude-sonnet-4-20250514
+
+The API call runs in a background daemon thread so it NEVER blocks the
+30 fps camera/render loop.  If the API is unavailable, commentary is simply
+empty — the game always continues regardless.
 
 Requirements:
     ANTHROPIC_API_KEY environment variable must be set.
@@ -31,7 +33,8 @@ import json
 # The Claude model used for commentary generation.
 _CLAUDE_MODEL = "claude-sonnet-4-20250514"
 
-# System prompt that tells Claude exactly what role to play and what format to use.
+# System prompt: tells Claude exactly what role to play and what format to use.
+# Keep this tight — shorter prompts = faster responses = less lag.
 _SYSTEM_PROMPT = """You are a sharp, witty sports commentator for a Rock Paper Scissors AI match.
 After each round, produce exactly ONE sentence (max 20 words) of commentary.
 Focus on: the player's patterns, the AI's prediction, psychological tendencies, or match momentum.
@@ -51,14 +54,14 @@ class CommentaryEngine:
     """
 
     def __init__(self, enabled=True):
-        self.enabled   = enabled
-        self._latest   = ""          # most recent commentary text, shown by renderer
-        self._pending  = False       # True while an API request is in-flight
-        self._last_req = 0.0         # monotonic time of the last request
-        self._min_gap  = 3.0         # seconds between requests (rate limit)
+        self.enabled  = enabled
+        self._latest  = ""     # most recent commentary text for the renderer
+        self._pending = False  # True while an API request is in-flight
+        self._last_req = 0.0   # monotonic time of the last request
+        self._min_gap  = 3.0   # minimum seconds between requests (rate limit)
         self._lock     = threading.Lock()  # guards _latest and _pending
 
-    def toggle(self):
+    def toggle(self) -> bool:
         """
         Toggle commentary on or off.  Clears the displayed text when turning off.
         Returns the new enabled state (True = on).
@@ -69,7 +72,7 @@ class CommentaryEngine:
                 self._latest = ""
         return self.enabled
 
-    def get_latest(self):
+    def get_latest(self) -> str:
         """
         Return the most recently fetched commentary line (thread-safe).
         Returns an empty string if no commentary is available yet.
@@ -78,31 +81,36 @@ class CommentaryEngine:
             return self._latest
 
     def clear(self):
-        """Clear the displayed commentary immediately (e.g. between rounds)."""
+        """Clear the displayed commentary immediately (e.g. at the start of a new game)."""
         with self._lock:
             self._latest = ""
         self._pending = False
 
     def on_round_result(self, game_state):
         """
-        Trigger a commentary generation after a round resolves.
+        Trigger commentary generation after a round resolves.
 
         This is non-blocking — it fires a background thread and returns
-        immediately.  It does nothing if:
+        immediately.  Does nothing if:
             - Commentary is disabled.
             - A request is already in-flight.
-            - The minimum gap between requests hasn't elapsed.
+            - The minimum gap between requests hasn't elapsed yet.
 
-        game_state: the game's current state dict (see _build_prompt for keys used).
+        game_state: the game's current state dict (see _build_prompt for the keys used).
         """
         if not self.enabled:
             return
+
         now = time.monotonic()
+
+        # Respect the rate limit and don't stack requests.
         if self._pending or (now - self._last_req) < self._min_gap:
             return
+
         self._pending  = True
         self._last_req = now
-        # Spin up a daemon thread so it doesn't block process exit.
+
+        # Daemon thread so it doesn't block process exit if the app closes.
         t = threading.Thread(
             target=self._fetch,
             args=(self._build_prompt(game_state),),
@@ -110,11 +118,11 @@ class CommentaryEngine:
         )
         t.start()
 
-    def _build_prompt(self, gs):
+    def _build_prompt(self, gs) -> str:
         """
-        Build a concise summary of the current game state for the model.
+        Build a concise summary of the current game state to send to Claude.
 
-        We only include information that's directly relevant to commentary —
+        We only include information that's directly useful for commentary:
         recent history, scores, detected player type, and any AI insight.
         """
         player   = gs.get("player_gesture", "?")
@@ -130,7 +138,7 @@ class CommentaryEngine:
         insight  = gs.get("last_insight", "")
 
         # Summarise the last five rounds into a compact string like
-        # "Rock(W), Paper(L), Scissors(D)" so the model has recent context.
+        # "Rock(W), Paper(L), Scissors(D)" so Claude has recent context.
         recent   = history[-5:] if history else []
         hist_str = ", ".join(
             f"{r['player_gesture']}({r['player_outcome'][0].upper()})"
@@ -138,12 +146,14 @@ class CommentaryEngine:
             if r.get("player_gesture") and r.get("player_outcome")
         ) or "no history yet"
 
+        # Build the prompt as a list of lines then join them.
         prompt_parts = [
             f"Game: {mode}",
             f"Round {rn}: Player threw {player}, AI threw {robot}. Result: {banner}",
             f"Score: Player {p_score} - AI {r_score}",
             f"Recent history (last 5): {hist_str}",
         ]
+
         # Only include opponent type if it's something meaningful.
         if opp_type and opp_type not in ("random", "unknown", ""):
             prompt_parts.append(f"AI detected player type: {opp_type}")
@@ -154,24 +164,24 @@ class CommentaryEngine:
 
     def _fetch(self, prompt):
         """
-        Make the actual HTTP request to the Claude API.
+        Make the HTTP request to the Claude API and store the result.
 
-        Runs in a background daemon thread.  On success, stores the
-        commentary text in _latest.  Silently ignores all failures because
-        commentary is non-critical — the game must continue regardless.
+        Runs in a background daemon thread.  On success, stores the commentary
+        text in _latest.  Silently ignores all failures — commentary is
+        non-critical and the game must continue no matter what.
         """
         try:
             import urllib.request
 
-            # Construct the request payload.
+            # Build the request payload for the Claude messages API.
             payload = json.dumps({
-                "model":    _CLAUDE_MODEL,
-                "max_tokens": 60,
-                "system":   _SYSTEM_PROMPT,
-                "messages": [{"role": "user", "content": prompt}],
+                "model":      _CLAUDE_MODEL,
+                "max_tokens": 60,           # one sentence is well within 60 tokens
+                "system":     _SYSTEM_PROMPT,
+                "messages":   [{"role": "user", "content": prompt}],
             }).encode("utf-8")
 
-            # We need a valid API key — if it's missing there's nothing to do.
+            # If the API key isn't set there's nothing we can do.
             api_key = os.environ.get("ANTHROPIC_API_KEY", "")
             if not api_key:
                 return
@@ -190,16 +200,18 @@ class CommentaryEngine:
             with urllib.request.urlopen(req, timeout=8) as resp:
                 data    = json.loads(resp.read())
                 content = data.get("content", [])
-                # Extract the first text block from the response.
-                text    = next((c["text"] for c in content if c.get("type") == "text"), "")
-                text    = text.strip().strip('"').strip("'")
+
+                # The response contains a list of content blocks — we want the first text one.
+                text = next((c["text"] for c in content if c.get("type") == "text"), "")
+                text = text.strip().strip('"').strip("'")  # remove any stray quote characters
+
                 if text:
                     with self._lock:
                         self._latest = text
 
         except Exception:
-            # Commentary failures are silent — never crash or log here.
-            pass
+            pass  # commentary failures are silent — never crash or log here
+
         finally:
             # Always mark the request as done, even if it failed.
             self._pending = False

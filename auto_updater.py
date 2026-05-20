@@ -4,13 +4,13 @@ auto_updater.py
 Checks GitHub for a newer version of RPS Robot and applies it automatically.
 
 How it works:
-  1. On app launch, a background thread silently asks the GitHub API:
+  1. On app launch a background thread silently asks the GitHub API:
      "What is the latest commit on the main branch?"
   2. We compare that to the current local commit hash (git rev-parse HEAD).
-  3. If they differ -> show an update banner in the app.
-  4. User presses U -> run `git pull` -> restart the app automatically.
+  3. If they differ → show an update banner in the app.
+  4. User presses U → run `git pull` → restart the app automatically.
 
-No extra dependencies needed  -  uses only Python stdlib.
+No extra dependencies — uses only Python stdlib.
 Repo: https://github.com/Zacccyyy/RPSRobot
 """
 
@@ -24,38 +24,43 @@ import urllib.request
 import urllib.error
 
 # ── Config ────────────────────────────────────────────────────────────────────
+
 GITHUB_OWNER = "Zacccyyy"
 GITHUB_REPO  = "RPSRobot"
 BRANCH       = "main"
 
-# GitHub API: latest commit on main branch
+# GitHub REST API endpoint that returns info about the latest commit on BRANCH.
 API_URL = (
     f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}"
     f"/commits/{BRANCH}"
 )
 
-# How long before giving up on the network request (seconds)
+# How long to wait for the network request before giving up (seconds).
 REQUEST_TIMEOUT = 6
 
-# ── State (shared between background thread and main app) ─────────────────────
+# ── Shared state ──────────────────────────────────────────────────────────────
+# This dict is read by the main thread and written by the background thread,
+# so every access goes through _lock.
+
 _state = {
-    "status":          "idle",    # idle | checking | up_to_date | update_available | error
-    "remote_sha":      None,
-    "local_sha":       None,
-    "error_msg":       "",
-    "last_checked":    0.0,
-    "update_applied":  False,
+    "status":         "idle",   # idle | checking | up_to_date | update_available | error
+    "remote_sha":     None,     # latest commit SHA from GitHub
+    "local_sha":      None,     # current local HEAD SHA
+    "error_msg":      "",
+    "last_checked":   0.0,      # monotonic timestamp of the last check
+    "update_applied": False,    # True after a successful git pull
 }
 _lock = threading.Lock()
 
 
 def get_state() -> dict:
-    """Return a snapshot of the updater state (thread-safe)."""
+    """Return a snapshot of the updater state dict (thread-safe copy)."""
     with _lock:
         return dict(_state)
 
 
 def _set(**kwargs):
+    """Update one or more fields in the shared state dict (thread-safe)."""
     with _lock:
         _state.update(kwargs)
 
@@ -63,14 +68,14 @@ def _set(**kwargs):
 # ── Git helpers ───────────────────────────────────────────────────────────────
 
 def _project_dir() -> str:
-    """The directory containing this file — i.e. the project root."""
+    """Return the directory containing this file — that's the project root."""
     return os.path.dirname(os.path.abspath(__file__))
 
 
 def _run_git(*args, timeout=30) -> tuple[int, str, str]:
     """
     Run a git command in the project directory.
-    Returns (returncode, stdout, stderr).
+    Returns (returncode, stdout, stderr) so callers can check for errors.
     """
     try:
         result = subprocess.run(
@@ -89,23 +94,24 @@ def _run_git(*args, timeout=30) -> tuple[int, str, str]:
         return 1, "", str(exc)
 
 
-def get_local_sha():
+def get_local_sha() -> str | None:
     """Return the current local HEAD commit hash, or None if not a git repo."""
     code, out, _ = _run_git("rev-parse", "HEAD")
     return out if code == 0 and out else None
 
 
-def is_git_repo():
+def is_git_repo() -> bool:
+    """Return True if the project directory is inside a git repository."""
     code, _, _ = _run_git("rev-parse", "--is-inside-work-tree")
     return code == 0
 
 
 # ── Network helper ────────────────────────────────────────────────────────────
 
-def _fetch_remote_sha():
+def _fetch_remote_sha() -> str | None:
     """
     Hit the GitHub API and return the latest commit SHA on the main branch.
-    Returns None on any network or parse error.
+    Returns None on any network or parse error — always fails silently.
     """
     req = urllib.request.Request(
         API_URL,
@@ -119,7 +125,7 @@ def _fetch_remote_sha():
             data = json.loads(resp.read().decode("utf-8"))
             return data.get("sha")
     except urllib.error.URLError:
-        return None   # no internet  -  silent fail
+        return None  # no internet — silent fail
     except Exception:
         return None
 
@@ -129,26 +135,30 @@ def _fetch_remote_sha():
 def check_for_updates():
     """
     Perform a single update check synchronously.
-    Intended to be called from a background thread.
+    Compares the local HEAD SHA against the remote HEAD SHA and updates state.
+    Intended to be called from a background thread via check_in_background().
     """
     if not is_git_repo():
         _set(status="error",
-             error_msg="Not a git repo  -  re-install via git clone to enable updates.")
+             error_msg="Not a git repo — re-install via git clone to enable updates.")
         return
 
     _set(status="checking", last_checked=time.time())
 
+    # Get the local commit hash first.
     local_sha = get_local_sha()
     _set(local_sha=local_sha)
 
+    # Ask GitHub for the latest commit.
     remote_sha = _fetch_remote_sha()
     if remote_sha is None:
-        # No internet or API error — don't bother user
+        # No internet or API error — don't bother the user.
         _set(status="idle")
         return
 
     _set(remote_sha=remote_sha)
 
+    # Compare the first 12 characters — enough to uniquely identify a commit.
     if local_sha and remote_sha.startswith(local_sha[:12]):
         _set(status="up_to_date")
     else:
@@ -157,8 +167,8 @@ def check_for_updates():
 
 def check_in_background():
     """
-    Spawn a daemon thread to check for updates without blocking the app.
-    Safe to call at startup  -  will not slow down launch.
+    Spawn a daemon thread that checks for updates without blocking the app.
+    Safe to call at startup — will not slow down launch.
     """
     t = threading.Thread(target=check_for_updates, daemon=True, name="UpdateChecker")
     t.start()
@@ -166,16 +176,16 @@ def check_in_background():
 
 # ── Apply update ──────────────────────────────────────────────────────────────
 
-def apply_update():
+def apply_update() -> tuple[bool, str]:
     """
-    Run `git pull` to apply the latest update.
+    Run `git pull` to download and apply the latest update.
     Returns (success: bool, message: str).
 
-    After a successful pull the caller should restart the app.
+    After a successful pull the caller should call restart_app().
     """
     _set(status="checking")
 
-    # Make sure we're on the right branch
+    # Make sure we're on the correct branch before pulling.
     _run_git("checkout", BRANCH)
 
     code, out, err = _run_git("pull", "origin", BRANCH, timeout=60)
@@ -183,7 +193,7 @@ def apply_update():
         _set(status="up_to_date", update_applied=True)
         return True, out or "Up to date."
     else:
-        msg = err or out or "git pull failed  -  check your internet connection."
+        msg = err or out or "git pull failed — check your internet connection."
         _set(status="error", error_msg=msg)
         return False, msg
 
@@ -191,28 +201,32 @@ def apply_update():
 def restart_app():
     """
     Restart the current Python process in-place.
-    Uses os.execv on macOS/Linux (clean in-place replace).
-    Uses subprocess + sys.exit on Windows (execv is unreliable there).
+
+    On macOS/Linux: uses os.execv — replaces the process cleanly.
+    On Windows: uses subprocess + sys.exit — execv is unreliable there.
     """
     python = sys.executable
     args   = [python] + sys.argv
+
     if sys.platform == "win32":
+        # Windows doesn't support os.execv reliably, so spawn a new process.
         subprocess.Popen(args)
         sys.exit(0)
     else:
+        # Replace this process entirely — same PID, fresh Python.
         os.execv(python, args)
 
 
-# ── Convenience: apply + restart ──────────────────────────────────────────────
-
 def apply_and_restart(on_error=None):
     """
-    Pull latest changes and restart the app immediately.
-    If the pull fails, call on_error(message) if provided, then return.
+    Pull the latest changes and immediately restart the app.
+
+    on_error : optional callable that receives an error message string
+               if the pull fails.  The app is NOT restarted on failure.
     """
     success, msg = apply_update()
     if success:
-        time.sleep(0.3)   # brief pause so UI can show "Updating..."
+        time.sleep(0.3)  # brief pause so the UI can show "Updating..." before we exit
         restart_app()
     else:
         if on_error:
@@ -222,13 +236,24 @@ def apply_and_restart(on_error=None):
 # ── Human-readable status ─────────────────────────────────────────────────────
 
 def status_label() -> str:
+    """
+    Return a short status string suitable for displaying in the app's UI.
+
+    Shows abbreviated commit hashes when an update is available, a spinner
+    message while checking, the error message on failure, or an empty string
+    when everything is fine (no need to show anything).
+    """
     s = get_state()
+
     if s["status"] == "update_available":
         local  = (s["local_sha"]  or "?")[:7]
         remote = (s["remote_sha"] or "?")[:7]
         return f"Update available  ({local} -> {remote})  Press U to update"
+
     if s["status"] == "checking":
         return "Checking for updates..."
+
     if s["status"] == "error":
         return f"Updater: {s['error_msg'][:60]}"
-    return ""
+
+    return ""  # up_to_date or idle — nothing to show

@@ -1,40 +1,39 @@
-"""
-emotion_tracker.py
-==================
-Real-time facial expression detection using MediaPipe FaceMesh (v4).
-
-KEY DESIGN CHOICE: personal baseline calibration.
-
-All brow and eye signals are measured as DEVIATIONS from the player's own
-resting neutral face, which is estimated during the first BASELINE_FRAMES
-frames of detection.  This means the system adapts to each person's face
-shape instead of requiring every face to match hardcoded absolute values.
-
-Why that matters:
-    A person with naturally low-set brows will never trigger a
-    "brow_height < 0.035" absolute threshold just by frowning, because their
-    neutral brow position is already below that value.  With a personal
-    baseline, the same person only needs to move their brows DOWNWARD from
-    THEIR OWN resting position — which is always detectable.
-
-Detected states:
-    Happy      -- mouth corners raised + mouth widened
-    Surprised  -- mouth open OR dramatic brow raise above baseline
-    Frustrated -- brow dropped below baseline AND brow pinched inward
-    Neutral    -- none of the above thresholds met
-
-Calibration:
-    The first BASELINE_FRAMES (60) frames with a detected face are averaged
-    to build the baseline.  During calibration the tracker returns Neutral
-    (except for smiles, which are universal) and sets calibrated=False.
-    Calibration progress (0-100) is available for a debug overlay.
-    The baseline resets if the face is absent for more than RESET_SECONDS.
-"""
+# emotion_tracker.py
+# -------------------
+# Real-time facial expression detection using MediaPipe FaceMesh.
+#
+# KEY DESIGN CHOICE: personal baseline calibration.
+#
+# All brow and eye signals are measured as DEVIATIONS from the player's own
+# resting neutral face, which is estimated during the first BASELINE_FRAMES
+# frames of detection. This means the system adapts to each person's face
+# shape instead of requiring every face to match hardcoded absolute values.
+#
+# Why that matters:
+#   A person with naturally low-set brows will never trigger a
+#   "brow_height < 0.035" absolute threshold just by frowning, because their
+#   neutral brow position is already below that value. With a personal
+#   baseline, the same person only needs to move their brows DOWNWARD from
+#   THEIR OWN resting position — which is always detectable.
+#
+# Detected states:
+#   Happy      — mouth corners raised + mouth widened
+#   Surprised  — mouth open OR dramatic brow raise above baseline
+#   Frustrated — brow dropped below baseline AND brow pinched inward
+#   Neutral    — none of the above thresholds met
+#
+# Calibration:
+#   The first BASELINE_FRAMES (60) frames with a detected face are averaged
+#   to build the baseline. During calibration the tracker returns Neutral
+#   (except for smiles, which are universal) and sets calibrated=False.
+#   Calibration progress (0-100) is available for a debug overlay.
+#   The baseline resets if the face is absent for more than RESET_SECONDS.
 
 import mediapipe as mp
 from collections import deque, Counter
 
-# MediaPipe FaceMesh solution handle.
+# MediaPipe FaceMesh solution handle — this is the module-level object we use
+# to create FaceMesh instances.
 mp_face_mesh = mp.solutions.face_mesh
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -44,12 +43,15 @@ mp_face_mesh = mp.solutions.face_mesh
 # Number of frames to average when building the neutral baseline (~2 s at 30 fps).
 BASELINE_FRAMES = 60
 
-# If the face disappears for this many seconds, reset the calibration entirely.
+# If the face disappears for this many seconds, reset the calibration entirely
+# so the next person gets a fresh baseline.
 RESET_SECONDS = 3.0
 
 # ─────────────────────────────────────────────────────────────────────────────
 # LANDMARK INDICES  (MediaPipe FaceMesh 468-point model)
 # ─────────────────────────────────────────────────────────────────────────────
+# Each number is the index of a specific point on the face mesh. MediaPipe
+# always returns 468 landmarks in a fixed order, so these indices are stable.
 
 MOUTH_LEFT        = 61
 MOUTH_RIGHT       = 291
@@ -100,9 +102,11 @@ def _dist(a, b):
     """Euclidean distance between two landmarks (in normalised 0-1 coordinates)."""
     return ((a.x - b.x) ** 2 + (a.y - b.y) ** 2) ** 0.5
 
+
 def _face_height(lm):
     """Vertical distance from forehead to chin — used to normalise measurements."""
     return max(_dist(lm[FOREHEAD], lm[CHIN]), 1e-6)
+
 
 def _face_width(lm):
     """Horizontal distance between cheeks — used to normalise brow gap."""
@@ -130,20 +134,20 @@ def _compute_metrics(lm):
     face_h = _face_height(lm)
     face_w = _face_width(lm)
 
-    # Mouth geometry.
+    # Mouth geometry — how wide and how open the mouth is.
     mouth_width    = _dist(lm[MOUTH_LEFT], lm[MOUTH_RIGHT])
     mouth_open     = _dist(lm[MOUTH_OPEN_TOP], lm[MOUTH_OPEN_BOTTOM])
     mouth_center_y = (lm[MOUTH_OPEN_TOP].y + lm[MOUTH_OPEN_BOTTOM].y) / 2
     corner_avg_y   = (lm[MOUTH_LEFT].y + lm[MOUTH_RIGHT].y) / 2
 
     # Brow height = distance between the eye top and the brow midpoint,
-    # normalised by face height.  Higher value = brows further from eyes = raised.
+    # normalised by face height. Higher value = brows further from eyes = raised.
     left_brow_h  = (lm[LEFT_EYE_TOP].y  - lm[LEFT_BROW_MID].y) / face_h
     right_brow_h = (lm[RIGHT_EYE_TOP].y - lm[RIGHT_BROW_MID].y) / face_h
     brow_height  = (left_brow_h + right_brow_h) / 2
 
     # Brow pinch = how close the inner brow corners are relative to face width.
-    # Value close to 1.0 = very pinched (furrowed).
+    # A value close to 1.0 means very pinched / furrowed brows.
     brow_gap   = _dist(lm[LEFT_BROW_INNER], lm[RIGHT_BROW_INNER])
     brow_pinch = 1.0 - (brow_gap / face_w)
 
@@ -184,15 +188,15 @@ def _smile_score(m):
     """
     score = 0.0
 
-    # Mouth width contribution.
+    # Mouth width contribution — the wider the mouth, the more it looks like a smile.
     if m["mouth_width_r"] > 0.40:
         score += min((m["mouth_width_r"] - 0.40) / 0.12, 0.45)
 
-    # Corner lift contribution.
+    # Corner lift contribution — lifted corners are the most reliable smile signal.
     if m["corner_rise"] > 0.022:
         score += min((m["corner_rise"] - 0.022) / 0.040, 0.45)
 
-    # Small brow-raise bonus (only available post-calibration).
+    # Small brow-raise bonus (only available post-calibration, so may be absent).
     if m.get("brow_raise_delta", 0) > 0.008:
         score += min(m["brow_raise_delta"] / 0.030, 0.10)
 
@@ -205,20 +209,19 @@ def _surprise_score(m):
 
     Two independent paths can both contribute:
 
-    Path A -- Classic surprise: mouth open + brow raised above baseline.
+    Path A — Classic surprise: mouth open + brow raised above baseline.
         Requires mouth_open_r > 0.040 as a soft gate.
 
-    Path B -- Brow-only surprise: dramatic brow raise even without an open
-        mouth.  This handles the "eyes wide, brows up" expression that
-        doesn't always open the mouth.  Requires brow_raise_delta > threshold
-        plus optional eye widening above baseline.
+    Path B — Brow-only surprise: dramatic brow raise even without an open
+        mouth. This handles the "eyes wide, brows up" expression that
+        doesn't always open the mouth.
 
     The two paths contribute independently and their sum is capped at 1.0.
     """
     brow_raise = m.get("brow_raise_delta", 0.0)
     eye_raise  = m.get("eye_open_delta",   0.0)
 
-    # Path A: open-mouth surprise.
+    # Path A: open-mouth surprise — mouth open is the primary signal.
     path_a = 0.0
     if m["mouth_open_r"] > 0.040:
         path_a += min((m["mouth_open_r"] - 0.040) / 0.08, 0.50)
@@ -230,7 +233,7 @@ def _surprise_score(m):
     # Path B: brow-only surprise.
     # We don't require eye widening as a hard gate — eye delta can dip below
     # threshold even when the brow raise is held, which would falsely kill
-    # the score.  Eye widening is a bonus, not a requirement.
+    # the score. Eye widening is a bonus here, not a requirement.
     path_b = 0.0
     if brow_raise > 0.022:
         path_b += min((brow_raise - 0.022) / 0.025, 0.70)
@@ -245,19 +248,17 @@ def _frustration_score(m):
     Score how strongly the face looks frustrated (0.0 to 1.0).
 
     Frustration requires BOTH of these relative-to-baseline signals:
-        brow_drop_delta  -- brows dropped below the player's neutral resting height
-        brow_pinch_delta -- brows more pinched inward than at rest
+        brow_drop_delta  — brows dropped below the player's neutral resting height
+        brow_pinch_delta — brows more pinched inward than at rest
 
-    An open mouth (mouth_open_r > 0.040) hard-suppresses the frustration
-    score entirely, because open-mouth expressions are already claimed by
-    Surprised and Happy.
+    An open mouth hard-suppresses the frustration score entirely, because
+    open-mouth expressions are already claimed by Surprised and Happy.
 
     A lip-compression bonus (very closed, tight mouth) adds a small extra
     signal — this is common in "gritting teeth" frustration.
 
-    If only one of the two brow signals is present, the brow contribution
-    is capped at 0.20 to avoid false positives from, e.g., slight natural
-    asymmetry.
+    If only one of the two brow signals is present, the score is capped at
+    0.20 to avoid false positives from slight natural asymmetry.
     """
     # Open mouth means it can't be frustration.
     if m["mouth_open_r"] > 0.040:
@@ -294,7 +295,7 @@ def _classify_emotion(smile, surprise, frustration):
 
     Each emotion has a minimum score threshold before it can be declared.
     If multiple emotions are above their thresholds, the one with the
-    highest score wins.  If none reach their threshold, return Neutral.
+    highest score wins. If none reach their threshold, return Neutral.
     """
     SMILE_THRESH       = 0.38
     SURPRISE_THRESH    = 0.40
@@ -307,7 +308,7 @@ def _classify_emotion(smile, surprise, frustration):
     if frustration >= FRUSTRATION_THRESH: candidates.append(("Frustrated", frustration))
 
     if not candidates:
-        # Neutral confidence increases as the other scores decrease.
+        # No emotion detected — confidence increases as all scores decrease.
         return "Neutral", max(1.0 - smile - surprise - frustration, 0.1)
 
     # Pick the highest-scoring candidate.
@@ -327,18 +328,18 @@ class EmotionTracker:
     Calibration phase:
         The first BASELINE_FRAMES frames with a detected face are averaged
         to build the neutral baseline for brow_height, brow_pinch, and
-        eye_open.  Until calibration completes, non-smile emotions always
+        eye_open. Until calibration completes, non-smile emotions always
         return Neutral to avoid false positives during warmup.
 
     Hysteresis:
         Once an emotion is detected, a higher entry margin is required to
         switch TO that state (HYSTERESIS_ENTER), and the score must drop
         below a lower exit margin before switching AWAY from it
-        (HYSTERESIS_EXIT).  This prevents flickering between states.
+        (HYSTERESIS_EXIT). This prevents flickering between states.
 
     Temporal smoothing:
         The last `history_size` frames' locked emotion labels are kept in a
-        rolling window.  The most common label in the window becomes the
+        rolling window. The most common label in the window becomes the
         reported stable_emotion.
     """
 
@@ -348,6 +349,12 @@ class EmotionTracker:
     HYSTERESIS_EXIT  = 0.22
 
     def __init__(self, history_size=10):
+        """
+        Set up the tracker with a fresh calibration state and empty history.
+
+        history_size controls how many recent frames to use for the stable
+        emotion vote — larger = more smoothing, but slower to react to changes.
+        """
         # Set up MediaPipe FaceMesh.
         # refine_landmarks=False is ~2x faster — brow/mouth geometry doesn't
         # need the extra iris refinement that the full model provides.
@@ -369,7 +376,7 @@ class EmotionTracker:
 
         # Calibration state — tracking how many frames we've collected.
         self._cal_samples         = []    # list of raw metric dicts from the baseline window
-        self._baseline            = None  # averaged baseline dict (set after calibration)
+        self._baseline            = None  # averaged baseline dict (set after calibration completes)
         self._cal_frame_count     = 0
         self._last_face_time      = None  # monotonic timestamp of the last frame with a face
         self.calibrated           = False
@@ -389,12 +396,13 @@ class EmotionTracker:
         Process one camera frame and update all emotion state.
 
         Call this once per frame in the main loop before reading any
-        emotion properties.  Returns the current state dict (same as
+        emotion properties. Returns the current state dict (same as
         _build_state()).
         """
         import time
         now = time.monotonic()
 
+        # Run MediaPipe face detection on this frame.
         results = self._face_mesh.process(rgb_frame)
 
         # --- No face detected ---
@@ -415,13 +423,13 @@ class EmotionTracker:
         self.face_detected    = True
         self._last_face_time  = now
         lm                    = results.multi_face_landmarks[0].landmark
-        self._debug_landmarks = lm
+        self._debug_landmarks = lm  # save for the debug overlay
 
         m = _compute_metrics(lm)
 
         # --- Calibration phase (before baseline is ready) ---
         if not self.calibrated:
-            # Collect this frame's metrics for averaging.
+            # Collect this frame's metrics for averaging into the baseline.
             self._cal_samples.append({
                 "brow_height":  m["brow_height"],
                 "brow_pinch":   m["brow_pinch"],
@@ -445,7 +453,8 @@ class EmotionTracker:
             return self._build_state()
 
         # --- Post-calibration: inject deviation deltas into the metrics ---
-        # This adds brow_drop_delta, brow_raise_delta, etc. relative to baseline.
+        # This adds brow_drop_delta, brow_raise_delta, etc. relative to the
+        # player's personal neutral baseline.
         m = self._inject_deltas(m)
 
         smile       = _smile_score(m)
@@ -527,7 +536,7 @@ class EmotionTracker:
 
         lm = self._debug_landmarks
 
-        # Convert each debug group's landmarks to pixel coordinates.
+        # Convert each debug group's landmarks from 0-1 normalised coords to pixels.
         points = {}
         for group, indices in DEBUG_POINT_GROUPS.items():
             pts = []
@@ -563,7 +572,7 @@ class EmotionTracker:
         self._reset_calibration()
 
     def close(self):
-        """Release the MediaPipe FaceMesh resources.  Call when exiting."""
+        """Release the MediaPipe FaceMesh resources. Call when exiting."""
         self._face_mesh.close()
 
     # ── Internal helpers ──────────────────────────────────────────────────────
@@ -584,6 +593,7 @@ class EmotionTracker:
         The sample list is cleared to free memory.
         """
         n = len(self._cal_samples)
+        # Average each metric across all collected frames.
         self._baseline = {
             "brow_height":  sum(s["brow_height"]  for s in self._cal_samples) / n,
             "brow_pinch":   sum(s["brow_pinch"]   for s in self._cal_samples) / n,
@@ -592,7 +602,7 @@ class EmotionTracker:
         }
         self.calibrated           = True
         self.calibration_progress = 100
-        self._cal_samples         = []   # free memory — no longer needed
+        self._cal_samples         = []  # free memory — no longer needed
         print(
             f"[Emotion] Baseline calibrated: "
             f"brow_h={self._baseline['brow_height']:.4f}  "
@@ -605,10 +615,10 @@ class EmotionTracker:
         Add deviation-from-baseline keys to the raw metrics dict.
 
         Added keys:
-            brow_drop_delta   -- how much lower brows are vs baseline (positive = dropped)
-            brow_raise_delta  -- how much higher brows are vs baseline (positive = raised)
-            brow_pinch_delta  -- how much more pinched vs baseline (positive = more pinched)
-            eye_open_delta    -- how much wider eyes are vs baseline (positive = wider)
+            brow_drop_delta   — how much lower brows are vs baseline (positive = dropped)
+            brow_raise_delta  — how much higher brows are vs baseline (positive = raised)
+            brow_pinch_delta  — how much more pinched vs baseline (positive = more pinched)
+            eye_open_delta    — how much wider eyes are vs baseline (positive = wider)
 
         These replace absolute brow/eye measurements for all post-calibration
         emotion scoring, making the system personal to each face.
@@ -619,10 +629,10 @@ class EmotionTracker:
         # brow_height increases when brows raise (further from eyes in normalised coords).
         # So: positive diff = raised, negative diff = dropped.
         brow_diff              = m["brow_height"] - b["brow_height"]
-        out["brow_drop_delta"]  = max(-brow_diff, 0.0)   # positive when brows are lower than baseline
-        out["brow_raise_delta"] = max( brow_diff, 0.0)   # positive when brows are higher than baseline
+        out["brow_drop_delta"]  = max(-brow_diff, 0.0)  # positive when brows are lower than baseline
+        out["brow_raise_delta"] = max( brow_diff, 0.0)  # positive when brows are higher than baseline
 
-        # How much more pinched and more open vs the person's own neutral.
+        # How much more pinched and how much more open vs the person's own neutral.
         out["brow_pinch_delta"] = max(m["brow_pinch"] - b["brow_pinch"], 0.0)
         out["eye_open_delta"]   = max(m["eye_open"]   - b["eye_open"],   0.0)
 
@@ -633,7 +643,7 @@ class EmotionTracker:
         Assemble the current tracker state into a flat dict for callers.
 
         This is the standard return value from update() and is also used
-        internally whenever we need to return early.
+        internally whenever we need to return early (e.g. no face detected).
         """
         return {
             "raw_emotion":          self.raw_emotion,

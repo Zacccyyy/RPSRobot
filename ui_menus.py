@@ -1,5 +1,28 @@
 """
-ui_menus.py -- Menu, settings, features, simulation, clone, stats and tutorial screens.
+ui_menus.py -- High-level screen-drawing functions for every menu in the RPS Robot UI.
+
+Each public function in this module takes a raw OpenCV frame and one or more
+state dicts, then paints the full screen into that frame (top bar, panel,
+rows, bottom bar).  The main loop calls these once per frame -- they are
+purely presentational and never mutate state themselves.
+
+Screens covered:
+  draw_menu_screen          -- Main / sub-menu with navigation rows
+  draw_simulation_screen    -- Running / results view for strategy simulations
+  draw_settings_screen      -- Scrollable settings list with +/- adjustment
+  draw_features_screen      -- Optional feature toggles
+  draw_game_category_screen -- Two-panel game-mode browser
+  draw_simulations_hub_screen -- Sim-type picker with description panel
+  draw_clone_setup_screen   -- Clone mode: name entry and opponent selection
+  draw_player_stats_screen  -- Per-player stats viewer (overview + history)
+  draw_tutorial_screen      -- Interactive gesture tutorial overlay
+  draw_emotion_debug        -- Face-landmark debug overlay (right-side panel)
+  draw_gesture_nav_overlay  -- Gesture cursor / dwell arc for touch-free nav
+  draw_login_screen         -- First-run / player-switch name entry
+  draw_hardware_test_view   -- Serial port + command-send diagnostic screen
+  draw_notes_screen         -- Free-text player feedback entry screen
+  draw_consent_screen       -- First-run privacy consent screen
+  draw_calibration_view     -- Guided gesture calibration wizard
 """
 import cv2
 import math
@@ -13,6 +36,24 @@ from fair_play_ai import PERSONALITIES
 def draw_menu_screen(frame, menu_items, selected_index, config,
                      show_help=False, voice_mode_active=False, in_submenu=False,
                      update_label="", calibration_warning=False):
+    """
+    Draw the main menu (or a submenu of game modes) on top of the camera frame.
+
+    The function handles four optional banner layers in this order:
+      1. Wordmark / category heading
+      2. Current play-mode subtitle
+      3. Calibration warning (pulsing amber) if hand recognition is untrained
+      4. Software update banner (blue strip below top bar)
+
+    menu_items    -- list of (label, callback_key) tuples to display as rows
+    selected_index -- which row is currently highlighted
+    config        -- live config dict; used for subtitle and calibration check
+    show_help     -- overlay help card if True
+    voice_mode_active -- adjusts bottom-bar hint text and top-right key list
+    in_submenu    -- switches the wordmark area to a simpler "GAME MODES" heading
+    update_label  -- non-empty string shows the blue update-available banner
+    calibration_warning -- shows a pulsing amber warning when True
+    """
     w, h = _frame_size(frame)
 
     top_right = "UP/DOWN Navigate | Enter Select | N Feedback | ESC Back | Q Quit"
@@ -44,7 +85,7 @@ def draw_menu_screen(frame, menu_items, selected_index, config,
     draw_centered_text(frame, subtitle, _ix(h * 0.32),
                        SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
 
-    # Calibration warning banner
+    # Calibration warning banner — brightness pulses slowly to draw attention
     if calibration_warning:
         pulse = 0.65 + 0.35 * abs(math.sin(time.monotonic() * math.pi * 1.0))
         bc = tuple(min(255, int(c * pulse)) for c in COL_AMBER)
@@ -84,6 +125,7 @@ def draw_menu_screen(frame, menu_items, selected_index, config,
         ry1 = item_area_y1 + i * row_h
         ry2 = ry1 + row_h
         draw_row(frame, px1, ry1, px2, ry2, label, selected=(i == selected_index))
+        # Draw a thin divider between rows (skip after the last row)
         if i < n_items - 1:
             cv2.line(frame, (px1 + 3, ry2), (px2 - 3, ry2), COL_BORDER_HAIR, 1)
 
@@ -104,7 +146,16 @@ def draw_menu_screen(frame, menu_items, selected_index, config,
 
 def draw_simulation_screen(frame, sim_state):
     """
-    In-app simulation progress and results screen.
+    Show simulation progress while running, then display results when done.
+
+    The screen has three visual states controlled by sim_state['status']:
+      "running" -- animated progress bar + dots; ESC is deliberately disabled
+                   so the user cannot bail mid-simulation and corrupt results.
+      "error"   -- red error heading + message text.
+      "done"    -- full results layout.  For 'tournament' mode this is a
+                   leaderboard; for 'fairplay' / 'pvpvai' it is two columns
+                   of bar charts (AI difficulty left, player strategy right).
+
     sim_state keys:
       status:        "running" | "done" | "error"
       progress:      float 0-1
@@ -154,7 +205,7 @@ def draw_simulation_screen(frame, sim_state):
         draw_centered_text(frame, pct_text, bar_y + bar_h + _ix(ph * 0.05),
                            0.48, COL_TEXT, thickness=1, outline=2)
 
-        # Animated dots
+        # Animated dots cycle through ".", "..", "..." to indicate activity
         t   = time.monotonic()
         dots = "." * (1 + int(t * 2) % 3)
         draw_centered_text(frame, f"Please wait{dots}", cy + _ix(ph * 0.18),
@@ -282,6 +333,7 @@ def draw_simulation_screen(frame, sim_state):
                 fx  = bar_x1_l + int(bar_w_l * min(1.0, rate))
                 cv2.rectangle(frame, (bar_x1_l, ry - bar_h), (fx, ry + 2), COL_RED, -1)
                 cv2.rectangle(frame, (bar_x1_l, ry - bar_h), (bar_x2_l, ry + 2), (60,60,80), 1)
+                # Shrink label font if the AI name is too long to fit in its column
                 lbl = get_fit_scale(f"{ai_name}", _ix((lx2-lx1)*0.42),
                                     base_scale=0.32, thickness=1, min_scale=0.24)
                 draw_outlined_text(frame, f"{ai_name}", lx1, ry,
@@ -354,6 +406,26 @@ def draw_simulation_screen(frame, sim_state):
 
 def draw_settings_screen(frame, settings_schema, selected_index, config,
                          format_value_fn, cursor_info=None, text_edit=False):
+    """
+    Draw the game settings screen with a scrollable list of configurable options.
+
+    Each setting row shows its label on the left and its current value on the
+    right.  When a 'choice' or 'float' item is selected the value is replaced
+    by a [−] value [+] trio so the player can adjust it with keyboard or
+    gesture nav.  Text-type items (e.g. player name) show an editable field
+    with a blinking cursor.
+
+    A description box is drawn at the bottom of the panel for the currently
+    selected item.  Scroll indicator dots appear on the right edge when the
+    list overflows the visible window.
+
+    settings_schema  -- list of dicts: {label, key, type, desc, ...}
+    selected_index   -- which setting is currently highlighted
+    config           -- live config dict; values are read from here
+    format_value_fn  -- callable(item) -> str; formats the current value for display
+    cursor_info      -- gesture nav cursor state dict, or None if keyboard-only
+    text_edit        -- True while the name text field is being typed into
+    """
     layout = _settings_layout(frame)
     w, h = layout["w"], layout["h"]
     x1, y1, x2, y2 = layout["panel"]
@@ -377,9 +449,10 @@ def draw_settings_screen(frame, settings_schema, selected_index, config,
                        SCALE_HEADING, COL_TEXT_PRIMARY, thickness=1, outline=2)
 
     n_items = len(settings_schema)
-    # Show a scrolling window of items so the description box is never obscured.
+    # Show only VISIBLE rows at a time so the description box is never obscured.
     VISIBLE = 8
-    # Centre the window on selected_index, clamped to valid range
+    # Centre the window on selected_index, clamped to valid range so we
+    # never try to render rows that are out of bounds.
     win_start = max(0, min(selected_index - VISIBLE // 2, n_items - VISIBLE))
     win_end   = min(n_items, win_start + VISIBLE)
     visible_items = list(range(win_start, win_end))
@@ -418,11 +491,11 @@ def draw_settings_screen(frame, settings_schema, selected_index, config,
         if value and not is_action:
             is_text = item.get("type") == "text"
             if selected and is_text:
-                # Text field - blinking cursor when selected
+                # Text field: show a blinking pipe character as cursor while typing
                 blink   = int(time.monotonic() * 2) % 2 == 0
                 display = f"{value}|" if (blink and text_edit) else value
                 font    = cv2.FONT_HERSHEY_SIMPLEX
-                # Highlighted box when in edit mode
+                # Yellow border signals active edit mode; cyan means focused but not editing
                 field_x1 = x2 - _ix(w * 0.32)
                 border_col = COL_YELLOW if text_edit else COL_CYAN
                 draw_panel(frame, field_x1, y - bar_half_h + 2,
@@ -458,7 +531,8 @@ def draw_settings_screen(frame, settings_schema, selected_index, config,
                 minus_text_col = COL_ON_ACTIVE if minus_active else (120, 180, 120)
                 plus_text_col  = COL_ON_ACTIVE if plus_active  else (120, 180, 120)
 
-                # Draw dwell arc on active button
+                # Draw both buttons; if gesture nav is dwelling on one, paint a
+                # progress arc whose colour shifts from cyan to red as it fills
                 for btn_cx, is_act, col in [
                     (minus_x1 + btn_w // 2, minus_active, minus_col),
                     (plus_x1  + btn_w // 2, plus_active,  plus_col),
@@ -470,6 +544,7 @@ def draw_settings_screen(frame, settings_schema, selected_index, config,
                                alpha=0.85, border=col, border_thickness=1 if not is_act else 2)
                     if is_act and adjust_pct > 0:
                         ang = int(360 * adjust_pct)
+                        # Colour shifts green -> red as dwell progress increases
                         r = int(80 + 175 * adjust_pct)
                         g = int(255 * (1 - adjust_pct * 0.8))
                         cv2.ellipse(frame, (btn_cx, y), (btn_h, btn_h),
@@ -495,7 +570,7 @@ def draw_settings_screen(frame, settings_schema, selected_index, config,
                 draw_outlined_text(frame, value, x2 - text_w - _ix(w * 0.025), y,
                                    0.50, COL_TEXT_ACCENT, thickness=1, outline=2)
 
-    # Description box
+    # Description box — shows the 'desc' field of the currently highlighted item
     desc_y1 = y2 - _ix((y2 - y1) * 0.22)
     desc_y2 = y2 - _ix((y2 - y1) * 0.03)
     selected_item = settings_schema[selected_index] if selected_index < n_items else None
@@ -505,6 +580,7 @@ def draw_settings_screen(frame, settings_schema, selected_index, config,
         draw_panel(frame, x1 + _ix(w * 0.015), desc_y1, x2 - _ix(w * 0.015), desc_y2,
                    fill=(8, 20, 35), alpha=0.90, border=COL_BORDER_HAIR, border_thickness=1)
 
+        # Word-wrap the description to fit inside the panel
         max_chars = max(30, int((x2 - x1) / (_ix(w * 0.012) + 1)))
         words, lines, current = desc_text.split(), [], ""
         for word in words:
@@ -628,7 +704,8 @@ def draw_features_screen(frame, features_schema, selected_index, config,
                 draw_outlined_text(frame, val_text, minus_x1 - gap - vw, y,
                                    0.46, COL_TEXT_ACCENT, thickness=1, outline=2)
             elif key == "__personalities__":
-                # Show current personality name + [>] indicator (opens sub-screen)
+                # Special row: shows active personality label and a [>] arrow
+                # indicating it opens a dedicated sub-screen rather than toggling
                 cur_name   = config.get("ai_personality", "Normal")
                 cur_label  = PERSONALITIES.get(cur_name, {}).get("label", cur_name)
                 arrow_col  = COL_MAGENTA if selected else (100, 40, 120)
@@ -646,7 +723,7 @@ def draw_features_screen(frame, features_schema, selected_index, config,
                 draw_outlined_text(frame, val_text, x2 - tw - _ix(w * 0.025), y,
                                    0.46, pill_col, thickness=2, outline=2)
 
-    # Description box
+    # Description box — same layout as settings screen but green-tinted panel
     desc_y1 = y2 - _ix((y2 - y1) * 0.22)
     desc_y2 = y2 - _ix((y2 - y1) * 0.03)
     sel_item  = features_schema[selected_index] if selected_index < n_items else None
@@ -655,6 +732,7 @@ def draw_features_screen(frame, features_schema, selected_index, config,
     if desc_text:
         draw_panel(frame, x1 + _ix(w * 0.015), desc_y1, x2 - _ix(w * 0.015), desc_y2,
                    fill=(8, 20, 8), alpha=0.90, border=COL_BORDER_HAIR, border_thickness=1)
+        # Word-wrap so lines stay inside the panel width
         max_chars = max(30, int((x2 - x1) / (_ix(w * 0.012) + 1)))
         words, lines, cur = desc_text.split(), [], ""
         for word in words:
@@ -717,10 +795,13 @@ def draw_game_category_screen(frame, categories, category_index, mode_index,
     cat_y2 = py2 - 1
     row_h  = _ix((cat_y2 - cat_y1) / VISIBLE_CATS)
 
+    # Keep selected category visible by scrolling the window down when needed;
+    # double-clamp ensures scroll_off is never negative even with few categories.
     scroll_off = max(0, min(category_index - VISIBLE_CATS + 1, n_cats - VISIBLE_CATS))
     scroll_off = max(0, scroll_off)
 
     for i, cat in enumerate(categories):
+        # Convert absolute index to position within the visible window
         vis_idx = i - scroll_off
         if vis_idx < 0 or vis_idx >= VISIBLE_CATS:
             continue
@@ -753,7 +834,8 @@ def draw_game_category_screen(frame, categories, category_index, mode_index,
     cv2.line(frame, (rx1, py1 + header_h), (rx2, py1 + header_h), COL_BORDER_HAIR, 1)
 
     if not in_mode_list:
-        # Description view — dynamic y cursor
+        # Description view: render the category's description then list its modes.
+        # '--' in the description string acts as a manual paragraph break.
         raw_desc = sel_cat.get('desc', '')
         parts    = [p.strip() for p in raw_desc.replace('--', '\n').split('\n') if p.strip()]
         max_px   = rpw - 2 * pad_x
@@ -803,7 +885,8 @@ def draw_game_category_screen(frame, categories, category_index, mode_index,
                            SCALE_MICRO, COL_ACCENT, thickness=1, outline=2)
 
     else:
-        # Mode list view
+        # Mode list view: right panel switches from description to a scrollable
+        # list of the individual modes within the selected category.
         modes   = sel_cat['modes']
         n_modes = len(modes)
         VISIBLE_MODES = 6
@@ -811,6 +894,7 @@ def draw_game_category_screen(frame, categories, category_index, mode_index,
         m_y2  = py2 - _ix(ph * 0.08)
         m_row = _ix((m_y2 - m_y1) / VISIBLE_MODES)
 
+        # Same double-clamp scroll logic as the left category list
         m_scroll = max(0, min(mode_index - VISIBLE_MODES + 1, n_modes - VISIBLE_MODES))
         m_scroll = max(0, m_scroll)
 
@@ -976,6 +1060,26 @@ def draw_simulations_hub_screen(frame, selected_index=0, sim_state=None):
 # ============================================================
 
 def draw_clone_setup_screen(frame, clone_state):
+    """
+    Draw the Clone Mode setup flow across three possible steps.
+
+    'enter_name'      -- Text-entry box where the player types who they are
+                         playing as.  Used to look up (or create) their clone profile.
+    'select_opponent' -- List of clone profiles that have enough data to fight;
+                         player picks one and presses Enter to start.
+    'no_profiles'     -- Shown when no clone has 30+ rounds yet; explains what
+                         is needed and shows partial progress for existing players.
+
+    clone_state keys:
+      step            -- one of the three step strings above
+      text_buffer     -- current typed name (enter_name step)
+      player_name     -- confirmed name carried into select_opponent
+      available       -- list of (name, round_count) tuples for finished clones
+      all_players     -- list of (name, round_count) tuples for all known players
+      selected_index  -- which opponent row is highlighted
+      profiles_updating -- True while background profile refresh is running
+      message         -- optional status/error string shown below the panel
+    """
     w, h = frame.shape[1], frame.shape[0]
     step = clone_state.get("step", "enter_name")
     msg  = clone_state.get("message", "")
@@ -1013,6 +1117,7 @@ def draw_clone_setup_screen(frame, clone_state):
                         (0, 0, 0), 4, cv2.LINE_AA)
             cv2.putText(frame, name_text, (tx, ty), font_d2, SCALE_HEADING,
                         COL_TEXT_PRIMARY, 2, cv2.LINE_AA)
+        # Blinking block cursor: appears on even half-second ticks
         t = time.time()
         if int(t * 2) % 2 == 0:
             (cw, _), _ = cv2.getTextSize(name_text, font_d2, SCALE_HEADING, 2)
@@ -1066,6 +1171,7 @@ def draw_clone_setup_screen(frame, clone_state):
                      selected=selected)
             ry += row_h
 
+        # Show animated "Updating profiles..." message while background refresh runs
         if clone_state.get("profiles_updating"):
             t2 = time.monotonic()
             dots = "." * (1 + int(t2 * 2) % 3)
@@ -1143,7 +1249,33 @@ def _draw_bar(frame, x, y, width, height, fill_pct, bar_color, bg_color=(30, 30,
 
 
 def draw_player_stats_screen(frame, stats_state):
-    """Draw the Player Stats viewer."""
+    """
+    Draw the Player Stats viewer — a multi-step, tabbed stats screen.
+
+    Step 'select':      List of all known players; user picks one to view.
+    Step 'no_profiles': Shown when no rounds have been recorded yet.
+    (default):          Full stats view with two tabs:
+                          'overview'  -- win/loss/draw bars, gesture frequency,
+                                         after-outcome response patterns, traits,
+                                         and a row of recent-round colour chips.
+                          'history'   -- per-session table with date, mode, score,
+                                         win-rate, and average reaction time.
+
+        A mode-filter strip (All / FairPlay / Challenge / Cheat / Clone) and a
+        tab strip are always rendered so the player can navigate even when no
+        data exists for the current filter.
+
+    stats_state keys:
+      step            -- 'select' | 'no_profiles' | omit for view mode
+      players         -- list of (name, round_count) for the player list
+      selected_index  -- highlighted row in the player list
+      data            -- aggregated stats dict (None if filter has no data)
+      traits          -- list of human-readable trait strings
+      tab             -- 'overview' | 'history'
+      filter          -- active mode filter string
+      rounds          -- full list of round dicts (used for history chips)
+      sessions        -- list of session summary dicts for history tab
+    """
     layout = _menu_layout(frame)
     w, h = layout["w"], layout["h"]
     x1, y1, x2, y2 = layout["panel"]
@@ -1221,7 +1353,8 @@ def draw_player_stats_screen(frame, stats_state):
 
     pw, ph = x2 - x1, y2 - y1
 
-    # -- Mode filter strip - ALWAYS drawn so user can still navigate ------
+    # -- Mode filter strip: always drawn so the player can switch filters
+    #    even when data is None (no rounds in the current filter).
     _FILTERS = ["All", "FairPlay", "Challenge", "Cheat", "Clone"]
     strip_y1 = y1 + _ix(ph * 0.01)
     strip_y2 = y1 + _ix(ph * 0.10)
@@ -1242,7 +1375,7 @@ def draw_player_stats_screen(frame, stats_state):
             color=COL_TEXT_PRIMARY if active else COL_TEXT_SECONDARY,
             thickness=1, outline=2)
 
-    # -- View tab strip - ALWAYS drawn ------------------------------------
+    # -- View tab strip: always drawn alongside the filter strip above ----
     _TABS  = [("overview", "Overview"), ("history", "Match History")]
     tab_y1 = strip_y2 + _ix(ph * 0.005)
     tab_y2 = tab_y1 + _ix(ph * 0.08)
@@ -1385,7 +1518,8 @@ def draw_player_stats_screen(frame, stats_state):
                                sc, COL_TEXT_SECONDARY, thickness=1, outline=2)
             traits_y += _ix(ph * 0.048)
 
-        # 14-px square history chips
+        # Small 14-px coloured squares for the last 24 rounds (green=win, red=loss, grey=draw).
+        # Centred horizontally at the bottom of the panel for a quick visual summary.
         rounds = stats_state.get("rounds", [])
         if rounds:
             recent   = rounds[-24:]
@@ -1397,6 +1531,7 @@ def draw_player_stats_screen(frame, stats_state):
             chip_y  = y2 - _ix(ph * 0.06)
             _col_map = {"win": COL_GREEN, "lose": COL_RED, "draw": COL_TEXT_SECONDARY}
             for i, r in enumerate(recent):
+                # Support both 'outcome' and legacy 'player_outcome' field names
                 outcome = r.get("outcome", r.get("player_outcome", "draw"))
                 col = _col_map.get(outcome, COL_TEXT_DIM)
                 cx = chip_x0 + i * (chip + chip_gap)
@@ -1442,6 +1577,8 @@ def draw_player_stats_screen(frame, stats_state):
                     tint_col = COL_RED
                 else:
                     tint_col = None
+                # Subtle row tint (6% opacity) for wins/losses so good and bad
+                # sessions are distinguishable at a glance without being distracting
                 if tint_col:
                     ty1 = row_y - row_h + 2
                     ty2 = row_y + 2
@@ -1479,7 +1616,27 @@ def draw_player_stats_screen(frame, stats_state):
 # ============================================================
 
 def draw_tutorial_screen(frame, tut_state):
-    """Draw the interactive tutorial overlaid on the camera feed."""
+    """
+    Draw the interactive gesture tutorial overlaid on the live camera feed.
+
+    The screen is divided into two panels sitting side by side below a top bar:
+      Left panel  -- current instruction text; on the final step ('done') this
+                     becomes a "YOU'RE READY" confirmation instead.
+      Right panel -- gesture glyph (schematic hand icon) for the target gesture,
+                     so the player knows what shape to make.
+
+    A progress bar just below the top bar and a detection badge near the bottom
+    give live feedback on which gesture is being detected and at what confidence.
+
+    tut_state keys:
+      step            -- dict describing the current tutorial step (id, gesture_name,
+                         instruction, description / sub)
+      step_index      -- zero-based position in the sequence
+      total_steps     -- total number of steps
+      detected_gesture -- gesture name currently detected by the hand tracker
+      gesture_confidence -- float 0-1 confidence of the detected gesture
+      voice_mode      -- True when running the voice-mode tutorial variant
+    """
     w, h = _frame_size(frame)
 
     step        = tut_state.get("step", {})
@@ -1498,7 +1655,7 @@ def draw_tutorial_screen(frame, tut_state):
     mode_label = "VOICE MODE" if voice_mode else "HOW TO PLAY"
     draw_top_bar(frame, mode_label, f"Step {step_num} of {total}  |  ESC to skip")
 
-    # 3px progress bar + captions immediately below top bar
+    # Thin progress bar just below the top bar; fills as the player advances steps
     prog       = step_idx / max(total - 1, 1) if total > 1 else 1.0
     bar_y      = _ix(h * 0.065)
     bar_x      = _ix(w * 0.02)
@@ -1746,8 +1903,9 @@ def draw_emotion_debug(frame, debug_info):
     cv2.putText(frame, f"{emotion}  {confidence:.0%}", (panel_x, cy),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.46, em_color, 1, cv2.LINE_AA)
 
-    # Landmark dots - clipped so they don't paint over the diagnostic info panel.
-    # Info panel occupies roughly x: 2%-55%, y: 15%-76% of the frame.
+    # Landmark dots: draw coloured circles on detected face points.
+    # Dots are clipped to avoid painting over the game's diagnostic info panel
+    # which occupies roughly x: 2%-55%, y: 15%-76% of the frame.
     h_f, w_f = frame.shape[:2]
     clip_x2 = int(w_f * 0.56)   # right edge of info panel + small margin
     clip_y1 = int(h_f * 0.14)
@@ -1756,10 +1914,11 @@ def draw_emotion_debug(frame, debug_info):
     for group, pts in debug_info["points"].items():
         dot_color = GROUP_COLORS.get(group, (255, 255, 255))
         for (px, py) in pts:
-            # Skip dots that fall inside the info panel region
+            # Skip dots that land inside the info-panel clip region
             if px < clip_x2 and clip_y1 < py < clip_y2:
                 continue
             cv2.circle(frame, (px, py), 4, dot_color, -1)
+            # Black outline ring makes the dot readable on any background colour
             cv2.circle(frame, (px, py), 5, (0, 0, 0), 1)
 
 
@@ -1802,6 +1961,7 @@ def draw_gesture_nav_overlay(frame, cursor_info):
                     cv2.FONT_HERSHEY_SIMPLEX, 0.38, badge_color, 1, cv2.LINE_AA)
         return
 
+    # Convert normalised [0,1] fingertip coords to pixel position, clamped to frame bounds
     px = max(0, min(w - 1, int(tip_x * w)))
     py = max(0, min(h - 1, int(tip_y * h)))
 
@@ -1819,16 +1979,18 @@ def draw_gesture_nav_overlay(frame, cursor_info):
             cv2.ellipse(frame, (px, py), (22, 22), -90, 0, angle, (b, g, r), 3)
 
     elif warming_up:
+        # Pulsing white ring during the 2-second hold-still warmup period
         pulse    = 0.4 + 0.6 * (time.monotonic() % 1.0)
         ring_col = tuple(int(c * pulse) for c in (200, 200, 200))
         cv2.circle(frame, (px, py), 16, ring_col, 2)
+        # Teal arc fills as warmup progress accumulates
         if warmup_pct > 0:
             cv2.ellipse(frame, (px, py), (18, 18), -90, 0,
                         int(360 * warmup_pct), (80, 255, 180), 2)
 
     else:
-        # Hand detected but not yet pointing - grey dot so user can
-        # see tracking is live and confirm coordinate mapping is correct
+        # Hand detected but not yet pointing upward -- grey hollow dot confirms
+        # that tracking is live so the user can adjust their hand position
         cv2.circle(frame, (px, py), 8, (90, 90, 90), 1)
 
     # -- Status badge (bottom-left) --------------------------------------- #
@@ -1866,6 +2028,7 @@ def draw_login_screen(frame, login_text="", saved_name="", verified_players=None
     w, h = frame.shape[1], frame.shape[0]
     t    = time.time()
 
+    # Build the recent-players chip list; always put the last-used name first
     recent = list(verified_players or [])
     if saved_name and saved_name not in recent:
         recent.insert(0, saved_name)
@@ -1908,6 +2071,7 @@ def draw_login_screen(frame, login_text="", saved_name="", verified_players=None
                     (0, 0, 0), 4, cv2.LINE_AA)
         cv2.putText(frame, txt, (tx, ty), font_d2, SCALE_HEADING,
                     COL_TEXT_PRIMARY, 2, cv2.LINE_AA)
+    # Blinking block cursor positioned immediately after the last character
     if int(t * 2) % 2 == 0:
         (cw, _), _ = cv2.getTextSize(txt, font_d2, SCALE_HEADING, 2)
         cur_x = tx + cw + 2
@@ -1916,6 +2080,7 @@ def draw_login_screen(frame, login_text="", saved_name="", verified_players=None
     # ── Char counter top-right of box ────────────────────────────────────
     char_count = len(txt)
     counter_str = f"{char_count}/20"
+    # Turn amber when approaching the 20-character limit to warn the player
     counter_col = COL_AMBER if char_count >= 18 else COL_TEXT_DIM
     draw_outlined_text(frame, counter_str, box_x2 - _ix(w * 0.06), box_y1 - 6,
                        SCALE_MICRO, counter_col, thickness=1, outline=2)
@@ -1931,6 +2096,7 @@ def draw_login_screen(frame, login_text="", saved_name="", verified_players=None
                            SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
         chip_x = _ix(w * 0.10)
         chip_y = _ix(h * 0.73)
+        # Draw up to 5 name chips; stop early if they would overflow the right edge
         for name in recent[:5]:
             is_sel = (name == saved_name)
             (nw, nh), _ = cv2.getTextSize(name, cv2.FONT_HERSHEY_SIMPLEX, SCALE_CAPTION, 1)
@@ -1974,6 +2140,7 @@ def draw_hardware_test_view(frame, diag_state):
     draw_top_bar(frame, "HARDWARE TEST",
                  "[ ] Port  |  ENTER Connect  |  R/P/S Send  |  X Disconnect  |  ESC Back")
 
+    # Bail out early with a clear install instruction if pyserial is missing
     if not pyserial_ok:
         draw_centered_text_in_rect(frame, "pyserial NOT INSTALLED",
             (0, _ix(h*0.30), w, _ix(h*0.42)),
@@ -2075,6 +2242,7 @@ def draw_hardware_test_view(frame, diag_state):
         tx2   = tx1 + tile_w - 8
         ty1   = tile_y0 + row_i * tile_h + 2
         ty2   = ty1 + tile_h - 4
+        # Highlight the tile whose command was most recently sent
         active = last_tx == f"CMD|{cmd}"
         draw_panel(frame, tx1, ty1, tx2, ty2,
                    fill=COL_PANEL_BG, alpha=0.85,
@@ -2094,12 +2262,13 @@ def draw_hardware_test_view(frame, diag_state):
                                tx2 - _ix(rpw * 0.08), ty1 + _ix(tile_h * 0.60),
                                SCALE_MICRO, COL_GREEN, thickness=1, outline=2)
 
-    # Footer log at panel inner-bottom
+    # Footer log strip: summarises the most recent command and whether an ACK was received
     log_y = bot_y - _ix(rph * 0.12)
     cv2.line(frame, (rx1 + 4, log_y), (rx2 - 4, log_y), COL_BORDER_HAIR, 1)
     if last_tx:
         age_str = f"{last_tx_age}ms ago" if last_tx_age else ""
         ack_str = "ACK received" if last_rx else ""
+        # Filter out empty strings before joining so we never get double separators
         parts   = [p for p in ["LAST  *  sent", last_tx, age_str, ack_str] if p]
         log_txt = "  *  ".join(parts)
         sc_log  = get_fit_scale(log_txt, rpw - 12, base_scale=SCALE_MICRO,
@@ -2130,7 +2299,7 @@ def draw_notes_screen(frame, text_buffer, submitted=False, saved_path="", return
                  "Type your suggestion and press ENTER  |  ESC Cancel")
 
     if submitted:
-        # Confirmation screen
+        # Swap to a confirmation screen with a slowly pulsing success colour
         pulse = 0.85 + 0.15 * abs(math.sin(t * math.pi * 1.5))
         col   = tuple(min(255, int(c * pulse)) for c in COL_GREEN)
         draw_centered_text_in_rect(frame, "FEEDBACK SUBMITTED",
@@ -2166,7 +2335,9 @@ def draw_notes_screen(frame, text_buffer, submitted=False, saved_path="", return
                fill=(6, 10, 24), alpha=0.92,
                border=COL_BORDER_HAIR, border_thickness=1)
 
-    # Word-wrap the text buffer
+    # Word-wrap the text buffer so it fits inside the box.
+    # Newlines in the buffer are converted to sentinel tokens first so
+    # explicit line breaks are preserved after splitting on spaces.
     max_chars_per_line = 72
     words   = text_buffer.replace("\n", " \n ").split(" ")
     lines   = []
@@ -2182,18 +2353,19 @@ def draw_notes_screen(frame, text_buffer, submitted=False, saved_path="", return
             current = word
     lines.append(current)
 
-    # Draw lines
+    # Draw the visible portion of the text (scroll so the most recent lines show)
     line_h   = _ix(h * 0.048)
     text_x   = box_x1 + _ix(w * 0.025)
     text_y   = box_y1 + _ix(h * 0.03)
     max_lines = int((box_y2 - box_y1 - _ix(h*0.06)) / line_h)
 
+    # When the text overflows the box, show the last N lines so the cursor stays visible
     visible = lines[-max_lines:] if len(lines) > max_lines else lines
     for i, line in enumerate(visible):
         draw_outlined_text(frame, line, text_x, text_y + i * line_h,
                            0.36, COL_TEXT, thickness=1, outline=2)
 
-    # Blinking cursor on last line
+    # Blinking vertical cursor: drawn at the end of the last visible line
     if abs(math.sin(t * math.pi * 1.5)) > 0.5:
         last_line = visible[-1] if visible else ""
         tw, _     = cv2.getTextSize(last_line, cv2.FONT_HERSHEY_SIMPLEX, 0.36, 1)
@@ -2202,7 +2374,7 @@ def draw_notes_screen(frame, text_buffer, submitted=False, saved_path="", return
         cur_y_bot = cur_y_top + _ix(h * 0.035)
         cv2.line(frame, (cur_x, cur_y_top), (cur_x, cur_y_bot), COL_CYAN, 2)
 
-    # Character count
+    # Character count badge in the bottom-right of the box; turns yellow near the limit
     char_count = len(text_buffer)
     max_chars  = 500
     cc_col     = COL_TEXT_DIM if char_count < max_chars * 0.8 else COL_YELLOW
@@ -2251,12 +2423,14 @@ def draw_consent_screen(frame, selected=0):
     ]
     for i, (tag, body) in enumerate(data_rows):
         ry = py1 + _ix(ph * 0.10) + i * row_gap
+        # Tag (e.g. "CAMERA") in accent colour on the left, body text right-aligned
         draw_outlined_text(frame, tag, lx, ry,
                            SCALE_CAPTION, COL_ACCENT, thickness=1, outline=2)
         sc_b = get_fit_scale(body, px2 - rx - _ix(pw * 0.04),
                              base_scale=SCALE_BODY, thickness=1, min_scale=0.28)
         draw_outlined_text(frame, body, rx, ry,
                            sc_b, COL_TEXT_SECONDARY, thickness=1, outline=2)
+        # Horizontal rule between rows (skip after the last one)
         if i < len(data_rows) - 1:
             cv2.line(frame, (lx, ry + _ix(ph * 0.14)), (px2 - _ix(pw * 0.04), ry + _ix(ph * 0.14)),
                      COL_BORDER_HAIR, 1)
@@ -2342,6 +2516,7 @@ def draw_calibration_view(frame, cal_state, hand_state=None):
     top_right   = f"VARIATION {var_label}  |  ESC to skip" if var_label else "ESC to skip"
     draw_top_bar(frame, f"CALIBRATION  *  {g_idx_label}", top_right)
 
+    # Route to the correct sub-layout based on which calibration phase is active
     # ── INTRO ────────────────────────────────────────────────────────────
     if phase == "INTRO":
         draw_centered_text_in_rect(frame, "QUICK SETUP REQUIRED",
@@ -2371,6 +2546,7 @@ def draw_calibration_view(frame, cal_state, hand_state=None):
             draw_outlined_text(frame, text, px1 + _ix(w*0.03), ty,
                                scale, col, thickness=1, outline=2)
 
+        # Pulse the "Press SPACE..." prompt to draw the player's eye to it
         pulse = 0.6 + 0.4 * abs(math.sin(t * math.pi * 1.2))
         pc = tuple(min(255, int(c * pulse)) for c in COL_GREEN)
         draw_centered_text_in_rect(frame, "Press SPACE or ENTER to begin  |  ESC to skip for now",
@@ -2383,6 +2559,7 @@ def draw_calibration_view(frame, cal_state, hand_state=None):
         pct_done = min(1.0, samples_this / max(samples_need, 1))
         gesture_names_all = ["Rock", "Paper", "Scissors"]
 
+        # Three status cards across the top: green = done, accent = current, dim = pending
         # Per-gesture progress strip at y=12%
         card_w  = _ix(w * 0.30)
         card_h  = 80
@@ -2452,7 +2629,9 @@ def draw_calibration_view(frame, cal_state, hand_state=None):
                            _ix(w * 0.05), _ix(h * 0.58),
                            sc_instr, COL_TEXT_SECONDARY, thickness=1, outline=2)
 
-        # Footer at y=83%
+        # Footer at y=83%: live gesture detection badge + SPACE capture button
+        # Prefer values from the hand_state object; fall back to simpler flags
+        # when hand_state is not available (e.g. during unit tests).
         if hand_state is not None:
             detected_g = getattr(hand_state, 'gesture', '') or ''
             g_conf = getattr(hand_state, 'confidence', 0.0) or 0.0
@@ -2488,6 +2667,7 @@ def draw_calibration_view(frame, cal_state, hand_state=None):
 
     # ── DONE ─────────────────────────────────────────────────────────────
     elif phase == "DONE":
+        # Subtly pulse the success heading so the player notices without being jarring
         pulse4 = 0.85 + 0.15 * abs(math.sin(t * math.pi * 1.5))
         gc = tuple(min(255, int(c * pulse4)) for c in COL_GREEN)
         draw_centered_text_in_rect(frame, "CALIBRATION COMPLETE",

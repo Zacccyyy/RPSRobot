@@ -1,49 +1,49 @@
-"""
-voice_control.py — Voice input controller for the RPS gesture recogniser.
-
-This file sits between the microphone and the rest of the game.  It runs a
-background thread that continuously listens to the mic, passes the audio through
-the Vosk offline speech recogniser, and converts recognised words into typed
-event dicts that the main game loop can poll each frame.
-
-Two event types are produced:
-  - "beat"  : a countdown word was heard  (ready / one / two / three)
-  - "throw" : a gesture word was heard    (Rock / Paper / Scissors / …)
-  - "nav"   : a navigation word was heard (up / down / select / quit / …)
-
-Why Vosk?  It runs 100 % offline (no internet needed), loads fast, and the
-small model is only ~50 MB.  We lock it to a closed vocabulary (grammar mode)
-so it only searches ~100 words instead of 50,000+, which gives lower latency
-and higher accuracy for command-word use.
-
-INSTALL
--------
-    pip install vosk sounddevice
-
-Download the small English model (~50 MB) from:
-    https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip
-
-Unzip it so the folder exists at one of:
-    ./vosk-model-small-en-us-0.15/          (project root, recommended)
-    ~/Desktop/CapStone/vosk-model-small-en-us-0.15/
-    ~/Downloads/vosk-model-small-en-us-0.15/
-
-Usage
------
-    vc = VoiceController()
-    ok = vc.start()                   # returns True if successfully started
-    if not ok:
-        print(vc.get_error())
-
-    # each frame:
-    for event in vc.drain_events():
-        # event = {"type": "beat",  "word":    "ready" | "one" | "two" | "three"}
-        # event = {"type": "throw", "gesture": "Rock"  | "Paper" | "Scissors"}
-        # event = {"type": "nav",   "action":  "up" | "down" | "select" | ...}
-        ...
-
-    vc.stop()
-"""
+# voice_control.py
+# -----------------
+# Voice input controller for the RPS gesture-recogniser game.
+#
+# This file sits between the microphone and the rest of the game. It runs a
+# background thread that continuously listens to the mic, passes the audio
+# through the Vosk offline speech recogniser, and converts recognised words
+# into typed event dicts that the main game loop can poll each frame.
+#
+# Three event types are produced:
+#   "beat"  — a countdown word was heard  (ready / one / two / three)
+#   "throw" — a gesture word was heard    (Rock / Paper / Scissors / …)
+#   "nav"   — a navigation word was heard (up / down / select / quit / …)
+#
+# Why Vosk? It runs 100% offline (no internet needed), loads fast, and the
+# small model is only ~50 MB. We lock it to a closed vocabulary (grammar mode)
+# so it only searches ~100 words instead of 50,000+, giving lower latency
+# and higher accuracy for command-word use.
+#
+# INSTALL
+# -------
+#   pip install vosk sounddevice
+#
+# Download the small English model (~50 MB) from:
+#   https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip
+#
+# Unzip it so the folder exists at one of:
+#   ./vosk-model-small-en-us-0.15/          (project root, recommended)
+#   ~/Desktop/CapStone/vosk-model-small-en-us-0.15/
+#   ~/Downloads/vosk-model-small-en-us-0.15/
+#
+# Usage
+# -----
+#   vc = VoiceController()
+#   ok = vc.start()                   # returns True if started successfully
+#   if not ok:
+#       print(vc.get_error())
+#
+#   # each frame:
+#   for event in vc.drain_events():
+#       # event = {"type": "beat",  "word":    "ready" | "one" | "two" | "three"}
+#       # event = {"type": "throw", "gesture": "Rock"  | "Paper" | "Scissors"}
+#       # event = {"type": "nav",   "action":  "up" | "down" | "select" | ...}
+#       ...
+#
+#   vc.stop()
 
 import json
 import numpy as _np
@@ -54,6 +54,7 @@ import threading
 # ---------------------------------------------------------------------------
 # Optional dependencies — wrapped so the app still starts if not installed.
 # ---------------------------------------------------------------------------
+
 # sounddevice gives us access to the microphone.
 try:
     import sounddevice as sd
@@ -75,13 +76,13 @@ VOSK_AVAILABLE = _SD_AVAILABLE and _VOSK_AVAILABLE
 # Recognition vocabulary
 # ---------------------------------------------------------------------------
 # We give Vosk a closed grammar (a finite list of words it's allowed to hear).
-# This is dramatically faster and more accurate than open-vocab recognition for
-# a command-word application like this one.
+# This is much faster and more accurate than open-vocab recognition for a
+# command-word app like this one.
 #
 # For every canonical word we care about, we also include every plausible
-# mishearing or accent variant.  The _BEAT_CANONICAL dict then maps each
-# variant back to its canonical form so the game logic only sees the clean
-# version (e.g. "tree" → "three").
+# mishearing or accent variant. The _BEAT_CANONICAL dict maps each variant
+# back to its canonical form, so the game logic only sees the clean version
+# (e.g. "tree" → "three").
 
 # -- Countdown words --
 # Each entry covers the canonical word plus its most common mishearings.
@@ -158,7 +159,7 @@ _THROW_WORDS = {
     "scissored":  "Scissors",
     # -- RPSLS extras (Rock Paper Scissors Lizard Spock) --
     "lizard":     "Lizard",
-    "wizard":     "Lizard",   # common mishearing
+    "wizard":     "Lizard",   # common mishearing of "lizard"
     "blizzard":   "Lizard",
     "spock":      "Spock",
     "spot":       "Spock",    # common mishearing
@@ -304,16 +305,16 @@ def _find_model_path(override=None, prefer_indian=False):
     """
     Locate the Vosk model directory and return its path, or None if not found.
 
-    If `override` is given and points to an existing directory, that is used
-    immediately without any searching.  Otherwise we walk the default search
-    paths in order, optionally trying the Indian-English model first.
+    If `override` is given and points to an existing directory, use it directly.
+    Otherwise walk the default search paths in order, optionally trying the
+    Indian-English model first (better for non-US accents).
     """
     # If the caller already knows where the model is, use it directly.
     if override and os.path.isdir(override):
         return override
 
-    # When the Indian model is preferred (better for non-US accents), check
-    # those paths first before falling through to the US model.
+    # When the Indian model is preferred, check those paths first before
+    # falling through to the US model.
     if prefer_indian:
         for p in _INDIAN_MODEL_SEARCH_PATHS:
             if os.path.isdir(p):
@@ -331,37 +332,38 @@ def _find_model_path(override=None, prefer_indian=False):
             if os.path.isdir(p):
                 return p
 
-    # Nothing found — caller must display an install message.
+    # Nothing found — the caller must display an install message.
     return None
 
 
 # ---------------------------------------------------------------------------
 # VoiceController
 # ---------------------------------------------------------------------------
+
 class VoiceController:
     """
     Background-thread voice listener.
 
     Recognises a small fixed vocabulary and posts typed event dicts to an
-    internal queue.  The main game loop calls drain_events() each frame to
-    consume those events without blocking.  All public methods are thread-safe.
+    internal queue. The main game loop calls drain_events() each frame to
+    consume those events without blocking. All public methods are thread-safe.
     """
 
     # Vosk's small model requires 16 kHz mono input — do not change this.
     SAMPLE_RATE = 16000   # Hz
     # How many audio frames are delivered per callback (~50 ms at 16 kHz).
-    # Smaller block = lower recognition latency.  Was 4000 (250 ms) originally.
+    # Smaller block = lower recognition latency.
     BLOCK_SIZE  = 800
 
     def __init__(self, model_path=None, verbose=False, prefer_indian=False):
         """
-        Set up the controller in a stopped state.  Nothing is allocated until
+        Set up the controller in a stopped state. Nothing is allocated until
         start() is called.
 
         Parameters
         ----------
         model_path : str or None
-            Path to an unpacked Vosk model directory.  If None, the controller
+            Path to an unpacked Vosk model directory. If None, the controller
             searches the default locations listed in _DEFAULT_MODEL_SEARCH_PATHS.
         verbose : bool
             If True, print each recognised word to stdout as it is heard.
@@ -372,14 +374,14 @@ class VoiceController:
         self._model_path    = model_path
         self._verbose       = verbose
         self._prefer_indian = prefer_indian
-        self._event_queue   = queue.Queue()  # thread-safe event buffer
-        self._thread        = None           # the background listening thread
+        self._event_queue   = queue.Queue()      # thread-safe event buffer
+        self._thread        = None               # the background listening thread
         self._stop_event    = threading.Event()  # set this to ask the thread to stop
         self._running       = False
-        self._error         = None           # last error string (for UI display)
-        self._last_word     = ""             # most recently recognised word
-        self._mic_level     = 0.0            # RMS amplitude of last audio block (0–1)
-        self._lock          = threading.Lock()  # guards _last_word and _mic_level
+        self._error         = None               # last error string (for UI display)
+        self._last_word     = ""                 # most recently recognised word
+        self._mic_level     = 0.0                # RMS amplitude of last audio block (0–1)
+        self._lock          = threading.Lock()   # guards _last_word and _mic_level
 
     # ------------------------------------------------------------------
     # Public API
@@ -389,7 +391,7 @@ class VoiceController:
         """
         Load the Vosk model and start the background listening thread.
 
-        Returns True on success.  Returns False (and stores a human-readable
+        Returns True on success. Returns False (and stores a human-readable
         message in self._error) if a required package is missing or the model
         directory cannot be found.
         """
@@ -417,7 +419,7 @@ class VoiceController:
         path = _find_model_path(self._model_path, prefer_indian=self._prefer_indian)
         if path is None:
             self._error = (
-                "Vosk model not found.  Download the small English model:\n"
+                "Vosk model not found. Download the small English model:\n"
                 "  https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip\n"
                 f"Unzip to:  {_DEFAULT_MODEL_SEARCH_PATHS[0]}"
             )
@@ -426,7 +428,7 @@ class VoiceController:
         # Load the model on the calling thread — it only takes ~0.3 s and it's
         # simpler to catch errors here than inside the background thread.
         try:
-            vosk.SetLogLevel(-1)          # silence Vosk's own verbose stdout
+            vosk.SetLogLevel(-1)    # silence Vosk's own verbose stdout
             model = vosk.Model(path)
         except Exception as exc:
             self._error = f"Failed to load Vosk model at '{path}': {exc}"
@@ -468,7 +470,7 @@ class VoiceController:
         """
         Return all queued voice events and clear the queue.
 
-        Call this once per frame.  It never blocks — if nothing has been heard
+        Call this once per frame. It never blocks — if nothing has been heard
         it just returns an empty list.
 
         Each event is a dict:
@@ -501,7 +503,7 @@ class VoiceController:
     def get_mic_level(self):
         """
         Return the normalised RMS microphone level (0.0 – 1.0) from the last
-        audio block.  Useful for drawing a live waveform indicator in the UI.
+        audio block. Useful for drawing a live waveform indicator in the UI.
         """
         with self._lock:
             return self._mic_level
@@ -523,16 +525,16 @@ class VoiceController:
         if not word or word == "[unk]":
             return
 
-        # Map variant spellings/mishearings to the canonical beat word.
+        # Map variant spellings / mishearings to the canonical beat word.
         # e.g. "tree" → "three", "steady" → "ready"
         canonical = _BEAT_CANONICAL.get(word, word)
 
-        # Store for UI display (thread-safe write).
+        # Store the canonical word for UI display (thread-safe write).
         with self._lock:
             self._last_word = canonical
 
         # Decide which event type to fire based on which vocabulary the word
-        # belongs to.  Beat words take priority, then throw, then nav.
+        # belongs to. Beat words take priority, then throw, then nav.
         if canonical in ("ready", "one", "two", "three"):
             # Only dispatch canonical beat words — variants were already mapped above.
             self._event_queue.put({"type": "beat", "word": canonical})
@@ -558,7 +560,7 @@ class VoiceController:
         call _dispatch_word whenever a word is recognised.
 
         We use grammar-constrained recognition — we tell Vosk exactly which
-        words it's allowed to hear.  This means the decoder searches ~100 words
+        words it's allowed to hear. This means the decoder searches ~100 words
         instead of 50,000+, giving lower latency and higher accuracy.
 
         We also act on partial results (mid-utterance) so there's no need to
@@ -574,7 +576,7 @@ class VoiceController:
         )
         grammar_json = json.dumps(all_vocab)
 
-        # Create the recogniser with the grammar.  Fall back to open-vocab if
+        # Create the recogniser with the grammar. Fall back to open-vocab if
         # this version of Vosk doesn't support the grammar parameter.
         try:
             rec = vosk.KaldiRecognizer(model, self.SAMPLE_RATE, grammar_json)
@@ -612,7 +614,7 @@ class VoiceController:
             # Feed the audio block to the Vosk decoder.
             if rec.AcceptWaveform(data):
                 # -- Final result: the utterance is complete --
-                # Vosk has decided the person stopped talking.  Parse the JSON
+                # Vosk has decided the person stopped talking. Parse the JSON
                 # result and dispatch the first recognised vocabulary word.
                 try:
                     result = json.loads(rec.Result())

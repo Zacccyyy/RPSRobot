@@ -3,42 +3,42 @@ prediction_race_state.py
 ========================
 Prediction Race Mode.
 
-The AI shows its prediction BEFORE the round.  The player wins by throwing
-anything OTHER than what was predicted.  Uses identical pump/beat/shoot
-mechanics to FairPlay — no custom detection code.
+The AI shows its prediction BEFORE each round. The player wins by throwing
+anything OTHER than what was predicted. If you throw what it predicted,
+the AI wins.
 
-Implemented as a thin wrapper around FairPlayController: we inherit all
-the beat detection, shoot window, and state machine, then override just
-the round resolution to apply Prediction Race scoring.
+There's also a bluff mechanic: at beat 2 of the countdown, the AI has a
+25% chance to switch to a fake "decoy" prediction to try to trick the player.
+Once a bluff is applied it stays locked for that round.
 
-Where this fits in the codebase:
-  - Inherits from fair_play_state.FairPlayController
-  - Uses fair_play_ai.FairPlayAI for predictions
-  - Renderer calls draw_prediction_race_view() with the dict from _build_output()
-  - Main loop calls update() every frame and confirm_match_end() on Enter
+This mode is a thin wrapper around FairPlayController: we inherit all the
+beat detection, shoot window, and state machine, then override just two
+methods — update() and _resolve_round() — to apply Prediction Race scoring.
+
+How it fits into the project:
+  - Inherits from fair_play_state.FairPlayController.
+  - Uses fair_play_ai.FairPlayAI for predictions.
+  - Renderer calls draw_prediction_race_view() with the dict from _build_output().
+  - Main loop calls update() every frame and confirm_match_end() on Enter.
 """
 
+import time
 import random
 from fair_play_state import FairPlayController
 from fair_play_ai import FairPlayAI, VALID_GESTURES, COUNTER_MOVE
 
-# First to WIN_TARGET round wins wins the match
+# First to this many round wins takes the match
 WIN_TARGET = 5
 
 
 class PredictionRaceController(FairPlayController):
     """
-    Prediction Race wraps FairPlayController exactly.
+    Prediction Race wraps FairPlayController almost entirely.
 
-    Everything (pump detection, shoot window, state machine, tracker
-    resets, config params) is inherited unchanged.  The only difference
-    is _resolve_round: instead of comparing player vs robot, we compare
-    player vs AI's prediction.
-
-    Bluff mechanic:
-      At beat 2 of the countdown, there is a 25% chance the AI switches
-      to a fake (decoy) prediction to try to trick the player.  The bluff
-      is locked in once applied — it won't change again within the round.
+    All pump detection, shoot window, and state machine logic is inherited
+    unchanged. The only differences are:
+      - update():        refreshes the live prediction display and handles bluffing
+      - _resolve_round(): applies Prediction Race scoring instead of FairPlay scoring
     """
 
     def __init__(self, robot_output=None, ai=None, **kwargs):
@@ -50,88 +50,85 @@ class PredictionRaceController(FairPlayController):
             **kwargs,
         )
         self.opponent_label = "AI"
-        self._last_insight  = ""       # explanatory text shown after each round
-        self._ai_prediction = None     # the prediction currently displayed on screen
+        self._last_insight  = ""    # explanatory text shown after each round result
+        self._ai_prediction = None  # the prediction currently displayed on screen
 
     def reset(self):
-        """Reset all match-level state including the prediction fields."""
+        """Reset all match-level state including prediction fields."""
         super().reset()
         self._last_insight       = ""
         self._ai_prediction      = None
-        self._result_prediction  = None    # locked-in prediction at SHOOT time
+        self._result_prediction  = None    # prediction locked in at SHOOT time
         self._bluffed_this_round = False   # whether the AI has already bluffed this round
-        # Ensure match_until is never None — parent's _build_output uses it
+
+        # The parent's _build_output() reads match_until — make sure it's always a float
         if self.match_until is None:
             self.match_until = 0.0
 
-    # ── Live prediction refresh ───────────────────────────────────────────────
+    # ── Override: add live prediction logic on top of the parent's update() ───
 
     def update(self, wrist_y, tracker_state, now=None):
         """
         Override of FairPlayController.update().
 
-        We do three things on top of the parent:
-          1. Clear the locked-in prediction and bluff flag at round start
-          2. Update the live displayed prediction every frame
-          3. Handle the MATCH_RESULT and SHOOT_WINDOW states ourselves so we
-             can use Prediction Race scoring instead of FairPlay scoring
+        We add three things on top of the parent:
+          1. Clear the locked-in prediction and bluff flag at the start of each round.
+          2. Refresh the live displayed prediction every frame during lead-up states.
+          3. Handle MATCH_RESULT and SHOOT_WINDOW ourselves to apply Prediction Race
+             scoring instead of FairPlay scoring.
         """
-        import time as _time
         if now is None:
-            now = _time.monotonic()
+            now = time.monotonic()
 
-        # When a new round begins, clear the previous result so the
-        # live prediction starts updating again from scratch
+        # At the start of a new round, clear leftover prediction state from last round
         if self.state == "WAITING_FOR_ROCK":
             self._result_prediction  = None
             self._bluffed_this_round = False
 
-        # Update the live prediction during the lead-up and countdown phases.
-        # We do this every frame so the display is always current.
+        # Keep the displayed prediction current during all lead-up phases
         if self.state in ("WAITING_FOR_ROCK", "COUNTDOWN", "SHOOT_WINDOW"):
             if self.history:
-                # Ask the AI what it thinks the player will throw next
+                # Ask the AI for its confidence scores across all gestures
                 scores = self.ai._predict_player_scores(self.history)
-                best = max(scores, key=scores.get)
+                best   = max(scores, key=scores.get)  # most likely gesture the player will throw
 
-                # Bluff: at beat 2 exactly, 25% chance to flip to a decoy prediction.
-                # Once flipped, we don't change it again within this round.
+                # Bluff: at exactly beat 2, 25% chance to flip to a decoy prediction.
+                # Once bluffed, we don't change the display again for the rest of the round.
                 if (self.state == "COUNTDOWN"
                         and self.beat_count == 2
-                        and not getattr(self, "_bluffed_this_round", False)
+                        and not self._bluffed_this_round
                         and random.random() < 0.25):
+                    # Pick any gesture that isn't the genuine prediction
                     others = [g for g in VALID_GESTURES if g != best]
                     self._ai_prediction      = random.choice(others)
                     self._bluffed_this_round = True
-                elif not getattr(self, "_bluffed_this_round", False):
-                    # No bluff yet — show the genuine best prediction
+                elif not self._bluffed_this_round:
+                    # No bluff applied yet — show the genuine best prediction
                     self._ai_prediction = best
-                # If we already bluffed this round, leave the display unchanged
+                # If already bluffed this round, leave the display unchanged
+
             elif self._ai_prediction is None:
-                # No history yet (early rounds) — show a random gesture so
-                # the display isn't just blank
+                # No history yet (first few rounds) — show a random gesture so
+                # the display isn't blank
                 self._ai_prediction = random.choice(list(VALID_GESTURES))
 
-        # Safety: match_until must be a float before calling the parent
+        # Safety: match_until must be a float before the parent can use it
         if self.match_until is None:
             self.match_until = 0.0
 
-        # Handle MATCH_RESULT ourselves — don't let the parent auto-reset on
-        # a timer.  We wait for the player to press Enter instead.
+        # Handle MATCH_RESULT ourselves — we wait for Enter instead of auto-resetting
         if self.state == "MATCH_RESULT":
             return self._build_output(now)
 
-        # Handle SHOOT_WINDOW ourselves so we can use Prediction Race scoring.
-        # We accept stable_gesture immediately once the guard period has passed,
-        # giving the tracker as much time as possible to re-confirm after reset.
+        # Handle SHOOT_WINDOW ourselves — use Prediction Race scoring, not FairPlay
         if self.state == "SHOOT_WINDOW":
             time_since_open = now - self.shoot_open_time
 
             if time_since_open >= self.shoot_change_guard_seconds:
                 confirmed = tracker_state.get("confirmed_gesture", "Unknown")
-                stable    = tracker_state.get("stable_gesture", "Unknown")
+                stable    = tracker_state.get("stable_gesture",    "Unknown")
 
-                # Try confirmed first (higher confidence), then stable
+                # Prefer confirmed (higher confidence), fall back to stable
                 throw = None
                 if confirmed in VALID_GESTURES:
                     throw = confirmed
@@ -142,45 +139,40 @@ class PredictionRaceController(FairPlayController):
                     self._resolve_round(throw, now)
                     return self._build_output(now)
 
-            # Backstop: if the player takes too long, assume Rock
+            # Backstop: if the player takes too long, assume they threw Rock
             if time_since_open >= self.rock_assume_seconds:
                 self._resolve_round("Rock", now)
                 return self._build_output(now)
 
             return self._build_output(now)
 
-        # All other states delegate to the parent FairPlayController
+        # All other states (WAITING_FOR_ROCK, COUNTDOWN, etc.) — delegate to parent
         return super().update(wrist_y=wrist_y, tracker_state=tracker_state, now=now)
 
-    # ── Round resolution with Prediction Race rules ───────────────────────────
+    # ── Override: Prediction Race round scoring ───────────────────────────────
 
     def _resolve_round(self, player_gesture, now):
         """
         Prediction Race scoring rules:
+          - The prediction shown on screen at SHOOT is the contract.
+          - If the player threw it → AI wins (it predicted correctly, or bluffed
+            them into throwing the predicted gesture anyway).
+          - If the player threw anything else → player wins (they fooled the AI).
 
-        - Whatever prediction was shown on screen at SHOOT is the contract.
-        - If the player threw it  → AI wins (it predicted correctly, or its
-          bluff fooled the player into throwing what it wanted).
-        - If the player threw anything else → player wins (they fooled the AI).
-
-        We use the displayed prediction directly — no recomputation at
-        resolution time — so the player's experience matches what they saw.
+        We use the displayed prediction directly — no recomputation — so the
+        outcome always matches what the player actually saw on screen.
         """
-        import time as _time
         if now is None:
-            now = _time.monotonic()
+            now = time.monotonic()
 
-        # The prediction the player was trying to avoid
+        # Whatever was shown on screen is what we score against
         displayed = self._ai_prediction or random.choice(list(VALID_GESTURES))
-        bluffed   = getattr(self, "_bluffed_this_round", False)
 
         if player_gesture == displayed:
             # Player threw exactly what was shown — AI wins this round
-            if bluffed:
+            if self._bluffed_this_round:
                 self.result_banner = "BLUFF WORKED!"
-                self._last_insight = (
-                    f"AI bluffed {displayed} and you fell for it. Tricked!"
-                )
+                self._last_insight = f"AI bluffed {displayed} and you fell for it. Tricked!"
             else:
                 self.result_banner = "PREDICTED!"
                 self._last_insight = f"AI predicted {displayed}. You threw it."
@@ -188,7 +180,7 @@ class PredictionRaceController(FairPlayController):
         else:
             # Player threw something different — player wins this round
             self.result_banner = "FOOLED IT!"
-            if bluffed:
+            if self._bluffed_this_round:
                 self._last_insight = (
                     f"AI bluffed {displayed}, you threw {player_gesture}. Saw through it!"
                 )
@@ -201,7 +193,7 @@ class PredictionRaceController(FairPlayController):
         self.player_gesture   = player_gesture
         self.computer_gesture = displayed
 
-        # Determine the outcome label for the history log
+        # "lose" from the player's perspective means the AI's prediction was correct
         player_outcome = "lose" if player_gesture == displayed else "win"
         self.history.append({
             "round_number":   self.round_number,
@@ -210,21 +202,21 @@ class PredictionRaceController(FairPlayController):
             "player_outcome": player_outcome,
         })
 
-        # Update the bandit model if the AI supports it
+        # Update the AI's internal bandit model if it supports it
         if hasattr(self.ai, "update_bandit") and hasattr(self.ai, "last_prediction"):
             pred = self.ai.last_prediction or {}
             pm   = pred.get("used_predicted_move")
             if pm:
                 self.ai.update_bandit(pm, player_gesture)
 
-        # Lock in the prediction for the result screen, then clear the live one
-        self._result_prediction  = displayed
-        self._ai_prediction      = None
+        # Lock in the prediction for the result screen, then clear the live display
+        self._result_prediction = displayed
+        self._ai_prediction     = None
 
         self.state        = "ROUND_RESULT"
         self.result_until = now + self.round_result_seconds
 
-        # Check if either side has reached the win target
+        # Check if either side has now reached the win target
         if self.player_score >= WIN_TARGET or self.robot_score >= WIN_TARGET:
             self.state               = "MATCH_RESULT"
             self.match_result_banner = (
@@ -232,42 +224,42 @@ class PredictionRaceController(FairPlayController):
                 else "AI WINS THE MATCH!"
             )
             self.match_until  = now + 3.0
-            self.result_until = self.match_until
+            self.result_until = self.match_until  # keep result displayed until match screen ends
 
-    # ── Output dict ──────────────────────────────────────────────────────────
+    # ── Override: extend the parent's output dict ─────────────────────────────
 
     def _build_output(self, now):
         """
-        Extend the parent's output dict with Prediction Race-specific fields.
+        Add Prediction Race-specific fields to the parent's output dict.
 
         During result states we show the locked-in prediction (what was
-        actually on screen at SHOOT); during active play we show the live
-        updating prediction.
+        actually on screen when SHOOT opened). During play we show the
+        live updating prediction.
         """
         base = super()._build_output(now)
 
-        # Switch between the live prediction and the locked-in one
+        # Show the locked-in prediction during result screens, live otherwise
         display_prediction = (
             self._result_prediction
             if self.state in ("ROUND_RESULT", "MATCH_RESULT")
             else self._ai_prediction
         ) or ""
 
-        base["ai_prediction"]    = display_prediction
-        base["last_insight"]     = self._last_insight
-        base["win_target"]       = WIN_TARGET
-        base["player_score"]     = self.player_score
-        base["ai_score"]         = self.robot_score
-        base["score_text"]       = f"YOU {self.player_score}  -  AI {self.robot_score}"
-        base["play_mode_label"]  = "Prediction Race"
-        # Renderer uses this flag to know when to prompt for Enter
+        base["ai_prediction"]     = display_prediction
+        base["last_insight"]      = self._last_insight
+        base["win_target"]        = WIN_TARGET
+        base["player_score"]      = self.player_score
+        base["ai_score"]          = self.robot_score
+        base["score_text"]        = f"YOU {self.player_score}  -  AI {self.robot_score}"
+        base["play_mode_label"]   = "Prediction Race"
+        # The renderer uses this flag to know when to prompt the player to press Enter
         base["waiting_for_enter"] = (self.state == "MATCH_RESULT")
         return base
 
     def confirm_match_end(self):
         """
         Called by the main loop when the player presses Enter on the match
-        result screen.  Resets the match so a new one can begin.
+        result screen. Resets everything so a new match can begin.
         """
         if self.state == "MATCH_RESULT":
             self.reset_match()

@@ -1,53 +1,58 @@
 """
 front_on_classifier.py
 ======================
-Real-time RPS gesture classifier used when the player faces the camera
-front-on (palm toward lens).
+Real-time RPS gesture classifier for when the player faces the camera
+front-on (palm toward the lens).
 
-HOW IT WORKS — two layers that vote:
+HOW IT WORKS — two classifiers that vote:
 
-    Layer 1: ML MODEL (trained on your hand data)
-        - Analyses normalised landmark positions
-        - Best for static poses with high accuracy
+    Layer 1: ML MODEL (trained on collected hand data)
+        - Analyses rotation-invariant angle + curl features
+        - Highly accurate for static poses it was trained on
         - Can lag during fast transitions (pump -> shoot)
 
-    Layer 2: CURL ANALYSIS (real-time angle measurement)
-        - Measures PIP and DIP joint angles per finger
+    Layer 2: CURL ANALYSIS (rule-based, no training needed)
+        - Measures PIP and DIP joint angles per finger in real time
         - Classifies each finger as: NoCurl / HalfCurl / FullCurl
-        - Very fast to respond to finger movement
-        - Rotation-invariant (uses angles, not positions)
+        - Very fast and responsive to finger movement
+        - Rotation-invariant (uses angles, not raw positions)
 
-    Combination logic:
-        - If ML is confident (>70%), trust ML
-        - If ML is uncertain AND curl gives a clear signal, trust curl
-        - If both agree, extra confidence
-        - The "reason" field in the return value shows which path was taken
-          so you can debug misclassifications
+    Decision logic:
+        - If ML confidence >= 70%: trust ML
+            - Unless curl is very confident (>=85%) on a different answer
+              AND ML is below 85% — then trust curl (override)
+        - If ML confidence < 70%: let curl take over if curl >= 60% confident
+            - Otherwise fall back to ML's best guess
+        - If no model is loaded: use curl alone if >= 50% confident
 
-Model path: ~/Desktop/CapStone/front_on_gesture_model.pkl
+    The "reason" field in the return dict shows which path fired,
+    making it easy to debug misclassifications.
+
+Model file: ~/Desktop/CapStone/front_on_gesture_model.pkl
 """
 
 import math
+import pickle
 from pathlib import Path
+
 from front_on_features import extract_features as _extract_features
 
 
 # ---------------------------------------------------------------------------
-# Model cache — we load the model file once and keep it in memory.
-# Using module-level globals avoids the overhead of re-reading the pickle
-# on every frame.
+# Model cache — loaded once on first use, then kept in memory.
+# This avoids re-reading the pickle file on every frame.
 # ---------------------------------------------------------------------------
-_cached_model   = None
-_cached_labels  = None
-_model_checked  = False   # set to True after the first load attempt
+_cached_model  = None
+_cached_labels = None
+_model_checked = False   # True after the first load attempt (even if it failed)
 
 
 # ---------------------------------------------------------------------------
-# CURL ANALYSIS
+# CURL ANALYSIS — rule-based finger-curl classifier
 # ---------------------------------------------------------------------------
 
-# Landmark IDs for each finger's joint chain: (name, mcp, pip, dip, tip).
-# These numbers are MediaPipe's fixed indices for each hand joint.
+# Landmark IDs for each finger: (name, mcp, pip, dip, tip).
+# These are MediaPipe's fixed joint indices.
 FINGER_JOINTS = [
     ("index",  5,  6,  7,  8),
     ("middle", 9,  10, 11, 12),
@@ -55,26 +60,25 @@ FINGER_JOINTS = [
     ("pinky",  17, 18, 19, 20),
 ]
 
-# Curl classification thresholds (degrees at the PIP joint).
-# A straight finger reads ~170-180 degrees; fully curled reads ~40-80 degrees.
-CURL_NO   = 150    # above this -> NoCurl (finger is straight)
-CURL_HALF = 110    # between CURL_HALF and CURL_NO -> HalfCurl
-                   # below CURL_HALF -> FullCurl
+# Curl state thresholds (degrees at the PIP joint).
+# A fully extended finger reads ~170-180 degrees; fully curled reads ~40-80 degrees.
+CURL_NO   = 150   # above this -> NoCurl (finger is straight)
+CURL_HALF = 110   # between CURL_HALF and CURL_NO -> HalfCurl; below -> FullCurl
 
 
 def _angle_3pt(a, b, c):
     """
-    Angle ABC in degrees, where B is the vertex (the joint we are measuring).
-    Uses 2D (x, y) coordinates from landmark objects.
+    Compute the angle at landmark b (the vertex) formed by rays b->a and b->c.
+    Uses 2D (x, y) coordinates from landmark objects. Returns degrees.
 
     Returns 180.0 (straight) if either vector is degenerate — this is a safe
     default that won't accidentally classify a straight finger as curled.
     """
-    # Build 2D vectors from the vertex B outward to A and C
+    # 2D vectors from the vertex b outward to a and c
     ba = (a.x - b.x, a.y - b.y)
     bc = (c.x - b.x, c.y - b.y)
 
-    dot    = ba[0] * bc[0] + ba[1] * bc[1]
+    dot    = ba[0]*bc[0] + ba[1]*bc[1]
     mag_ba = math.sqrt(ba[0]**2 + ba[1]**2)
     mag_bc = math.sqrt(bc[0]**2 + bc[1]**2)
 
@@ -82,28 +86,27 @@ def _angle_3pt(a, b, c):
     if mag_ba < 1e-8 or mag_bc < 1e-8:
         return 180.0
 
-    # Clamp before acos to handle floating-point overshoot (e.g. 1.0000001)
+    # Clamp before acos to handle floating-point overshoot (e.g. cos = 1.0000001)
     cos_angle = max(-1.0, min(1.0, dot / (mag_ba * mag_bc)))
     return math.degrees(math.acos(cos_angle))
 
 
 def _finger_curl(lm, mcp_id, pip_id, dip_id, tip_id):
     """
-    Determine how curled a single finger is.
+    Determine how curled a single finger is by measuring its two bending joints.
 
-    We measure the angle at both the PIP (middle knuckle) and DIP (top knuckle)
-    joints, then use whichever is more bent.  This catches fingers that curl
-    primarily at one joint versus the other.
+    We measure the angle at both the PIP (middle knuckle) and DIP (top knuckle),
+    then use whichever is more bent (smaller angle). This catches fingers that
+    curl primarily at one joint rather than the other.
 
     Returns:
         (curl_label, pip_angle, dip_angle)
-        curl_label is one of "NoCurl", "HalfCurl", "FullCurl"
+        curl_label is one of "NoCurl", "HalfCurl", or "FullCurl".
     """
     pip_angle = _angle_3pt(lm[mcp_id], lm[pip_id], lm[dip_id])
     dip_angle = _angle_3pt(lm[pip_id], lm[dip_id], lm[tip_id])
 
-    # Use the tighter (smaller) angle as the classification criterion,
-    # since one very bent joint is enough to call the finger curled
+    # One very bent joint is enough to call the finger curled, so use the min
     min_angle = min(pip_angle, dip_angle)
 
     if min_angle >= CURL_NO:
@@ -121,17 +124,17 @@ def _curl_classify(hand_landmarks):
     Classify the RPS gesture using only finger-curl analysis (no ML model).
 
     This is fast and reliable for clear gestures, but less accurate for
-    borderline poses (e.g. a fist with one finger slightly extended).
+    borderline poses (e.g. a fist with one finger slightly raised).
 
     Returns:
         (gesture, confidence, debug_str)
         gesture:    "Rock", "Paper", "Scissors", or "Unknown"
         confidence: 0.0 to 1.0 — how certain we are
-        debug_str:  one-letter curl code + angle per finger, for logging
+        debug_str:  compact per-finger state, e.g. "i:O170 m:C45 r:C40 p:C38"
     """
     lm = hand_landmarks.landmark
 
-    # Measure each finger and store results in dicts keyed by finger name
+    # Measure the curl state of each finger
     curls  = {}
     angles = {}
     for name, mcp, pip, dip, tip in FINGER_JOINTS:
@@ -139,69 +142,69 @@ def _curl_classify(hand_landmarks):
         curls[name]  = curl
         angles[name] = (pip_a, dip_a)
 
-    # Count how many fingers are in each curl state
+    # Count fingers in each state — useful for the classification rules below
     no_curl_count   = sum(1 for c in curls.values() if c == "NoCurl")
     full_curl_count = sum(1 for c in curls.values() if c == "FullCurl")
 
-    # Build a compact debug string like "i:O170 m:C45 r:C40 p:C38"
-    # O=open, H=half, C=curled
+    # Build a compact debug string so misclassifications are easy to diagnose
     short_code = {"NoCurl": "O", "HalfCurl": "H", "FullCurl": "C"}
-    dbg_parts = []
+    dbg_parts  = []
     for name in ("index", "middle", "ring", "pinky"):
-        c      = curls[name]
         pip_a, dip_a = angles[name]
-        dbg_parts.append(f"{name[0]}:{short_code[c]}{min(pip_a, dip_a):.0f}")
+        code = short_code[curls[name]]
+        dbg_parts.append(f"{name[0]}:{code}{min(pip_a, dip_a):.0f}")
     dbg = " ".join(dbg_parts)
 
-    # --- Classification rules (ordered from most to least specific) ---------
+    # --- Classification rules, ordered from most to least specific -----------
 
-    # Rock: all four fingers fully curled into a fist
+    # Rock: all four fingers fully curled (closed fist)
     if full_curl_count == 4:
         return "Rock", 0.95, dbg
 
     # Paper (strong): three or more fingers clearly open
     if no_curl_count >= 3:
         if curls["ring"] == "NoCurl" and curls["pinky"] == "NoCurl":
-            # Ring and pinky open -> almost certainly Paper
+            # Ring and pinky both open -> almost certainly Paper (not Scissors)
             return "Paper", 0.85, dbg
         if curls["index"] == "NoCurl" and curls["middle"] == "NoCurl":
             # Index and middle open — check if ring/pinky are folded for Scissors
             if curls["ring"] in ("FullCurl", "HalfCurl") or curls["pinky"] in ("FullCurl", "HalfCurl"):
                 return "Scissors", 0.80, dbg
             else:
-                # All four fingers pretty much open -> Paper
+                # All four fingers roughly open -> Paper
                 return "Paper", 0.75, dbg
         # At least 3 open but not the clear patterns above -> probably Paper
         return "Paper", 0.70, dbg
 
-    # Rock (weaker): three or more fingers curled (but not all four)
+    # Rock (weaker): three or more fingers curled but not all four
     if full_curl_count >= 3:
         return "Rock", 0.80, dbg
 
-    # Scissors (strong): index and middle open, ring and pinky folded
-    if (curls["index"] == "NoCurl" and curls["middle"] == "NoCurl"
-            and curls["ring"]  in ("FullCurl", "HalfCurl")
-            and curls["pinky"] in ("FullCurl", "HalfCurl")):
+    # Scissors (strong): exactly index and middle open, ring and pinky folded
+    if (curls["index"]  == "NoCurl"
+            and curls["middle"] == "NoCurl"
+            and curls["ring"]   in ("FullCurl", "HalfCurl")
+            and curls["pinky"]  in ("FullCurl", "HalfCurl")):
         return "Scissors", 0.90, dbg
 
-    # Scissors (weaker): only index and middle open, everything else unclear
+    # Scissors (weaker): only two fingers open and they are index + middle
     if no_curl_count == 2 and curls["index"] == "NoCurl" and curls["middle"] == "NoCurl":
         return "Scissors", 0.65, dbg
 
-    # Ambiguous Paper: two or more open, few fully curled
+    # Ambiguous Paper: two or more fingers open, very few fully curled
     if no_curl_count >= 2 and full_curl_count <= 1:
         return "Paper", 0.50, dbg
 
-    # Ambiguous Rock: two or more curled, few open
+    # Ambiguous Rock: two or more fingers curled, very few open
     if full_curl_count >= 2 and no_curl_count <= 1:
         return "Rock", 0.55, dbg
 
-    # Could not match any pattern
+    # Could not match any known pattern
     return "Unknown", 0.0, dbg
 
 
 # ---------------------------------------------------------------------------
-# ML MODEL
+# ML MODEL — loads and runs the trained sklearn/MLP classifier
 # ---------------------------------------------------------------------------
 
 def _load_model_once():
@@ -209,19 +212,19 @@ def _load_model_once():
     Load the trained ML model from disk on the first call, then cache it.
 
     We use a module-level flag (_model_checked) so we only attempt the file
-    read once per session — even if the file is missing, we won't keep
-    printing the warning every frame.
+    read once per session. If the file is missing, we print a message once
+    and return (None, None) for every subsequent call without spamming.
 
     Returns:
         (model, int_to_label) or (None, None) if no model is available.
     """
     global _cached_model, _cached_labels, _model_checked
 
-    # Return the cached result if we have already attempted a load
+    # If we have already tried loading (success or failure), return the cached result
     if _model_checked:
         return _cached_model, _cached_labels
 
-    _model_checked = True  # mark that we have tried, regardless of outcome
+    _model_checked = True   # mark that we've tried, regardless of outcome
 
     model_path = Path.home() / "Desktop" / "CapStone" / "front_on_gesture_model.pkl"
 
@@ -230,14 +233,13 @@ def _load_model_once():
         return None, None
 
     try:
-        import pickle
         with open(model_path, "rb") as f:
             data = pickle.load(f)
 
         _cached_model  = data["model"]
         _cached_labels = data["int_to_label"]
 
-        # Log a friendly summary so it's obvious which model was picked up
+        # Print a summary so it's obvious the model was picked up successfully
         n       = data.get("n_samples", "?")
         acc     = data.get("accuracy")
         acc_str = f"{acc:.0%}" if acc else "unknown"
@@ -252,31 +254,31 @@ def _load_model_once():
 
 def _normalise_landmarks(hand_landmarks):
     """
-    Translate all 21 landmarks to be relative to the wrist, then scale them
-    so that the average wrist-to-MCP distance equals 1.0.
+    Translate all 21 landmarks to be relative to the wrist, then scale so
+    the average wrist-to-MCP distance equals 1.0.
 
-    This makes the feature vector invariant to where the hand is in the frame
-    and how far it is from the camera.  The resulting 42 floats (x, y per
-    landmark) are what the ML model was trained on.
+    This makes the feature vector invariant to where the hand sits in the frame
+    and how far it is from the camera. The result is 42 floats (x, y per landmark)
+    in the format the ML model was trained on.
     """
     lm = hand_landmarks.landmark
 
-    # Use landmark 0 (wrist) as the origin for translation
+    # Wrist is landmark 0 — use it as the translation origin
     wrist_x = lm[0].x
     wrist_y = lm[0].y
 
-    # Helper for 2D distance between two landmark objects
+    # Helper: distance between two landmark objects
     def _d(a, b):
-        return math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2)
+        return math.sqrt((a.x - b.x)**2 + (a.y - b.y)**2)
 
-    # Palm scale = average distance from wrist to the three base knuckles
-    # (index=5, middle=9, pinky=17).  This is more stable than a single bone.
+    # Palm scale = average distance from wrist to three base knuckles (index=5,
+    # middle=9, pinky=17). Averaging three bones is more stable than using one.
     d1 = _d(lm[0], lm[5])
     d2 = _d(lm[0], lm[9])
     d3 = _d(lm[0], lm[17])
-    palm_scale = max((d1 + d2 + d3) / 3.0, 1e-6)  # clamp to avoid div-by-zero
+    palm_scale = max((d1 + d2 + d3) / 3.0, 1e-6)   # clamp to avoid div-by-zero
 
-    # Build the 42-value feature row: [(x0, y0), (x1, y1), ... (x20, y20)]
+    # Build 42 values: normalised (x, y) for each of the 21 landmarks
     row = []
     for i in range(21):
         row.append((lm[i].x - wrist_x) / palm_scale)
@@ -292,8 +294,8 @@ def _ml_classify(hand_landmarks):
     Returns:
         (gesture, confidence, prob_str)
         gesture:    predicted class name, or None if the model is unavailable
-        confidence: probability assigned to the top class (0.0 - 1.0)
-        prob_str:   compact string like "R:82% P:11% S:7%" for debugging
+        confidence: probability of the top class (0.0 - 1.0)
+        prob_str:   compact string like "R:82% P:11% S:7%" for the debug log
     """
     model, int_to_label = _load_model_once()
     if model is None:
@@ -329,11 +331,10 @@ def _ml_classify(hand_landmarks):
 
 
 # ---------------------------------------------------------------------------
-# HYBRID CLASSIFIER
+# HYBRID CLASSIFIER — combines ML and curl votes
 # ---------------------------------------------------------------------------
 
-# If the ML model's top probability is above this threshold, we trust it alone
-# (unless curl strongly disagrees — see the logic below).
+# Above this confidence threshold, we trust ML alone (unless curl strongly overrides)
 ML_CONFIDENCE_THRESHOLD = 0.70
 
 
@@ -341,37 +342,36 @@ def classify_front_on(hand_landmarks):
     """
     Classify an RPS gesture by combining ML and curl-analysis votes.
 
-    This is the main entry point used by the game.  It always returns a dict
+    This is the main entry point used by the game. It always returns a dict
     with at least: gesture, command, reason.
 
-    Decision priority:
-        1. If ML is confident (>=70%): use ML, unless curl is very confident
-           on a different answer (>=85% curl vs <85% ML) — then trust curl.
-        2. If ML is uncertain (<70%): use curl if curl has >=60% confidence,
-           otherwise fall back to ML's best guess.
-        3. If there is no model at all: use curl if >=50%, else Unknown.
+    Decision priority (see module docstring for full explanation):
+        1. ML confident (>=70%): use ML, unless curl is very confident (>=85%)
+           on a different answer AND ML is below 85% — then curl overrides.
+        2. ML uncertain (<70%): use curl if curl >= 60% confident,
+           otherwise fall back to ML's best guess anyway.
+        3. No model loaded: use curl if >= 50% confident, else return Unknown.
     """
-    # Run both classifiers every frame regardless of which we end up using,
-    # so the debug output always shows both signals
+    # Run both classifiers on every frame so the debug output always shows both
     curl_gesture, curl_conf, curl_dbg = _curl_classify(hand_landmarks)
     ml_gesture,   ml_conf,   ml_dbg   = _ml_classify(hand_landmarks)
 
-    # Map gesture names to the command strings expected by the game engine
+    # Map gesture names to the command strings the game engine expects
     cmd_map = {
         "Rock":     "CMD_ROCK",
         "Paper":    "CMD_PAPER",
         "Scissors": "CMD_SCISSORS",
     }
 
-    # --- Decision tree ------------------------------------------------------
+    # --- Decision tree -------------------------------------------------------
     if ml_gesture is not None and ml_conf >= ML_CONFIDENCE_THRESHOLD:
         if ml_gesture == curl_gesture:
-            # Both classifiers agree — highest possible confidence
+            # Both classifiers agree — highest confidence situation
             gesture = ml_gesture
             reason  = f"agree ml={ml_dbg} curl={curl_dbg}"
         else:
-            # ML is confident but curl disagrees.  Prefer ML unless curl is
-            # very sure about a different answer AND ML isn't especially high.
+            # ML is confident but curl disagrees. Prefer ML unless curl is
+            # very sure about something different and ML isn't at its peak.
             if curl_conf >= 0.85 and ml_conf < 0.85:
                 gesture = curl_gesture
                 reason  = f"curl_override ml={ml_dbg} curl={curl_dbg}"
@@ -385,7 +385,7 @@ def classify_front_on(hand_landmarks):
             gesture = curl_gesture
             reason  = f"curl_leads ml={ml_dbg} curl={curl_dbg}"
         else:
-            # Both are uncertain — go with ML's best guess anyway
+            # Both are uncertain — use ML's best guess as the least-bad option
             gesture = ml_gesture
             reason  = f"ml_weak ml={ml_dbg} curl={curl_dbg}"
 
@@ -395,8 +395,8 @@ def classify_front_on(hand_landmarks):
             gesture = curl_gesture
             reason  = f"curl_only {curl_dbg}"
         else:
-            gesture  = "Unknown"
-            reason   = f"uncertain {curl_dbg}"
+            gesture = "Unknown"
+            reason  = f"uncertain {curl_dbg}"
 
     cmd = cmd_map.get(gesture, "CMD_UNKNOWN")
 
@@ -410,11 +410,15 @@ def classify_front_on(hand_landmarks):
 def reload_model():
     """
     Force the classifier to discard its cached model and reload from disk.
+
     Call this after front_on_trainer.py finishes retraining so the game
     immediately picks up the new model without needing a restart.
     """
     global _cached_model, _cached_labels, _model_checked
-    _cached_model   = None
-    _cached_labels  = None
-    _model_checked  = False  # reset the "already tried" flag so load runs again
+
+    # Reset all three globals so _load_model_once() runs a fresh file read
+    _cached_model  = None
+    _cached_labels = None
+    _model_checked = False
+
     return _load_model_once()

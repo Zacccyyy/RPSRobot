@@ -15,7 +15,7 @@ WHERE IT FITS:
 HOW TO RUN:
     python ml_training_script.py
 
-CONFIG SECTION below lets you change the model type, lookback window,
+The CONFIG SECTION below lets you change the model type, lookback window,
 train/test split, and whether to include simulation data.
 
 REQUIREMENTS:
@@ -23,13 +23,13 @@ REQUIREMENTS:
     (already in requirements.txt)
 
 OUTPUT:
-    ~/Desktop/CapStone/rps_ml_model.pkl  — trained model
+    ~/Desktop/CapStone/rps_ml_model.pkl  — trained model file
     Terminal printout with accuracy and top feature importances
 """
 
 import sys
 from pathlib import Path
-from collections import defaultdict
+from collections import defaultdict, Counter
 
 from openpyxl import load_workbook
 
@@ -41,15 +41,15 @@ from ml_model import RPSModel, INDEX_TO_GESTURE
 # CONFIG — edit these values to tune training behaviour
 # ===========================================================================
 
-WORKBOOK_PATH    = Path.home() / "Desktop" / "CapStone" / "challenge_research_log.xlsx"
-SIMULATION_PATH  = Path.home() / "Desktop" / "CapStone" / "simulation_results.xlsx"
+WORKBOOK_PATH     = Path.home() / "Desktop" / "CapStone" / "challenge_research_log.xlsx"
+SIMULATION_PATH   = Path.home() / "Desktop" / "CapStone" / "simulation_results.xlsx"
 MODEL_OUTPUT_PATH = Path.home() / "Desktop" / "CapStone" / "rps_ml_model.pkl"
 
-MODEL_TYPE           = "logistic"   # "logistic" (safer, fast) or "forest" (may overfit)
-LOOKBACK             = 3            # how many past rounds to encode as features
-TEST_SPLIT           = 0.20         # fraction of data held out for evaluation
-MIN_SAMPLES          = 20           # abort early if we have fewer samples than this
-USE_SIMULATION_DATA  = True         # merge simulation data in with real gameplay
+MODEL_TYPE          = "logistic"   # "logistic" (safer, fast) or "forest" (may overfit)
+LOOKBACK            = 3            # how many past rounds to encode as features
+TEST_SPLIT          = 0.20         # fraction of data held out for evaluation
+MIN_SAMPLES         = 20           # abort early if we have fewer samples than this
+USE_SIMULATION_DATA = True         # merge simulation data with real gameplay
 
 
 # ===========================================================================
@@ -60,12 +60,9 @@ def load_rounds_from_excel(workbook_path):
     """
     Read the 'Challenge_Rounds' sheet from the research log workbook.
 
-    The sheet is expected to have at minimum these columns:
-        run_id, round_number, player_gesture, robot_gesture, round_result
-
-    'round_result' values ("player_win", "robot_win", "draw") are translated
-    to the internal format ("win", "lose", "draw") that the feature extractor
-    understands.
+    Expected columns: run_id, round_number, player_gesture, robot_gesture,
+    round_result. The 'round_result' values ("player_win", "robot_win", "draw")
+    are translated to internal format ("win", "lose", "draw").
 
     Returns:
         dict of {run_id: [list of round dicts]}, sorted by round_number.
@@ -100,7 +97,7 @@ def load_rounds_from_excel(workbook_path):
             wb.close()
             return {}
 
-    # Translate the workbook's result strings to what the feature extractor uses
+    # Translate the workbook's result strings to what the feature extractor expects
     result_to_outcome = {
         "player_win": "win",
         "robot_win":  "lose",
@@ -120,7 +117,7 @@ def load_rounds_from_excel(workbook_path):
 
         player_outcome = result_to_outcome.get(round_result)
         if player_outcome is None:
-            continue  # skip rows with unrecognised result strings
+            continue   # skip rows with unrecognised result strings
 
         record = {
             "round_number":   row[col["round_number"]],
@@ -137,7 +134,7 @@ def load_rounds_from_excel(workbook_path):
 
     wb.close()
 
-    # Sort each run's rounds chronologically so the lookback window is correct
+    # Sort each run chronologically so the lookback window is in the right order
     for run_id in rounds_by_run:
         rounds_by_run[run_id].sort(key=lambda r: r["round_number"])
 
@@ -149,7 +146,7 @@ def load_rounds_from_simulation(simulation_path):
     Read the 'Sim_Rounds' sheet from the simulation results workbook.
 
     Simulation data uses the same round dict format as real gameplay, but
-    the run IDs are prefixed with "SIM_" to keep them distinct when merged.
+    run IDs are prefixed with "SIM_" so they never collide when merged.
 
     Returns:
         dict of {run_id: [list of round dicts]}, or an empty dict if missing.
@@ -174,7 +171,7 @@ def load_rounds_from_simulation(simulation_path):
     header = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
     col    = {name: i for i, name in enumerate(header)}
 
-    # Simulation data already uses the "win" / "lose" / "draw" strings
+    # Simulation data already uses "win" / "lose" / "draw" directly
     required = ["run_id", "round_number", "player_gesture", "robot_gesture", "player_outcome"]
     for field in required:
         if field not in col:
@@ -189,6 +186,7 @@ def load_rounds_from_simulation(simulation_path):
         player_gesture = row[col["player_gesture"]]
         player_outcome = row[col["player_outcome"]]
 
+        # Skip rows with unrecognised values
         if player_gesture not in GESTURE_INDEX:
             continue
         if player_outcome not in ("win", "lose", "draw"):
@@ -201,11 +199,12 @@ def load_rounds_from_simulation(simulation_path):
             "player_outcome": player_outcome,
         }
 
-        # Prefix run IDs so they never collide with real-gameplay run IDs
+        # Prefix run IDs so they don't collide with real-gameplay run IDs
         rounds_by_run[f"SIM_{run_id}"].append(record)
 
     wb.close()
 
+    # Sort each run chronologically
     for run_id in rounds_by_run:
         rounds_by_run[run_id].sort(key=lambda r: r["round_number"])
 
@@ -239,7 +238,7 @@ def main():
         sim_round_count = sum(len(r) for r in sim_rounds.values())
         print(f"  Simulation: {sim_run_count} runs, {sim_round_count} rounds.")
 
-        # Merge simulation runs into the main dict — SIM_ prefix prevents collisions
+        # Merge simulation runs into the main dict (SIM_ prefix prevents collisions)
         rounds_by_run.update(sim_rounds)
     else:
         print("Simulation data: skipped (USE_SIMULATION_DATA = False)")
@@ -265,8 +264,7 @@ def main():
     print(f"Training samples: {len(X)}")
     print(f"Feature vector size: {len(X[0]) if X else 0}")
 
-    # Show the class distribution so we can spot if the data is badly imbalanced
-    from collections import Counter
+    # Show class distribution so we can spot badly imbalanced data
     dist = Counter(y)
     for cls_idx in sorted(dist):
         gesture = INDEX_TO_GESTURE.get(cls_idx, str(cls_idx))
@@ -277,7 +275,7 @@ def main():
     from sklearn.model_selection import train_test_split
 
     if len(X) < 10:
-        # Too few samples to safely hold any out — train and evaluate on all data
+        # Too few samples to hold any out safely — train and evaluate on all data
         print("Very few samples — training on all data (no test split).")
         X_train, y_train = X, y
         X_test,  y_test  = X, y
@@ -286,7 +284,7 @@ def main():
             X, y,
             test_size=TEST_SPLIT,
             random_state=42,
-            # stratify ensures each class appears proportionally in train + test
+            # stratify ensures each class appears proportionally in both splits
             stratify=y if len(set(y)) > 1 else None,
         )
 
@@ -307,8 +305,9 @@ def main():
     print(f"  Samples:  {results['samples']}")
     print()
 
-    # Per-class breakdown: precision = "when we predicted X, were we right?"
-    #                       recall    = "of all the actual X's, did we catch them?"
+    # Per-class breakdown:
+    #   precision = "when we predicted X, were we right?"
+    #   recall    = "of all the actual X throws, did we catch them?"
     report = results.get("report", {})
     for gesture in GESTURE_INDEX:
         if gesture in report:
@@ -323,7 +322,7 @@ def main():
     print()
 
     # --- How much better are we than random? ---------------------------------
-    # A random bot wins 1/3 of the time; lift tells us how much the model adds
+    # A random bot wins 1/3 of the time; lift shows how much the model adds
     random_accuracy = 1.0 / 3.0
     lift            = results["accuracy"] - random_accuracy
     print(f"Random baseline:  {random_accuracy:.1%}")

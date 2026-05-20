@@ -3,20 +3,20 @@ rps_game_state.py
 =================
 Cheat Mode — the simplest game mode in the project.
 
-The "AI" does not really play.  Instead, it waits for the player to throw
-a gesture and immediately outputs the counter-move that would beat it.
-This is used to demonstrate real-time gesture recognition: whatever the
-player shows, the robot arm is commanded to play the winning response.
+The "AI" doesn't actually play fair. It watches what gesture the player
+throws and immediately outputs the move that would beat it. This is mainly
+used to demonstrate real-time gesture recognition — whatever the player shows,
+the robot arm is commanded to play the winning counter.
 
 Two input methods are supported:
   - Gesture (default): pump-beat countdown then throw with your hand.
   - Voice mode: say "Ready" → "One" → "Two" → "Three" → then name your throw.
 
-Where this fits in the codebase:
-  - Standalone controller; no inheritance
-  - Renderer calls draw_rps_game_view() with the dict from _build_output()
-  - Main loop calls update() every frame
-  - inject_voice_beat() / inject_voice_throw() are called by the speech thread
+How it fits into the project:
+  - Standalone controller; no inheritance from other classes.
+  - Renderer calls draw_rps_game_view() with the dict from _build_output().
+  - Main loop calls update() every frame.
+  - inject_voice_beat() / inject_voice_throw() are called by the speech thread.
 """
 
 import time
@@ -25,10 +25,10 @@ import time
 # The three gestures this mode recognises
 VALID_GESTURES = {"Rock", "Paper", "Scissors"}
 
-# Maps each gesture to the one that beats it — used to pick the counter-move
+# Given any gesture, this maps to the gesture that beats it
 WIN_MAP = {
-    "Rock": "Paper",
-    "Paper": "Scissors",
+    "Rock":     "Paper",
+    "Paper":    "Scissors",
     "Scissors": "Rock",
 }
 
@@ -36,9 +36,8 @@ WIN_MAP = {
 class RPSGameController:
     """
     Cheat Mode controller.
-
-    - counts the player's throw
-    - instantly outputs the winning counter-move
+    Waits for the player to throw a gesture, then immediately plays the
+    counter-move that beats it.
     """
 
     def __init__(
@@ -53,76 +52,78 @@ class RPSGameController:
         rock_assume_seconds=0.13,
         result_display_seconds=1.80
     ):
-        # Optional hardware interface — if provided, _lock_round() will publish
-        # the result so the robot arm can move
+        # Optional hardware interface — if connected, _lock_round() will publish
+        # results so the robot arm can physically move
         self.robot_output = robot_output
 
-        # ── Beat detection thresholds (calibrated, do not change) ─────────────
-        self.down_threshold              = down_threshold
-        self.up_threshold                = up_threshold
-        self.beat_cooldown               = beat_cooldown
-        self.rock_grace_period           = rock_grace_period
+        # Beat detection thresholds (calibrated — don't change these)
+        self.down_threshold     = down_threshold      # how far the wrist must drop to count a beat
+        self.up_threshold       = up_threshold        # how far it must rise before the next beat
+        self.beat_cooldown      = beat_cooldown       # minimum time between beats
+        self.rock_grace_period  = rock_grace_period   # how long we keep counting after Rock disappears
 
-        # ── Shoot window timing (calibrated, do not change) ──────────────────
-        self.shoot_window_seconds        = shoot_window_seconds
-        self.shoot_change_guard_seconds  = shoot_change_guard_seconds   # guard against residual Rock
-        self.rock_assume_seconds         = rock_assume_seconds           # assume Rock if nothing else seen
-        self.result_display_seconds      = result_display_seconds
+        # Shoot window timing (calibrated — don't change these)
+        self.shoot_window_seconds       = shoot_window_seconds        # total window duration
+        self.shoot_change_guard_seconds = shoot_change_guard_seconds  # ignore gestures right after window opens
+        self.rock_assume_seconds        = rock_assume_seconds         # if only Rock seen this long, assume Rock
+        self.result_display_seconds     = result_display_seconds      # how long to show the result
 
         self._voice_mode = False
         self.reset_round()
 
     def reset(self):
-        """Alias so the main loop can call reset() without knowing internals."""
+        """Public alias so the main loop can call reset() without knowing internals."""
         self.reset_round()
 
     def set_voice_mode(self, enabled):
-        """Enable or disable voice-command input mode."""
+        """Switch between gesture input (default) and voice command input."""
         self._voice_mode = bool(enabled)
 
     def inject_voice_beat(self, word, now=None):
         """
-        Called by the speech recognition thread when a beat word is spoken.
-        Advances the countdown by one step per recognised word.
+        Called by the speech recognition thread when a beat word is heard.
+        Each recognised word advances the countdown by one step.
 
         Word mapping:
           "ready" → enters COUNTDOWN from WAITING_FOR_ROCK
-          "one"   → beat 1 (beat_count becomes 1)
-          "two"   → beat 2 (beat_count becomes 2)
-          "three" → jumps straight to SHOOT_WINDOW with an extended window
+          "one"   → beat 1
+          "two"   → beat 2
+          "three" → opens SHOOT_WINDOW immediately with a generous 2.5s window
         """
         if now is None:
             now = time.monotonic()
 
         cooldown_ok = (now - self.last_beat_time) >= self.beat_cooldown
 
-        # "Ready" transitions from the waiting screen into the countdown
+        # "Ready" kicks off the countdown from the waiting screen
         if self.state == "WAITING_FOR_ROCK" and word == "ready":
             self.state          = "COUNTDOWN"
             self.beat_count     = 0
             self.last_beat_time = now
             return
 
-        # Only process beat words during COUNTDOWN
+        # All other beat words only apply during the countdown
         if self.state != "COUNTDOWN":
             return
 
         if word in ("one", "two") and cooldown_ok:
+            # Each of these increments the beat count by one
             self.beat_count     += 1
             self.last_beat_time  = now
 
         elif word == "three" and cooldown_ok:
-            # "Three" is the shoot cue — open a generous 2.5 s window
+            # "Three" is the shoot cue — open the window immediately
             self.last_beat_time  = now
-            self.beat_count      = 4         # display shows "SHOOT"
+            self.beat_count      = 4   # 4 means "SHOOT" on the display
             self.state           = "SHOOT_WINDOW"
             self.shoot_open_time  = now
+            # Give a generous 2.5s window so voice users have time to say the gesture
             self.shoot_close_time = now + max(self.shoot_window_seconds, 2.50)
 
     def inject_voice_throw(self, gesture, now=None):
         """
-        Called by the speech recognition thread when the player names a gesture.
-        Only accepts the throw if we are in SHOOT_WINDOW and the gesture is valid.
+        Called by the speech recognition thread when the player says a gesture name.
+        Only accepted during the SHOOT_WINDOW phase with a valid gesture.
         """
         if now is None:
             now = time.monotonic()
@@ -133,35 +134,37 @@ class RPSGameController:
     def reset_round(self):
         """
         Reset all per-round state to get ready for a new round.
-        Voice mode is preserved across round resets (it's a session-level setting).
+        Voice mode is a session-level setting and is preserved across resets.
         """
-        self._voice_mode = getattr(self, "_voice_mode", False)  # preserve across rounds
-        self.state              = "WAITING_FOR_ROCK"
-        self.beat_count         = 0
-        self.phase              = "ready_for_down"
-        self.top_y              = None
-        self.bottom_y           = None
-        self.last_beat_time     = 0.0
-        self.last_rock_time     = 0.0
+        # getattr with a default handles the case where this is called before
+        # _voice_mode is first assigned (during __init__)
+        self._voice_mode = getattr(self, "_voice_mode", False)
 
-        self.shoot_open_time    = None
-        self.shoot_close_time   = None
+        self.state          = "WAITING_FOR_ROCK"
+        self.beat_count     = 0
+        self.phase          = "ready_for_down"  # beat detector phase: down or up stroke
+        self.top_y          = None              # highest wrist Y seen since last beat
+        self.bottom_y       = None              # lowest wrist Y seen this downstroke
+        self.last_beat_time = 0.0
+        self.last_rock_time = 0.0
+
+        self.shoot_open_time  = None
+        self.shoot_close_time = None
 
         self.player_gesture     = "Unknown"
         self.computer_gesture   = "Unknown"
         self.robot_move_command = "PENDING"
         self.result_banner      = ""
         self.result_until       = None
-        self.gesture_assumed    = False   # True if Rock was assumed because nothing was detected
+        self.gesture_assumed    = False  # True if we defaulted to Rock due to no detection
 
     def _lock_round(self, player_gesture, now):
         """
         Record the player's throw, compute the counter-move, and transition
-        to the ROUND_RESULT state.  Also publishes to the robot output if one
-        is connected.
+        to the ROUND_RESULT state. Also notifies the robot hardware if connected.
         """
         self.player_gesture   = player_gesture
-        # WIN_MAP[gesture] is what beats that gesture — that's the robot's move
+        # WIN_MAP gives us the move that beats whatever the player threw
         self.computer_gesture = WIN_MAP[player_gesture]
         self.robot_move_command = f"ROBOT_PLAY_{self.computer_gesture.upper()}"
         self.result_banner    = "ROBOT TAKES THE ROUND"
@@ -169,7 +172,7 @@ class RPSGameController:
         self.state        = "ROUND_RESULT"
         self.result_until = now + self.result_display_seconds
 
-        # Publish the result to the hardware interface if one is wired up
+        # Publish to hardware if a robot output interface is wired up
         if self.robot_output is not None:
             self.robot_output.publish_round_result(
                 command=self.robot_move_command,
@@ -177,59 +180,53 @@ class RPSGameController:
                 round_result="robot_win",
                 player_gesture=self.player_gesture,
                 robot_gesture=self.computer_gesture,
-                metadata={
-                    "banner": self.result_banner,
-                }
+                metadata={"banner": self.result_banner},
             )
 
     def _get_fallback_throw(self, tracker_state):
         """
-        Try to salvage a gesture from the tracker when the SHOOT window closes
-        without a confident confirmed gesture.  We try in order:
-          1. stable_gesture   (short-window stabilised)
-          2. confirmed_gesture (already tried in main path but check again)
-          3. raw_gesture      (single-frame, most lenient)
-        Returns "Unknown" if none work.
+        Try to recover a gesture when the SHOOT window closes without a clean
+        detection. We try three confidence levels in order (most to least reliable):
+          1. stable_gesture   — short-window stabilised reading
+          2. confirmed_gesture — already tried in the main path, but check again
+          3. raw_gesture       — single-frame reading, most lenient
+        Returns "Unknown" if none of them give a valid gesture.
         """
         stable_gesture    = tracker_state.get("stable_gesture",    "Unknown")
-        confirmed_gesture = tracker_state.get("confirmed_gesture",  "Unknown")
-        raw_gesture       = tracker_state.get("raw_gesture",        "Unknown")
+        confirmed_gesture = tracker_state.get("confirmed_gesture", "Unknown")
+        raw_gesture       = tracker_state.get("raw_gesture",       "Unknown")
 
-        if stable_gesture    in VALID_GESTURES:
-            return stable_gesture
-        if confirmed_gesture in VALID_GESTURES:
-            return confirmed_gesture
-        if raw_gesture       in VALID_GESTURES:
-            return raw_gesture
+        if stable_gesture    in VALID_GESTURES: return stable_gesture
+        if confirmed_gesture in VALID_GESTURES: return confirmed_gesture
+        if raw_gesture       in VALID_GESTURES: return raw_gesture
 
         return "Unknown"
 
     def _build_output(self, now):
         """
-        Build the state dict for the renderer.
-        Each game state gets its own main_text and sub_text so the view
-        code is kept simple.
+        Build the state dict that the renderer reads each frame.
+        Every state gets its own main_text and sub_text so the view stays simple.
         """
-        # Common fields present in every state
+        # These fields are included in every state's output
         base = {
-            "play_mode_label":   "Cheat Mode",
-            "state":             self.state,
-            "beat_count":        self.beat_count,
-            "time_left":         0.0,
-            "player_gesture":    self.player_gesture,
-            "computer_gesture":  self.computer_gesture,
-            "robot_move_command":self.robot_move_command,
-            "result_banner":     self.result_banner,
-            "score_text":        "",
-            "round_text":        "",
-            "round_number":      0,
-            "player_score":      0,
-            "robot_score":       0,
-            "gesture_assumed":   self.gesture_assumed,
+            "play_mode_label":    "Cheat Mode",
+            "state":              self.state,
+            "beat_count":         self.beat_count,
+            "time_left":          0.0,
+            "player_gesture":     self.player_gesture,
+            "computer_gesture":   self.computer_gesture,
+            "robot_move_command": self.robot_move_command,
+            "result_banner":      self.result_banner,
+            "score_text":         "",
+            "round_text":         "",
+            "round_number":       0,
+            "player_score":       0,
+            "robot_score":        0,
+            "gesture_assumed":    self.gesture_assumed,
         }
 
         if self.state == "WAITING_FOR_ROCK":
-            # Prompt text changes depending on whether we're in voice or gesture mode
+            # Prompt differs between gesture mode ("make a fist") and voice mode
             base.update({
                 "state_label": "Waiting",
                 "main_text":   "MAKE A FIST" if not self._voice_mode else 'Say  "READY"',
@@ -241,12 +238,12 @@ class RPSGameController:
 
         if self.state == "COUNTDOWN":
             if self._voice_mode:
-                # Tell the player which word to say next
+                # Tell the player which word to say next based on beat count
                 next_words = {0: '"ONE"', 1: '"TWO"', 2: '"THREE"'}
-                _nw        = next_words.get(self.beat_count, '"THREE"')
-                main_text  = f"Say  {_nw}"
+                word      = next_words.get(self.beat_count, '"THREE"')
+                main_text = f"Say  {word}"
             else:
-                # Show "READY" on beat 0, then the beat number (capped at 3)
+                # Show "READY" on beat 0, then the beat number (cap at 3 for display)
                 main_text = "READY" if self.beat_count == 0 else str(min(self.beat_count, 3))
             base.update({
                 "state_label": "Countdown",
@@ -260,8 +257,8 @@ class RPSGameController:
                 "state_label": "Shoot Window",
                 "main_text":   "SHOOT!",
                 "sub_text":    "Throw Rock, Paper, or Scissors now",
-                # Voice mode: no countdown — window stays open until throw is spoken
-                "time_left":   0.0 if self._voice_mode else max(0.0, self.shoot_close_time - now),
+                # Voice mode: no countdown bar — window stays open until a gesture is spoken
+                "time_left": 0.0 if self._voice_mode else max(0.0, self.shoot_close_time - now),
             })
             return base
 
@@ -274,12 +271,8 @@ class RPSGameController:
             })
             return base
 
-        # Catch-all for any unexpected state
-        base.update({
-            "state_label": "Unknown",
-            "main_text":   "UNKNOWN",
-            "sub_text":    "",
-        })
+        # Catch-all for any unexpected state value
+        base.update({"state_label": "Unknown", "main_text": "UNKNOWN", "sub_text": ""})
         return base
 
     def update(self, wrist_y, tracker_state, now=None):
@@ -288,7 +281,7 @@ class RPSGameController:
 
         wrist_y       : normalised Y coordinate of the wrist (0.0 = top of frame)
         tracker_state : dict from the gesture tracker
-        now           : optional monotonic timestamp
+        now           : optional monotonic timestamp (uses time.monotonic() if omitted)
         """
         if now is None:
             now = time.monotonic()
@@ -296,23 +289,23 @@ class RPSGameController:
         confirmed_gesture = tracker_state.get("confirmed_gesture", "Unknown")
         stable_gesture    = tracker_state.get("stable_gesture",    "Unknown")
 
-        # ── ROUND_RESULT: wait for display timer then start the next round ────
+        # ── ROUND_RESULT: hold the result on screen, then start the next round ─
         if self.state == "ROUND_RESULT":
             if now >= self.result_until:
                 self.reset_round()
             return self._build_output(now)
 
-        # Pre-compute Rock flags used by both WAITING_FOR_ROCK and COUNTDOWN
+        # Pre-compute Rock detection flags — used in the next two states
         confirmed_rock = confirmed_gesture == "Rock"
         stable_rock    = stable_gesture    == "Rock"
 
-        # ── WAITING_FOR_ROCK: prompt player to make a fist ───────────────────
+        # ── WAITING_FOR_ROCK: prompt the player to make a fist ───────────────
         if self.state == "WAITING_FOR_ROCK":
             if self._voice_mode:
-                # In voice mode the speech thread handles state transitions
+                # In voice mode, inject_voice_beat("ready") handles the transition
                 return self._build_output(now)
             if confirmed_rock and wrist_y is not None:
-                # Rock detected — initialise beat tracking and enter countdown
+                # Rock detected — start tracking the beat and enter the countdown
                 self.state          = "COUNTDOWN"
                 self.phase          = "ready_for_down"
                 self.top_y          = wrist_y
@@ -320,26 +313,24 @@ class RPSGameController:
                 self.last_rock_time = now
             return self._build_output(now)
 
-        # ── COUNTDOWN: count 4 pump beats then open SHOOT window ─────────────
+        # ── COUNTDOWN: count 4 pump beats, then open the SHOOT window ────────
         if self.state == "COUNTDOWN":
             if self._voice_mode:
-                # Voice mode: the speech thread drives beat_count via inject_voice_beat()
-                # — we do nothing here except return the current display state
+                # Voice mode: inject_voice_beat() drives beat_count — nothing to do here
                 return self._build_output(now)
 
-            # Determine whether we can track the wrist right now
+            # We keep tracking during the grace period even if Rock briefly drops out
             rock_detected = (confirmed_rock or stable_rock) and wrist_y is not None
             within_grace  = (now - self.last_rock_time) <= self.rock_grace_period
-            # We track during grace even if Rock is temporarily not confirmed
             can_track     = rock_detected or (within_grace and wrist_y is not None
-                                               and self.beat_count > 0)
+                                              and self.beat_count > 0)
 
             if rock_detected:
-                self.last_rock_time = now
+                self.last_rock_time = now  # refresh the grace window
 
             if can_track:
                 if self.phase == "ready_for_down":
-                    # Update the highest wrist position seen since last beat
+                    # Track the highest (lowest Y value) wrist position seen since last beat
                     if self.top_y is None:
                         self.top_y = wrist_y
                     self.top_y = min(self.top_y, wrist_y)
@@ -348,32 +339,31 @@ class RPSGameController:
                     cooldown_ok       = (now - self.last_beat_time) >= self.beat_cooldown
 
                     if moved_down_enough and cooldown_ok:
-                        # Downstroke registered — count the beat
+                        # Downstroke counts as one beat
                         self.beat_count    += 1
                         self.last_beat_time = now
                         self.phase          = "waiting_for_up"
                         self.bottom_y       = wrist_y
 
-                        # 4 beats = transition to SHOOT_WINDOW
+                        # 4 beats means "shoot" — open the window
                         if self.beat_count >= 4:
                             self.state            = "SHOOT_WINDOW"
                             self.shoot_open_time  = now
                             self.shoot_close_time = now + self.shoot_window_seconds
 
                 elif self.phase == "waiting_for_up":
-                    # Track the lowest point reached after the downstroke
+                    # Track the lowest position reached during the downstroke
                     if self.bottom_y is None:
                         self.bottom_y = wrist_y
                     self.bottom_y = max(self.bottom_y, wrist_y)
 
-                    moved_up_enough = (self.bottom_y - wrist_y) >= self.up_threshold
-                    if moved_up_enough:
+                    if (self.bottom_y - wrist_y) >= self.up_threshold:
                         # Upstroke complete — ready for the next downstroke
                         self.phase = "ready_for_down"
                         self.top_y = wrist_y
 
             else:
-                # Rock is gone and grace period expired — abort the countdown
+                # Rock is gone and the grace period has expired — abort the countdown
                 if not within_grace:
                     self.reset_round()
 
@@ -387,29 +377,27 @@ class RPSGameController:
                 # Voice mode: inject_voice_throw() handles locking the round
                 return self._build_output(now)
 
-            # Guard period: ignore gestures immediately after the window opens
-            # because the hand hasn't had time to transition away from Rock yet
+            # Guard period: ignore gestures right after the window opens because
+            # the hand hasn't had time to transition away from Rock yet
             if time_since_open >= self.shoot_change_guard_seconds:
-                # Paper or Scissors — confident detection, lock in immediately
+                # Paper or Scissors are unambiguous — lock in immediately
                 if stable_gesture in {"Paper", "Scissors"}:
                     self._lock_round(stable_gesture, now)
                     return self._build_output(now)
 
-            # Rock assumption: if only Rock has been seen for long enough,
-            # just treat it as a Rock throw
+            # If only Rock has been seen long enough, treat it as a Rock throw
             if time_since_open >= self.rock_assume_seconds:
                 self.gesture_assumed = True
                 self._lock_round("Rock", now)
                 return self._build_output(now)
 
-            # Window timed out without an early detection — try the fallback chain
+            # Window expired without an early detection — try the fallback chain
             if now >= self.shoot_close_time:
-                fallback_throw = self._get_fallback_throw(tracker_state)
-
-                if fallback_throw in VALID_GESTURES:
-                    self._lock_round(fallback_throw, now)
+                fallback = self._get_fallback_throw(tracker_state)
+                if fallback in VALID_GESTURES:
+                    self._lock_round(fallback, now)
                 else:
-                    # Completely failed to detect anything — reset and try again
+                    # Nothing detected at all — give up and reset
                     self.reset_round()
 
             return self._build_output(now)

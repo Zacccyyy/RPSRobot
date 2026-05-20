@@ -5,18 +5,20 @@ Squid Game -- Red Light, Green Light (gesture navigation variant).
 
 A dot appears at a random position on screen.
 The player steers their index finger tip toward the dot.
-When the finger tip dwells inside the dot radius -> DOT CAPTURED -> score + new dot.
+When the finger tip dwells inside the dot radius for CAPTURE_DWELL_SECS,
+the dot is captured: score goes up and a new dot spawns.
 
 Meanwhile the system alternates between:
   GREEN LIGHT -- player can move freely
   RED LIGHT   -- player must freeze. Any substantial movement = GAME OVER.
 
-Red/green intervals start slow and become increasingly sporadic over time.
+Red/green intervals start slow and become increasingly sporadic over time
+as the player collects more dots.
 
 Score = (dots_collected * 100) + int(seconds_survived)
 
 The controller receives `hand_state` (the full dict from process_hand_frame)
-so it can read both the normalised index-tip position AND velocity.
+so it can read the normalised index-tip position each frame.
 
 Finger tip = landmark index 8 (INDEX_FINGER_TIP).
 """
@@ -26,28 +28,28 @@ import random
 import math
 
 # ── Tuning constants ──────────────────────────────────────────────────────────
-INTRO_SECS           = 2.0
-DOT_RADIUS_NORM      = 0.055     # dot radius as a fraction of frame width (normalised)
-CAPTURE_DWELL_SECS   = 1.00      # how long finger must stay inside dot to capture it
-RESULT_FLASH_SECS    = 0.60      # how long the capture-flash effect shows
+
+INTRO_SECS          = 2.0
+DOT_RADIUS_NORM     = 0.055    # dot radius as a fraction of frame width (normalised)
+CAPTURE_DWELL_SECS  = 1.00     # how long finger must stay inside dot to capture it
+RESULT_FLASH_SECS   = 0.60     # how long the capture-flash effect shows
 
 # How much the finger tip must move (in normalised coords) to count as "moved"
-# during red light — this threshold is calibrated, do not change
-MOVE_THRESHOLD_NORM  = 0.030
-FRAME_HISTORY        = 4         # frames to average for movement detection
+# during red light — this threshold is calibrated, do not change without testing
+MOVE_THRESHOLD_NORM = 0.030
+FRAME_HISTORY       = 4        # frames to average for movement detection
 
 # Green / Red light timing progression.
-# Each phase:  green_secs, red_secs
 # Intervals shrink as the player collects more dots, making the game harder.
-GREEN_START      = 5.0
-RED_START        = 3.0
-SHRINK_PER_DOT   = 0.25          # seconds removed per dot collected
-MIN_GREEN        = 1.40          # green light will never be shorter than this
-MIN_RED          = 0.90          # red light will never be shorter than this
+GREEN_START    = 5.0
+RED_START      = 3.0
+SHRINK_PER_DOT = 0.25          # seconds removed from each phase per dot collected
+MIN_GREEN      = 1.40          # green light will never be shorter than this
+MIN_RED        = 0.90          # red light will never be shorter than this
 
-GAME_OVER_SECS   = 4.0           # how long the GAME_OVER screen lingers before auto-reset
+GAME_OVER_SECS = 4.0           # how long the GAME_OVER screen lingers before auto-reset
 
-INDEX_TIP = 8    # MediaPipe landmark index for the index finger tip
+INDEX_TIP = 8   # MediaPipe landmark index for the index finger tip
 
 
 def _landmark_pos(hand_state):
@@ -65,15 +67,17 @@ def _landmark_pos(hand_state):
     return (lm[INDEX_TIP].x, lm[INDEX_TIP].y)
 
 
+# =============================================================================
+# Single-player controller
+# =============================================================================
+
 class SquidGameController:
     """
     Single-player Squid Game controller (Red Light, Green Light).
 
-    update() signature:
-        controller.update(hand_state=..., now=...)
-
-    hand_state is the dict returned by process_hand_frame / process_two_hands_frame
-    for the main player.
+    Call update(hand_state, now) every frame.
+    hand_state is the dict returned by process_hand_frame.
+    Returns an output dict that the UI renderer reads.
     """
 
     def __init__(self):
@@ -81,25 +85,25 @@ class SquidGameController:
 
     def reset(self):
         """Reset all game state back to the initial INTRO screen."""
-        self.state             = "INTRO"
-        self.dots_collected    = 0
-        self.survived_secs     = 0.0
-        self.score             = 0
-        self._start_time       = 0.0      # set when PLAYING begins
-        self._game_over_time   = 0.0      # when the GAME_OVER screen will auto-reset
-        self._intro_until      = time.monotonic() + INTRO_SECS
+        self.state            = "INTRO"
+        self.dots_collected   = 0
+        self.survived_secs    = 0.0
+        self.score            = 0
+        self._start_time      = 0.0     # set when PLAYING begins
+        self._game_over_time  = 0.0     # when the GAME_OVER screen will auto-reset
+        self._intro_until     = time.monotonic() + INTRO_SECS
 
         # Dot tracking
-        self._dot_x            = 0.5
-        self._dot_y            = 0.5
-        self._dwell_start      = None     # timestamp when finger first entered the dot
-        self._capture_flash    = 0.0      # timestamp until which capture-flash shows
+        self._dot_x        = 0.5
+        self._dot_y        = 0.5
+        self._dwell_start  = None      # timestamp when finger first entered the dot
+        self._capture_flash = 0.0      # timestamp until which capture-flash shows
 
         # Light state
-        self._light            = "GREEN"   # "GREEN" or "RED"
-        self._light_until      = 0.0       # when the current light phase ends
-        self._eliminated       = False
-        self.game_over_reason  = ""
+        self._light       = "GREEN"    # "GREEN" or "RED"
+        self._light_until = 0.0        # when the current light phase ends
+        self._eliminated  = False
+        self.game_over_reason = ""
 
         # Ring buffer of recent finger tip positions, used to detect movement on RED
         self._pos_history: list = []
@@ -109,22 +113,24 @@ class SquidGameController:
     def _place_dot(self):
         """Place a new dot at a random position, avoiding the screen edges."""
         margin = 0.15
-        self._dot_x   = random.uniform(margin, 1.0 - margin)
-        # Extra top margin (+0.10) so the dot doesn't get hidden behind UI headers
-        self._dot_y   = random.uniform(margin + 0.10, 1.0 - margin)
-        self._dwell_start = None   # reset dwell so the player has to re-enter the new dot
+        self._dot_x = random.uniform(margin, 1.0 - margin)
+        # Extra top margin (+0.10) so the dot doesn't hide behind UI headers
+        self._dot_y = random.uniform(margin + 0.10, 1.0 - margin)
+        # Reset dwell so the player has to re-enter the new dot from scratch
+        self._dwell_start = None
 
     def _green_duration(self):
         """
         Calculate how long the next GREEN phase lasts.
-        Gets shorter as dots are collected, never below MIN_GREEN.
+        Gets shorter as dots are collected, but never drops below MIN_GREEN.
         """
         return max(MIN_GREEN, GREEN_START - self.dots_collected * SHRINK_PER_DOT)
 
     def _red_duration(self):
         """
         Calculate how long the next RED phase lasts.
-        Gets shorter as dots are collected AND has random jitter to keep players on edge.
+        Gets shorter as dots are collected AND has random jitter to keep
+        players on edge — they can't predict exactly when red will end.
         """
         base   = max(MIN_RED, RED_START - self.dots_collected * SHRINK_PER_DOT * 0.5)
         jitter = random.uniform(-0.30, 0.60)
@@ -142,38 +148,38 @@ class SquidGameController:
         """
         self._light       = "RED"
         self._light_until = now + self._red_duration()
-        # Clear history so movement from the last GREEN phase can't trigger an
-        # immediate elimination at the start of RED
+        # Clear history so movement from the last GREEN phase can't trigger
+        # an immediate false elimination at the very start of RED
         self._pos_history.clear()
 
     def _check_movement(self):
         """
         Return True if the player moved substantially during red light.
-        Compares oldest and newest positions in the history buffer —
+        Compares the oldest and newest positions in the history buffer —
         if either the X or Y delta exceeds MOVE_THRESHOLD_NORM, they moved.
         """
-        # Need enough history to make a reliable comparison
+        # Need a full buffer before making any judgement
         if len(self._pos_history) < FRAME_HISTORY:
             return False
         oldest = self._pos_history[0]
         newest = self._pos_history[-1]
         dx = abs(newest[0] - oldest[0])
         dy = abs(newest[1] - oldest[1])
-        return (dx > MOVE_THRESHOLD_NORM or dy > MOVE_THRESHOLD_NORM)
+        return dx > MOVE_THRESHOLD_NORM or dy > MOVE_THRESHOLD_NORM
 
     def _dist_to_dot(self, x, y):
         """Euclidean distance from point (x, y) to the current dot centre."""
         return math.sqrt((x - self._dot_x) ** 2 + (y - self._dot_y) ** 2)
 
     def _compute_score(self, now):
-        """Score = (dots * 100) + whole seconds survived."""
+        """Score = (dots collected * 100) + whole seconds survived."""
         survived = now - self._start_time if self._start_time > 0 else 0.0
         return int(self.dots_collected * 100 + survived)
 
     def _build_output(self, now):
         """
-        Build the output dict that the UI renderer reads every frame.
-        Called from every branch of update() so the renderer always has current data.
+        Build the output dict the UI renderer reads every frame.
+        Called from every branch of update() so the renderer always has fresh data.
         """
         survived = max(0.0, now - self._start_time) if self._start_time > 0 else 0.0
         score    = self._compute_score(now)
@@ -194,7 +200,8 @@ class SquidGameController:
             "dots_collected":   self.dots_collected,
             "survived_secs":    survived,
             "score":            score,
-            "capture_flash":    now < self._capture_flash,  # True while flash is showing
+            # True for RESULT_FLASH_SECS after a dot is captured
+            "capture_flash":    now < self._capture_flash,
             "game_over_reason": self.game_over_reason,
             "eliminated":       self._eliminated,
             "two_player":       False,
@@ -203,7 +210,6 @@ class SquidGameController:
     def update(self, hand_state, now=None):
         """
         Main frame update.  Called every frame by the game loop.
-
         Drives the INTRO -> PLAYING -> GAME_OVER state machine.
         All gesture detection and light-state logic lives here.
         """
@@ -215,7 +221,7 @@ class SquidGameController:
             if now >= self._intro_until:
                 self.state       = "PLAYING"
                 self._start_time = now
-                self._start_green(now)   # begin with GREEN light
+                self._start_green(now)   # always start with a green light
             return self._build_output(now)
 
         # ── GAME_OVER: linger on screen, then auto-reset ──────────────────
@@ -228,21 +234,21 @@ class SquidGameController:
         if self.state == "PLAYING":
             tip = _landmark_pos(hand_state)
 
-            # -- Light state machine: toggle GREEN <-> RED when time expires --
+            # Toggle GREEN <-> RED when the current phase timer expires
             if now >= self._light_until:
                 if self._light == "GREEN":
                     self._start_red(now)
                 else:
                     self._start_green(now)
 
-            # -- Maintain a rolling history of finger positions --
+            # Maintain a rolling history of finger positions for movement detection
             if tip is not None:
                 self._pos_history.append(tip)
-                # Cap the buffer at FRAME_HISTORY frames; drop oldest
+                # Drop oldest entry once we have more than FRAME_HISTORY frames
                 if len(self._pos_history) > FRAME_HISTORY:
                     self._pos_history.pop(0)
 
-            # -- RED LIGHT: eliminate player if they moved --
+            # RED LIGHT: eliminate the player if they moved
             if self._light == "RED" and tip is not None:
                 if self._check_movement():
                     self._eliminated      = True
@@ -251,35 +257,36 @@ class SquidGameController:
                     self._game_over_time  = now + GAME_OVER_SECS
                     return self._build_output(now)
 
-            # -- GREEN LIGHT: allow dot captures --
+            # GREEN LIGHT: allow dot captures via the dwell mechanic
             if self._light == "GREEN" and tip is not None:
                 dist = self._dist_to_dot(tip[0], tip[1])
                 if dist <= DOT_RADIUS_NORM:
-                    # Finger is inside the dot — start or continue dwell timer
+                    # Finger is inside the dot — start or continue the dwell timer
                     if self._dwell_start is None:
                         self._dwell_start = now
                     elif (now - self._dwell_start) >= CAPTURE_DWELL_SECS:
                         # Dwell complete — capture the dot!
-                        self.dots_collected  += 1
-                        self._capture_flash   = now + RESULT_FLASH_SECS
-                        self._place_dot()   # spawn a new dot
+                        self.dots_collected += 1
+                        self._capture_flash  = now + RESULT_FLASH_SECS
+                        self._place_dot()    # spawn a new dot immediately
                 else:
-                    # Finger drifted outside the dot — reset dwell timer
+                    # Finger drifted outside — reset dwell so the player must re-enter
                     self._dwell_start = None
             elif self._light == "RED":
-                # Can't capture during red light — reset dwell so you have to
-                # re-enter the dot from scratch when green comes back
+                # Can't capture during red light — reset dwell so the player must
+                # re-enter the dot from scratch once green returns
                 self._dwell_start = None
 
         return self._build_output(now)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Two-Player Red Light Green Light
-# ─────────────────────────────────────────────────────────────────────────────
+# =============================================================================
+# Two-player Red Light Green Light
+# =============================================================================
 
 # First player to collect this many dots wins
 WIN_DOTS_2P = 5
+
 
 class SquidGame2PController:
     """
@@ -290,9 +297,7 @@ class SquidGame2PController:
     Moving on RED = that player is eliminated.
     First to WIN_DOTS_2P dots wins.
 
-    update() signature:
-        controller.update(p1_hand=..., p2_hand=..., now=...)
-
+    Call update(p1_hand, p2_hand, now) every frame.
     p1_hand / p2_hand are hand_state dicts from process_two_hands_frame.
     """
 
@@ -306,7 +311,7 @@ class SquidGame2PController:
         self._start_time     = 0.0
         self._game_over_time = 0.0
 
-        # Shared light — both players obey the same traffic light
+        # Both players share one traffic light
         self._light       = "GREEN"
         self._light_until = 0.0
 
@@ -318,48 +323,48 @@ class SquidGame2PController:
         self._place_dot(0)
         self._place_dot(1)
 
-        self.winner        = 0   # set to 1 or 2 on GAME_OVER
-        self.loser         = 0   # set to 1 or 2 on elimination
+        self.winner           = 0   # set to 1 or 2 on GAME_OVER
+        self.loser            = 0   # set to 1 or 2 when someone is eliminated
         self.game_over_reason = ""
 
     def _make_player(self):
-        """Create the per-player state dict with defaults."""
+        """Create the per-player state dict with sensible defaults."""
         return {
-            "dots":         0,
-            "eliminated":   False,
-            "dwell_start":  None,       # timestamp when finger entered the dot
-            "capture_flash": 0.0,       # until time for capture flash
-            "dot_x":        0.5,
-            "dot_y":        0.5,
-            "pos_history":  [],         # rolling history for red-light movement detection
+            "dots":          0,
+            "eliminated":    False,
+            "dwell_start":   None,   # timestamp when finger entered the dot
+            "capture_flash": 0.0,    # until-time for the capture flash effect
+            "dot_x":         0.5,
+            "dot_y":         0.5,
+            "pos_history":   [],     # rolling history for red-light movement detection
         }
 
     def _place_dot(self, idx):
         """
         Place a new dot for player idx at a random position.
-        P1 (idx 0) stays in the left half; P2 (idx 1) in the right half
-        so they don't chase each other's targets.
+        P1 (idx 0) is confined to the left half; P2 (idx 1) to the right half
+        so they aren't chasing each other's targets.
         """
         margin = 0.12
         p = self._p[idx]
         if idx == 0:
-            p["dot_x"] = random.uniform(margin, 0.48)          # left half
+            p["dot_x"] = random.uniform(margin, 0.48)         # left half
         else:
-            p["dot_x"] = random.uniform(0.52, 1.0 - margin)    # right half
+            p["dot_x"] = random.uniform(0.52, 1.0 - margin)   # right half
         p["dot_y"]      = random.uniform(margin + 0.10, 1.0 - margin)
-        p["dwell_start"] = None   # must re-enter dot to start dwell
+        p["dwell_start"] = None   # must re-enter dot to start a new dwell
 
     def _green_duration(self):
         """
         Green duration scales down with total dots collected by both players.
-        Uses a gentler shrink rate than single-player (0.5x) since two players
-        collect dots faster.
+        Uses a 0.5x shrink rate (gentler than single-player) because two
+        players collect dots faster so we don't want to shrink too quickly.
         """
         total = self._p[0]["dots"] + self._p[1]["dots"]
         return max(MIN_GREEN, GREEN_START - total * SHRINK_PER_DOT * 0.5)
 
     def _red_duration(self):
-        """Red duration with randomness; uses 0.25x shrink so red doesn't end too fast."""
+        """Red duration with randomness; 0.25x shrink so red doesn't end too fast."""
         total = self._p[0]["dots"] + self._p[1]["dots"]
         base  = max(MIN_RED, RED_START - total * SHRINK_PER_DOT * 0.25)
         return max(MIN_RED, base + random.uniform(-0.30, 0.60))
@@ -371,10 +376,10 @@ class SquidGame2PController:
 
     def _start_red(self, now):
         """Switch to RED light and clear both players' movement histories."""
-        self._light = "RED"
+        self._light       = "RED"
         self._light_until = now + self._red_duration()
-        # Clear history for both players so lingering movement from GREEN can't
-        # immediately eliminate them at the start of RED
+        # Clear history for both players so motion from the last GREEN phase
+        # can't immediately trigger a false elimination at the start of RED
         for p in self._p:
             p["pos_history"].clear()
 
@@ -401,37 +406,37 @@ class SquidGame2PController:
         """
         p = self._p[idx]
 
-        # Skip any processing for eliminated players
+        # Skip all processing for players who are already out
         if p["eliminated"]:
             return
 
         tip = _landmark_pos(hand_state)
 
-        # Update rolling position history
+        # Update rolling position history for movement detection
         if tip is not None:
             p["pos_history"].append(tip)
             if len(p["pos_history"]) > FRAME_HISTORY:
                 p["pos_history"].pop(0)
 
-        # RED light: check if this player moved
+        # RED light: eliminate this player if they moved
         if self._light == "RED" and tip is not None:
             if self._check_movement(idx):
                 p["eliminated"] = True
                 return   # no further processing needed for an eliminated player
 
-        # GREEN light: check dot capture (dwell mechanic)
+        # GREEN light: check for dot capture via dwell mechanic
         if self._light == "GREEN" and tip is not None:
             dx   = tip[0] - p["dot_x"]
             dy   = tip[1] - p["dot_y"]
-            dist = math.sqrt(dx*dx + dy*dy)
+            dist = math.sqrt(dx * dx + dy * dy)
             if dist <= DOT_RADIUS_NORM:
                 # Inside the dot — start or continue dwell timer
                 if p["dwell_start"] is None:
                     p["dwell_start"] = now
                 elif (now - p["dwell_start"]) >= CAPTURE_DWELL_SECS:
                     # Dwell complete — capture!
-                    p["dots"]          += 1
-                    p["capture_flash"]  = now + RESULT_FLASH_SECS
+                    p["dots"]         += 1
+                    p["capture_flash"] = now + RESULT_FLASH_SECS
                     self._place_dot(idx)
             else:
                 # Finger left the dot area — reset dwell
@@ -452,22 +457,22 @@ class SquidGame2PController:
             return min(1.0, (now - p["dwell_start"]) / CAPTURE_DWELL_SECS)
 
         return {
-            "play_mode_label":    "Red Light Green Light 2P",
-            "state":              self.state,
-            "light":              self._light,
-            "light_time_left":    max(0.0, self._light_until - now),
-            "survived_secs":      survived,
-            "winner":             self.winner,
-            "loser":              self.loser,
-            "game_over_reason":   self.game_over_reason,
-            # P1 state
+            "play_mode_label":  "Red Light Green Light 2P",
+            "state":            self.state,
+            "light":            self._light,
+            "light_time_left":  max(0.0, self._light_until - now),
+            "survived_secs":    survived,
+            "winner":           self.winner,
+            "loser":            self.loser,
+            "game_over_reason": self.game_over_reason,
+            # P1 fields
             "p1_dot_x":      p1["dot_x"],
             "p1_dot_y":      p1["dot_y"],
             "p1_dots":       p1["dots"],
             "p1_eliminated": p1["eliminated"],
             "p1_dwell_pct":  dwell_pct(p1),
             "p1_flash":      now < p1["capture_flash"],
-            # P2 state
+            # P2 fields
             "p2_dot_x":      p2["dot_x"],
             "p2_dot_y":      p2["dot_y"],
             "p2_dots":       p2["dots"],
@@ -481,7 +486,6 @@ class SquidGame2PController:
     def update(self, p1_hand, p2_hand, now=None):
         """
         Main frame update for the 2-player version.
-
         Drives INTRO -> PLAYING -> GAME_OVER.
         Both players share a single light; win/elimination logic checks both.
         """
@@ -496,7 +500,7 @@ class SquidGame2PController:
                 self._start_green(now)
             return self._build_output(now)
 
-        # ── GAME_OVER: linger, then auto-reset ──
+        # ── GAME_OVER: linger on screen, then auto-reset ──
         if self.state == "GAME_OVER":
             if now >= self._game_over_time:
                 self.reset()
@@ -511,40 +515,46 @@ class SquidGame2PController:
                 else:
                     self._start_green(now)
 
-            # Update each player independently
+            # Update each player independently with the same shared light state
             self._update_player(0, p1_hand, now)
             self._update_player(1, p2_hand, now)
 
             p1, p2 = self._p[0], self._p[1]
 
             # Check win/elimination conditions.
-            # Order matters: dot-win beats elimination so a simultaneous
-            # "P1 wins AND P2 eliminated" correctly counts as P1 winning.
+            # Order matters: dot-win beats simultaneous elimination so a case
+            # where P1 wins AND P2 gets eliminated on the same frame
+            # correctly counts as P1 winning (not a draw).
             if p1["dots"] >= WIN_DOTS_2P and not p1["eliminated"]:
-                self.winner = 1; self.loser = 2
+                self.winner           = 1
+                self.loser            = 2
                 self.game_over_reason = "P1 collected all dots!"
-                self.state = "GAME_OVER"
-                self._game_over_time = now + GAME_OVER_SECS
+                self.state            = "GAME_OVER"
+                self._game_over_time  = now + GAME_OVER_SECS
             elif p2["dots"] >= WIN_DOTS_2P and not p2["eliminated"]:
-                self.winner = 2; self.loser = 1
+                self.winner           = 2
+                self.loser            = 1
                 self.game_over_reason = "P2 collected all dots!"
-                self.state = "GAME_OVER"
-                self._game_over_time = now + GAME_OVER_SECS
+                self.state            = "GAME_OVER"
+                self._game_over_time  = now + GAME_OVER_SECS
             elif p1["eliminated"] and p2["eliminated"]:
-                # Both moved on red — draw/no winner
-                self.winner = 0; self.loser = 0
+                # Both moved on red at the same time — no winner
+                self.winner           = 0
+                self.loser            = 0
                 self.game_over_reason = "Both eliminated!"
-                self.state = "GAME_OVER"
-                self._game_over_time = now + GAME_OVER_SECS
+                self.state            = "GAME_OVER"
+                self._game_over_time  = now + GAME_OVER_SECS
             elif p1["eliminated"]:
-                self.winner = 2; self.loser = 1
+                self.winner           = 2
+                self.loser            = 1
                 self.game_over_reason = "P1 moved on RED!"
-                self.state = "GAME_OVER"
-                self._game_over_time = now + GAME_OVER_SECS
+                self.state            = "GAME_OVER"
+                self._game_over_time  = now + GAME_OVER_SECS
             elif p2["eliminated"]:
-                self.winner = 1; self.loser = 2
+                self.winner           = 1
+                self.loser            = 2
                 self.game_over_reason = "P2 moved on RED!"
-                self.state = "GAME_OVER"
-                self._game_over_time = now + GAME_OVER_SECS
+                self.state            = "GAME_OVER"
+                self._game_over_time  = now + GAME_OVER_SECS
 
         return self._build_output(now)

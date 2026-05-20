@@ -1,31 +1,27 @@
-"""
-research_report.py
-==================
-Generates the AI comparison section of the RPS capstone research report.
-
-This script sits at the top of the research pipeline.  It runs the simulation
-engine (simulation_mode.py) for each AI type, collects the win/loss statistics,
-and writes a formatted multi-sheet Excel report that can be opened in Excel or
-Google Sheets.
-
-Three (optionally four) AI types are compared:
-    1. Random baseline  — expected ~33% robot win rate, used as a sanity check
-    2. Heuristic FairPlay — pattern-exploitation AI using heuristic rules
-    3. Heuristic Challenge — harder version of the heuristic AI
-    4. ML Prediction     — Random-Forest model (only run if the .pkl file exists)
-
-Each AI is tested against every player strategy defined in simulation_mode.py.
-RUNS_PER_COMBO independent runs are averaged to smooth out variance.
-
-Usage:
-    python research_report.py
-
-Output:
-    ~/Desktop/CapStone/research_comparison_report.xlsx
-"""
+# research_report.py
+# -------------------
+# Generates the AI comparison section of the RPS capstone research report.
+#
+# This script sits at the top of the research pipeline. It runs the simulation
+# engine (simulation_mode.py) for each AI type, collects the win/loss
+# statistics, and writes a formatted multi-sheet Excel report.
+#
+# Three (optionally four) AI types are compared:
+#   1. Random baseline      — expected ~33% robot win rate, used as a sanity check
+#   2. Heuristic FairPlay   — pattern-exploitation AI using heuristic rules
+#   3. Heuristic Challenge  — harder version of the heuristic AI
+#   4. ML Prediction        — Random-Forest model (only run if the .pkl file exists)
+#
+# Each AI is tested against every player strategy defined in simulation_mode.py.
+# RUNS_PER_COMBO independent runs are averaged to smooth out variance.
+#
+# Usage:
+#   python research_report.py
+#
+# Output:
+#   ~/Desktop/CapStone/research_comparison_report.xlsx
 
 import os
-import sys
 import time
 from pathlib import Path
 from datetime import datetime
@@ -43,10 +39,10 @@ ML_MODEL_PATH = os.path.join(
 # Where the finished Excel report is saved.
 OUTPUT_PATH = Path.home() / "Desktop" / "CapStone" / "research_comparison_report.xlsx"
 
-# How many independent simulation runs to average per strategy+AI combination.
+# How many independent simulation runs to average per strategy + AI combination.
 # More runs = smoother numbers but slower to generate.
-RUNS_PER_COMBO  = 10
-ROUNDS_PER_RUN  = 100
+RUNS_PER_COMBO = 10
+ROUNDS_PER_RUN = 100
 
 
 # ===========================================================================
@@ -55,9 +51,9 @@ ROUNDS_PER_RUN  = 100
 # These are defined once here and reused throughout the sheet builders below
 # so we never have to hardcode colours or font sizes in multiple places.
 
-HEADER_FILL    = PatternFill("solid", fgColor="1F4E78")   # dark navy
-HEADER_FONT    = Font(color="FFFFFF", bold=True, size=11)  # white bold
-SUBHEADER_FILL = PatternFill("solid", fgColor="D6E4F0")   # light blue
+HEADER_FILL    = PatternFill("solid", fgColor="1F4E78")   # dark navy background
+HEADER_FONT    = Font(color="FFFFFF", bold=True, size=11)  # white bold text
+SUBHEADER_FILL = PatternFill("solid", fgColor="D6E4F0")   # light blue background
 SUBHEADER_FONT = Font(bold=True, size=11)
 TITLE_FONT     = Font(bold=True, size=14)
 SUBTITLE_FONT  = Font(bold=True, size=12, color="1F4E78")
@@ -92,6 +88,8 @@ def _format_data_cell(ws, row, col, value, fmt=None):
       "pct"  → percentage with one decimal  (0.0%)
       "dec1" → number with one decimal      (0.0)
       None   → no number format (general)
+
+    Returns the cell so the caller can further modify it (e.g. add a fill colour).
     """
     cell = ws.cell(row=row, column=col, value=value)
     cell.font      = BODY_FONT
@@ -114,6 +112,7 @@ def _auto_width(ws, min_width=10, max_width=22):
     for col in ws.columns:
         letter  = get_column_letter(col[0].column)
         max_len = min_width
+        # Check every cell in this column and track the longest string.
         for cell in col:
             if cell.value:
                 max_len = max(max_len, len(str(cell.value)) + 2)
@@ -150,7 +149,7 @@ def run_all_comparisons():
 
     all_results = {}
 
-    # Run the simulation for each AI type in turn.
+    # Run the simulation for each AI type in turn and store the results.
     for ai_label, ai_list in ai_configs:
         print(f"\nRunning: {ai_label}...")
         results = run_simulation(
@@ -158,7 +157,7 @@ def run_all_comparisons():
             ai_opponents=ai_list,
             runs_per_combo=RUNS_PER_COMBO,
             rounds_per_run=ROUNDS_PER_RUN,
-            save_excel=False,  # we build our own report here
+            save_excel=False,  # we build our own report here, don't save separately
         )
         all_results[ai_label] = results
 
@@ -174,23 +173,25 @@ def build_report(all_results, ml_available, output_path):
     Create a new Excel workbook and populate it with all four (or five) sheets.
 
     Sheet order:
-      1. Overview          — one row per AI, averaged across all strategies
-      2. AI Comparison     — robot win rate grid: strategy x AI
+      1. Overview            — one row per AI, averaged across all strategies
+      2. AI Comparison       — robot win rate grid: strategy x AI
       3. Per Strategy Detail — flat table of every individual combo
-      4. Key Findings      — auto-generated text summary
-      5. ML Model Details  — (only if ml_available) feature importances etc.
+      4. Key Findings        — auto-generated text summary
+      5. ML Model Details    — (only if ml_available) feature importances etc.
     """
     wb = Workbook()
 
+    # Build each sheet in order.
     _build_overview_sheet(wb, all_results)
     _build_comparison_table(wb, all_results)
     _build_per_strategy_sheet(wb, all_results)
     _build_key_findings_sheet(wb, all_results, ml_available)
 
+    # Only add the ML sheet if we actually ran the ML model.
     if ml_available:
         _build_ml_details_sheet(wb)
 
-    # Save the workbook.  PermissionError usually means the file is open in Excel.
+    # Save the workbook. PermissionError usually means the file is open in Excel.
     try:
         wb.save(output_path)
         print(f"\nReport saved to: {output_path}")
@@ -210,11 +211,12 @@ def _build_overview_sheet(wb, all_results):
     ws = wb.active
     ws.title = "Overview"
 
-    # Title and metadata block at the top.
+    # Title and metadata block at the top of the sheet.
     ws.merge_cells("A1:F1")
-    ws["A1"]       = "RPS AI Research Comparison Report"
-    ws["A1"].font  = TITLE_FONT
+    ws["A1"]      = "RPS AI Research Comparison Report"
+    ws["A1"].font = TITLE_FONT
 
+    # Write run configuration metadata so the reader knows the parameters.
     ws["A3"] = "Generated:"
     ws["B3"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     ws["A4"] = "Runs per combination:"
@@ -226,11 +228,11 @@ def _build_overview_sheet(wb, all_results):
 
     # Header row for the data grid.
     row = 8
-    ws.cell(row=row, column=1, value="AI Type").font           = SUBHEADER_FONT
-    ws.cell(row=row, column=2, value="Avg Robot Win Rate").font = SUBHEADER_FONT
+    ws.cell(row=row, column=1, value="AI Type").font            = SUBHEADER_FONT
+    ws.cell(row=row, column=2, value="Avg Robot Win Rate").font  = SUBHEADER_FONT
     ws.cell(row=row, column=3, value="Avg Player Win Rate").font = SUBHEADER_FONT
-    ws.cell(row=row, column=4, value="Avg Draw Rate").font      = SUBHEADER_FONT
-    ws.cell(row=row, column=5, value="Total Rounds").font       = SUBHEADER_FONT
+    ws.cell(row=row, column=4, value="Avg Draw Rate").font       = SUBHEADER_FONT
+    ws.cell(row=row, column=5, value="Total Rounds").font        = SUBHEADER_FONT
     _format_header_row(ws, row)
 
     row += 1
@@ -254,9 +256,9 @@ def _build_overview_sheet(wb, all_results):
         # Colour-code the robot win rate cell to make good/bad results stand out.
         cell = ws.cell(row=row, column=2)
         if avg_rwr > 0.38:
-            cell.fill = GOOD_FILL    # clearly beating random — green
+            cell.fill = GOOD_FILL   # clearly beating random — highlight green
         elif avg_rwr < 0.30:
-            cell.fill = BAD_FILL     # barely above random or worse — red
+            cell.fill = BAD_FILL    # barely above random or worse — highlight red
 
         row += 1
 
@@ -267,7 +269,7 @@ def _build_comparison_table(wb, all_results):
     """
     Populate the 'AI Comparison' sheet: a grid of robot win rates.
 
-    Rows = player strategies.  Column pairs = (robot WR, avg max streak) per AI.
+    Rows = player strategies. Column pairs = (robot WR, avg max streak) per AI.
     """
     ws        = wb.create_sheet("AI Comparison")
     ai_labels = list(all_results.keys())
@@ -287,9 +289,11 @@ def _build_comparison_table(wb, all_results):
 
     row = 2
     for strategy in PLAYER_STRATEGIES:
+        # Write the strategy name in column 1.
         ws.cell(row=row, column=1, value=strategy).font = BODY_FONT
         ws.cell(row=row, column=1).border = THIN_BORDER
 
+        # Fill in the win rate and streak for each AI.
         for col_idx, ai_label in enumerate(ai_labels):
             combo = lookup.get((strategy, ai_label))
             if combo:
@@ -314,6 +318,7 @@ def _build_per_strategy_sheet(wb, all_results):
     """
     ws = wb.create_sheet("Per Strategy Detail")
 
+    # Write the header row.
     ws.append([
         "Player Strategy",
         "AI Type",
@@ -327,6 +332,7 @@ def _build_per_strategy_sheet(wb, all_results):
 
     row = 2
     for ai_label, results in all_results.items():
+        # Write one row per strategy+AI combo.
         for combo in results["combo_results"]:
             _format_data_cell(ws, row, 1, combo["strategy"])
             _format_data_cell(ws, row, 2, ai_label)
@@ -336,7 +342,7 @@ def _build_per_strategy_sheet(wb, all_results):
             _format_data_cell(ws, row, 6, combo["avg_streak"], "dec1")
             _format_data_cell(ws, row, 7, combo["runs"])
 
-            # Highlight the robot win rate cell.
+            # Colour-code the robot win rate cell for quick visual scanning.
             cell = ws.cell(row=row, column=4)
             if combo["robot_win_rate"] > 0.40:
                 cell.fill = GOOD_FILL
@@ -380,7 +386,7 @@ def _build_key_findings_sheet(wb, all_results, ml_available):
         findings.append(f"Strongest AI overall: {best_ai} ({ai_avg[best_ai]:.1%} robot win rate)")
         findings.append(f"Weakest AI overall: {worst_ai} ({ai_avg[worst_ai]:.1%} robot win rate)")
 
-        # Show how much each non-random AI beats the random baseline.
+        # Show how much each non-random AI beats the random baseline (a "lift" metric).
         random_wr = ai_avg.get("Random", 0.333)
         for label, wr in ai_avg.items():
             if label != "Random":
@@ -431,9 +437,8 @@ def _build_ml_details_sheet(wb):
     Populate 'ML Model Details' with metadata and feature importances from the
     trained model file.
 
-    This sheet is only added when ml_available is True (i.e. the .pkl file
-    exists).  It gracefully catches any load error and writes it to the cell
-    instead of crashing the whole report.
+    This sheet is only added when ml_available is True. It gracefully catches
+    any load error and writes it to the cell instead of crashing the whole report.
     """
     ws = wb.create_sheet("ML Model Details")
 
@@ -445,6 +450,7 @@ def _build_ml_details_sheet(wb):
         from ml_model import RPSModel
         model = RPSModel.load(ML_MODEL_PATH)
 
+        # Write basic model metadata.
         ws["A3"] = "Model type:"
         ws["B3"] = type(model.model).__name__ if model.model else "N/A"
         ws["A4"] = "Trained:"

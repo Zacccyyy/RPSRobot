@@ -1,3 +1,14 @@
+"""
+main.py - Entry point for the RPS Hand Counter application.
+
+This module wires together every subsystem: camera capture, hand-landmark
+detection, gesture tracking, game controllers, UI rendering, sound, voice
+control, and data persistence.  The run() function contains the main loop
+that reads frames, dispatches game logic, and handles keyboard/voice input.
+All module-level constants define key mappings, settings schemas, and the
+game-mode category tree shown in the menu.
+"""
+
 import time
 import os
 import sys
@@ -96,7 +107,8 @@ from commentary_engine import CommentaryEngine
 from arcade_snake_state import ArcadeSnakeController
 
 def _run_report_updater_bg():
-    """Background-dispatch the report auto-updater."""
+    """Regenerate the research Excel report in the background after a simulation.
+    Importing and running the updater is done lazily here so it never blocks startup."""
     try:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         from report_updater import update_report
@@ -108,6 +120,8 @@ def _run_report_updater_bg():
 
 WINDOW_NAME = "RPS Gesture Recogniser"
 
+# Key-code sets: each set covers the arrow key and its WASD equivalent so
+# both control schemes work without separate branches everywhere in the code.
 KEY_ENTER = {10, 13}
 KEY_ESC = 27
 KEY_UP = {82, ord("w"), ord("W")}
@@ -115,6 +129,10 @@ KEY_DOWN = {84, ord("s"), ord("S")}
 KEY_LEFT = {81, ord("a"), ord("A")}
 KEY_RIGHT = {83, ord("d"), ord("D")}
 
+# Schema for the Settings screen.  Each entry drives the renderer and the
+# apply_setting_change / activate_settings_item logic below.
+# Types: "text" = free-text entry, "choice" = cycle through options,
+#        "float" = slider with min/max/step, "action" = button that calls code.
 SETTINGS_SCHEMA = [
     {
         "key": "player_name",
@@ -233,6 +251,10 @@ SETTINGS_SCHEMA = [
 ]
 
 # ── Feature toggles (on/off only, separate from program settings) ──────── #
+# FEATURES_SCHEMA drives the Features screen.  Boolean entries are simple
+# on/off flags; "choice" entries cycle through a fixed option list.
+# Action entries (__personalities__, __back__) trigger special handlers
+# inside handle_features_key rather than modifying config directly.
 FEATURES_SCHEMA = [
     {
         "key": "input_mode",
@@ -404,15 +426,18 @@ class _IOWorker:
         self._thread.start()
 
     def submit(self, fn, *args, **kwargs):
+        """Queue a callable for execution on the background thread."""
         self._q.put((fn, args, kwargs))
 
     def flush(self, timeout=3.0):
         """Wait until queue is drained (call on shutdown)."""
         done = threading.Event()
+        # Sentinel: a no-op that sets the event, so we know the queue reached it
         self._q.put((lambda: done.set(), (), {}))
         done.wait(timeout=timeout)
 
     def _run(self):
+        """Worker loop: runs on the background thread, processes tasks forever."""
         while True:
             fn, args, kwargs = self._q.get()
             try:
@@ -434,22 +459,25 @@ class _AsyncChallengeStatsLogger:
     def __init__(self, inner):
         self._inner = inner
 
-    # --- Passthrough synchronous reads ---
+    # --- Passthrough synchronous reads (safe to call from the main thread) ---
     def get_high_score(self):
         return self._inner.get_high_score()
 
     def update_context(self, **kwargs):
+        """Update metadata fields (display mode, resolution) in memory only."""
         self._inner.update_context(**kwargs)
 
-    # --- Async disk writes ---
+    # --- Async disk writes (offloaded to the IO worker so they never stall frames) ---
     def start_run(self):
-        # Call synchronously so active_run is set before log_round references it
+        # Must be synchronous so active_run is populated before log_round is called
         return self._inner.start_run()
 
     def log_round(self, *args, **kwargs):
+        """Write one round's stats to disk in the background."""
         _io_worker.submit(self._inner.log_round, *args, **kwargs)
 
     def finalize_run(self, *args, **kwargs):
+        """Flush the completed run to the Excel sheet in the background."""
         _io_worker.submit(self._inner.finalize_run, *args, **kwargs)
 
     # Surface active_run for anything that reads it
@@ -459,6 +487,13 @@ class _AsyncChallengeStatsLogger:
 
 
 def build_controllers(robot_output, config, challenge_logger):
+    """
+    Instantiate every game-mode controller and return them as a dict.
+
+    Called once at startup and again whenever the user changes a config value
+    that affects game timing (e.g. shoot window, beat cooldown, AI difficulty).
+    The returned dict is merged directly into app_state with app_state.update().
+    """
     difficulty = config.get("ai_difficulty", "Normal")
     return {
         "cheat_controller": RPSGameController(
@@ -535,6 +570,11 @@ def build_controllers(robot_output, config, challenge_logger):
 
 
 def update_challenge_logger_context(app_state):
+    """
+    Sync the current display mode and camera resolution into the challenge logger.
+    Called whenever either value might have changed so the stats Excel sheet
+    records the correct context alongside each run.
+    """
     logger = app_state.get("challenge_logger")
     if logger is None:
         return
@@ -546,6 +586,13 @@ def update_challenge_logger_context(app_state):
 
 
 def build_app_state():
+    """
+    Create and return the single global app_state dict that holds all runtime state.
+
+    This is called once at startup.  Every subsystem (controllers, trackers,
+    voice, UI flags, etc.) lives in this dict so the main loop and all handler
+    functions have a single source of truth without global variables.
+    """
     config = load_config()
     robot_output = RobotOutputBuffer()
     challenge_logger = _AsyncChallengeStatsLogger(ChallengeStatsLogger())
@@ -665,6 +712,10 @@ def build_app_state():
 
 
 def rebuild_controllers(app_state):
+    """
+    Recreate all game controllers from the current config and patch them into
+    app_state.  Used after a settings change that affects timing or difficulty.
+    """
     controllers = build_controllers(
         app_state["robot_output"],
         app_state["config"],
@@ -705,6 +756,8 @@ def _apply_voice_mode(app_state):
 
 
 def apply_camera_resolution(cap, config):
+    """Push the configured resolution to the OpenCV capture object.
+    Called at startup and whenever the user changes the Resolution setting."""
     width, height = get_resolution_tuple(config)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
@@ -713,6 +766,11 @@ def apply_camera_resolution(cap, config):
 
 
 def finalize_active_challenge_run(app_state, status="abandoned"):
+    """
+    Close out any in-progress Challenge run by writing its final streak and
+    completion status to the stats logger.  Called on ESC, mode switch, or quit
+    so partial runs are recorded rather than silently dropped.
+    """
     logger = app_state.get("challenge_logger")
     controller = app_state.get("challenge_controller")
 
@@ -726,6 +784,11 @@ def finalize_active_challenge_run(app_state, status="abandoned"):
 
 
 def reset_all_modes(app_state):
+    """
+    Reset every game controller, gesture tracker, and related transient state
+    back to a clean start.  Called before entering any game mode or returning
+    to the menu so no stale data leaks between sessions.
+    """
     app_state["tracker"].reset()
     app_state["robot_output"].clear_pending_locked()
     app_state["cheat_controller"].reset()
@@ -748,7 +811,7 @@ def reset_all_modes(app_state):
     app_state["_tp_tracker_p1"].reset()
     app_state["_tp_tracker_p2"].reset()
     app_state["_tp_ema_states"] = [create_kalman_wrist_state(), create_kalman_wrist_state()]
-    # Reset main wrist Kalman
+    # Reset main wrist Kalman filter so its velocity estimate starts fresh
     kf = app_state["_ema_state"].get("kalman")
     if kf:
         kf.reset()
@@ -799,9 +862,18 @@ def _dispatch_sounds(app_state, game_state):
 
 
 def start_game(app_state, mode=None, from_category=False):
+    """
+    Transition to GAME screen in the given mode.
+
+    If a Challenge run is currently active and we're switching away from it,
+    the run is finalised as 'abandoned' before the new mode starts.
+    from_category=True means ESC should return to the Game Category screen
+    rather than the main menu.
+    """
     if mode is None:
         mode = app_state["config"]["default_play_mode"]
 
+    # Finalise any in-progress Challenge run before switching modes
     if (
         app_state["app_screen"] == "GAME"
         and app_state["play_mode"] == "Challenge"
@@ -878,10 +950,18 @@ def _draw_esc_summary_overlay(frame, summary):
 
 
 def open_menu(app_state):
+    """
+    Return to the main menu from wherever we are.
+
+    Before navigating away from GAME, this finalises any active Challenge run
+    and persists the AI bandit weights so the AI remembers what it learned
+    about this player across sessions.
+    """
     if app_state["app_screen"] == "GAME" and app_state["play_mode"] == "Challenge":
         finalize_active_challenge_run(app_state, status="abandoned")
 
     # ── Cross-session AI learning: persist bandit weights for this player ──
+    # Save only from FairPlay/Challenge controllers since they run the bandit AI
     player_name = app_state["config"].get("player_name", "").strip()
     if player_name and app_state.get("app_screen") == "GAME":
         store = app_state.get("profile_store")
@@ -901,7 +981,8 @@ def open_menu(app_state):
     app_state["game_mode_index"]     = 0
     reset_all_modes(app_state)
 
-    # First-run onboarding: no player name set → go to Settings with name field focused
+    # First-run onboarding: redirect to Settings so the player enters their name
+    # before doing anything else.  Once they confirm it, first_run_complete is set.
     if not app_state["config"].get("first_run_complete") and \
        not app_state["config"].get("player_name", "").strip():
         app_state["app_screen"] = "SETTINGS"
@@ -910,12 +991,14 @@ def open_menu(app_state):
 
 
 def open_settings(app_state):
+    """Navigate to the Settings screen, resetting selection to the first row."""
     app_state["app_screen"] = "SETTINGS"
     app_state["settings_index"] = 0
     app_state["_settings_text_edit"] = False
 
 
 def open_features(app_state):
+    """Navigate to the Features (toggles) screen."""
     app_state["app_screen"] = "FEATURES"
     app_state["features_index"] = 0
 
@@ -924,7 +1007,9 @@ def apply_feature_toggle(app_state, key, direction=0):
     """
     Toggle a boolean feature or cycle a choice feature, then apply side effects.
 
-    direction: -1 = previous option, +1 = next option, 0 = toggle bool / advance choice
+    direction: -1 = previous option, +1 = next option, 0 = toggle bool / advance choice.
+    After changing the value in config, any live subsystem that depends on the
+    feature (emotion tracker, gesture nav, voice controller) is updated immediately.
     """
     config = app_state["config"]
     item   = next((s for s in FEATURES_SCHEMA if s.get("key") == key), None)
@@ -937,10 +1022,11 @@ def apply_feature_toggle(app_state, key, direction=0):
         current = config.get(key, options[0])
         idx     = options.index(current) if current in options else 0
         if direction == 0:
-            direction = 1   # Enter advances forward
+            direction = 1   # Enter with no direction defaults to advancing forward
         idx = (idx + direction) % len(options)
         config[key] = options[idx]
     else:
+        # Simple boolean flip
         config[key] = not config.get(key, False)
 
     save_config(config)
@@ -968,7 +1054,7 @@ def apply_feature_toggle(app_state, key, direction=0):
 
 
 def handle_features_key(app_state, key):
-    """Handle keys on the Features screen."""
+    """Handle keyboard input on the Features screen (toggle rows, navigate, enter sub-screens)."""
     schema = FEATURES_SCHEMA
     if key in KEY_UP:
         app_state["features_index"] = (app_state["features_index"] - 1) % len(schema)
@@ -1004,7 +1090,11 @@ def open_clone_setup(app_state):
 
 
 def _start_clone_game(app_state, opponent_name):
-    """Load a clone and start the game."""
+    """
+    Build a PlayerCloneAI from the opponent's recorded profile and launch
+    Clone Mode.  Requires at least 30 recorded rounds to construct a reliable
+    pattern table; shows an error message if the profile is too small.
+    """
     store = app_state["profile_store"]
     tables = store.build_pattern_tables(opponent_name)
 
@@ -1027,7 +1117,14 @@ def _start_clone_game(app_state, opponent_name):
 
 
 def handle_clone_setup_key(app_state, key):
-    """Handle keys on the Clone Setup screen."""
+    """
+    Handle keyboard input on the Clone Setup screen.
+
+    The screen has three sub-steps:
+      enter_name     - player types their own name (pre-filled from config)
+      select_opponent - picks which saved profile to play against
+      no_profiles    - shown when no profiles have enough data yet
+    """
     step = app_state.get("clone_step", "enter_name")
 
     if step == "enter_name":
@@ -1069,10 +1166,10 @@ def handle_clone_setup_key(app_state, key):
         elif key == KEY_ESC:
             open_menu(app_state)
 
-        elif key == 8 or key == 127:
+        elif key == 8 or key == 127:  # backspace
             app_state["clone_text_buffer"] = buf[:-1]
 
-        elif 32 <= key <= 126:
+        elif 32 <= key <= 126:  # printable ASCII character
             app_state["clone_text_buffer"] = buf + chr(key)
 
     elif step == "select_opponent":
@@ -1122,10 +1219,17 @@ def open_player_stats(app_state):
 
 
 def _load_stats_for_player(app_state, name, mode_filter=None):
-    """Build pattern tables and traits for viewing, optionally filtered by game mode."""
+    """
+    Load and analyse a player's recorded history, then store the results in
+    app_state for the Player Stats renderer to display.
+
+    mode_filter can be 'All', 'FairPlay', 'Challenge', 'Cheat', or 'Clone'.
+    When filtered, win/loss/draw counts and the history dots only cover rounds
+    played in that mode.
+    """
     store = app_state["profile_store"]
 
-    # Use filtered build when a specific mode is selected
+    # Use the filtered variant when a specific mode is selected
     if mode_filter and mode_filter != "All":
         tables = store.build_pattern_tables_filtered(name, mode_filter)
     else:
@@ -1183,7 +1287,15 @@ def _load_stats_for_player(app_state, name, mode_filter=None):
 
 
 def handle_player_stats_key(app_state, key):
-    """Handle keys on the Player Stats screen."""
+    """
+    Handle keyboard input on the Player Stats screen.
+
+    The screen has three sub-steps:
+      select   - player selection list (shown when >1 profile exists)
+      view     - the stats display with filter/tab navigation
+      no_profiles - shown when the store is completely empty
+    Left/Right cycle the mode filter; T toggles between overview and history tabs.
+    """
     step = app_state.get("stats_step", "select")
     _FILTERS = ["All", "FairPlay", "Challenge", "Cheat", "Clone"]
     _TABS    = ["overview", "history"]
@@ -1246,6 +1358,9 @@ def handle_player_stats_key(app_state, key):
                     app_state["collector_message"] = f"Exported: {path}"
 
 
+# Step definitions for the interactive physical-pump tutorial.
+# Each dict drives the renderer (title, instruction text) and the
+# update_tutorial() logic (target_gesture, hold_frames).
 TUTORIAL_STEPS = [
     {
         "id": "rock",
@@ -1297,7 +1412,8 @@ TUTORIAL_STEPS = [
     },
 ]
 
-# Voice-mode parallel - same IDs so the renderer can share status panel logic.
+# Voice-mode equivalent - same step IDs as TUTORIAL_STEPS so the renderer
+# can reuse the status-panel layout; instructions and triggers differ.
 TUTORIAL_STEPS_VOICE = [
     {
         "id": "rock",
@@ -1384,10 +1500,11 @@ def _tutorial_steps(app_state):
 
 def update_tutorial(app_state, hand_state, tracker_state):
     """
-    Update tutorial state based on current hand detection.
-    Called every frame when app_screen == TUTORIAL.
-    Physical-mode logic only - voice events are routed via
-    handle_voice_tutorial_event() in the main loop.
+    Advance the physical-pump tutorial based on the current frame's hand data.
+
+    Called every frame while app_screen == TUTORIAL.  Voice-mode tutorial
+    advances via handle_voice_tutorial_event() instead, so this function is
+    a no-op in voice mode.
     """
     if app_state.get("tutorial_voice_mode"):
         return   # voice mode advances via handle_voice_tutorial_event
@@ -1415,6 +1532,9 @@ def update_tutorial(app_state, hand_state, tracker_state):
             _advance_tutorial(app_state)
 
     # --- Step 4: Pump counting ---
+    # Detect fist-pump beats by tracking wrist Y crossing thresholds.
+    # Phase "ready_for_down": wrist moves down by >=4% of frame height -> beat counted.
+    # Phase "waiting_for_up": wrist moves back up by >=3% -> ready for next beat.
     elif step["id"] == "pump":
         is_rock = confirmed == "Rock" or stable == "Rock"
 
@@ -1424,12 +1544,14 @@ def update_tutorial(app_state, hand_state, tracker_state):
             bot_y = app_state["tutorial_pump_bot_y"]
 
             if top_y is None:
+                # First frame with a fist - record the starting Y position
                 app_state["tutorial_pump_top_y"] = wrist_y
                 return
             if bot_y is None:
                 app_state["tutorial_pump_bot_y"] = wrist_y
 
             if phase == "ready_for_down":
+                # Track the highest point seen (lowest Y value = higher on screen)
                 app_state["tutorial_pump_top_y"] = min(top_y, wrist_y)
                 if (wrist_y - app_state["tutorial_pump_top_y"]) >= 0.04:
                     app_state["tutorial_pump_count"] += 1
@@ -1438,11 +1560,14 @@ def update_tutorial(app_state, hand_state, tracker_state):
 
                     if app_state["tutorial_pump_count"] >= 4:
                         _advance_tutorial(app_state)
+                        # Clear tracker so the fist-held-down doesn't count as Rock throw
                         app_state["tracker"].clear_for_new_throw()
 
             elif phase == "waiting_for_up":
+                # Track the lowest point seen during the downstroke
                 app_state["tutorial_pump_bot_y"] = max(bot_y if bot_y else wrist_y, wrist_y)
                 if (app_state["tutorial_pump_bot_y"] - wrist_y) >= 0.03:
+                    # Wrist has returned high enough - ready for the next downstroke
                     app_state["tutorial_pump_phase"] = "ready_for_down"
                     app_state["tutorial_pump_top_y"] = wrist_y
 
@@ -1502,10 +1627,10 @@ def handle_voice_tutorial_event(app_state, event):
         word = event["word"]
 
         if step_id == "pump" and word in ("one", "two", "three"):
-            # Map one→1, two→2, three→3 so out-of-order speech still advances
+            # Map spoken word to a beat number so out-of-order detection still advances
             word_to_num = {"one": 1, "two": 2, "three": 3}
             target_count = word_to_num[word]
-            # Only advance if this word is the next expected beat
+            # Only accept the next expected beat (prevents skipping ahead)
             if target_count == app_state["tutorial_pump_count"] + 1:
                 app_state["tutorial_pump_count"] = target_count
                 if app_state["tutorial_pump_count"] >= 3:
@@ -1513,7 +1638,7 @@ def handle_voice_tutorial_event(app_state, event):
 
 
 def _advance_tutorial(app_state):
-    """Move to the next tutorial step."""
+    """Increment the tutorial step counter and mark complete when all steps are done."""
     app_state["tutorial_step"] += 1
     app_state["tutorial_hold_count"] = 0
     steps = _tutorial_steps(app_state)
@@ -1887,6 +2012,15 @@ def handle_voice_nav(app_state, action):
 def _run_gesture_nav(app_state, hand_state, now, item_count, set_index_fn,
                      content_top=0.44, content_bottom=0.83,
                      adjust_items=None, adjust_fn=None):
+    """
+    Run one tick of gesture-based menu navigation and apply any resulting events.
+
+    The GestureNavController tracks the index-finger cursor position, fires
+    'hover' events when the finger dwells on an item, 'select' on a dwell
+    confirm, 'adjust' for left/right value changes, and 'swipe_left' for a
+    back-gesture.  Sound effects are played on hover change and select.
+    Returns the result of any triggered action (e.g. 'quit'), or None.
+    """
     sp     = app_state.get("sound_player")
     result = None
     prev_idx = app_state["gesture_nav"]._last_item_idx
@@ -1911,6 +2045,7 @@ def _run_gesture_nav(app_state, hand_state, now, item_count, set_index_fn,
 
 
 def toggle_display_mode(app_state):
+    """Toggle between Game view and Diagnostic view (M key in-game)."""
     app_state["display_mode"] = (
         "Diagnostic" if app_state["display_mode"] == "Game" else "Game"
     )
@@ -1919,9 +2054,12 @@ def toggle_display_mode(app_state):
 
 
 def switch_play_mode(app_state, new_mode):
+    """Switch to a different RPS play mode via keyboard shortcut (1/2/3 keys).
+    No-op if the requested mode is already active so the game isn't restarted."""
     if new_mode not in {"Cheat", "FairPlay", "Challenge", "Clone"}:
         return
 
+    # Skip if already in this mode to avoid an unnecessary reset mid-game
     if new_mode == app_state["play_mode"] and app_state["app_screen"] == "GAME":
         return
 
@@ -1929,6 +2067,8 @@ def switch_play_mode(app_state, new_mode):
 
 
 def get_active_controller(app_state):
+    """Return the controller object that matches the current play_mode.
+    The controller's .update() method is called each frame to advance game logic."""
     if app_state["play_mode"] == "FairPlay":
         return app_state["fair_controller"]
     if app_state["play_mode"] == "Challenge":
@@ -1965,6 +2105,14 @@ def get_active_controller(app_state):
 
 
 def apply_setting_change(app_state, direction):
+    """
+    Change the currently-selected settings value one step in the given direction.
+
+    direction: -1 = decrement/previous, +1 = increment/next.
+    After changing the value, saves config to disk, and rebuilds controllers
+    and camera resolution if the affected setting requires it.
+    Action and text items are skipped (they respond to Enter only).
+    """
     item = SETTINGS_SCHEMA[app_state["settings_index"]]
 
     if item["type"] in ("action", "text"):
@@ -1978,12 +2126,14 @@ def apply_setting_change(app_state, direction):
         try:
             current_index = options.index(config[key])
         except ValueError:
+            # Current value not in options list - reset to first option
             current_index = 0
             config[key] = options[0]
         new_index = (current_index + direction) % len(options)
         config[key] = options[new_index]
 
     elif item["type"] == "float":
+        # Clamp to [min, max] and round to avoid floating-point drift
         value = config[key] + item["step"] * direction
         value = max(item["min"], min(item["max"], value))
         config[key] = round(value, 2)
@@ -2025,6 +2175,16 @@ def _launch_rpsls(app_state, from_category=False, diagnostic=False):
 
 
 def activate_menu_item(app_state):
+    """
+    Handle Enter/select on the main menu hierarchy.
+
+    The menu has three levels:
+      Level 1: main menu items (Game Modes, Stats, Tutorial, Settings, ...)
+      Level 2: GAME_CATEGORY screen (pick a game category)
+      Level 3: inside a category's mode list (pick a specific mode)
+    This function detects the current level from app_state flags and takes
+    the appropriate action (launch game, open screen, or quit).
+    """
     # ── Level 3: inside a category's mode list ─────────────────────────────
     if app_state.get("in_game_category"):
         cat = GAME_CATEGORIES[app_state["game_category_index"]]
@@ -2050,8 +2210,9 @@ def activate_menu_item(app_state):
         return None
 
     # ── Level 2: inside Game Modes category list (select a category) ───────
+    # Legacy submenu path - not reachable from the current UI but kept as a
+    # safety net for voice-nav edge cases
     if app_state.get("in_submenu"):
-        # Legacy path - shouldn't be reached in new UI but kept for voice-nav
         app_state["in_submenu"] = False
         return None
 
@@ -2084,9 +2245,13 @@ def activate_menu_item(app_state):
 
 def _launch_simulation(app_state):
     """
-    Run a high-fidelity simulation (~100,000 rounds) in a background thread.
+    Run a high-fidelity Fair Play simulation (~100,000 rounds) in a background thread.
+
     6 player strategies x 3 AIs x 55 runs x 100 rounds = 99,000 rounds.
-    Target runtime ~10 seconds on M-series Mac.
+    Progress is written back to app_state["sim_state"] each run so the renderer
+    can show a live progress bar.  Results include per-combo win rates, the most
+    balanced matchup, and averaged stats by AI and player strategy.
+    Target runtime ~10 seconds on an M-series Mac.
     """
     app_state["app_screen"] = "SIMULATION"
     app_state["sim_state"]  = {
@@ -2107,6 +2272,7 @@ def _launch_simulation(app_state):
             total  = len(PLAYER_STRATEGIES) * len(AI_OPPONENTS) * RUNS
             done   = [0]
 
+            # Monkey-patch run_single_game to inject progress updates
             _orig = _sm.run_single_game
             def _patched(strategy, ai_type, rounds):
                 result = _orig(strategy, ai_type, rounds)
@@ -2130,7 +2296,7 @@ def _launch_simulation(app_state):
             combos = results.get("combo_results", [])
             total_rounds = results.get("total_rounds", 0)
 
-            # Find the most balanced matchup (closest to 50/50)
+            # Find the matchup closest to a 50/50 split (most balanced for research)
             if combos:
                 most_balanced = min(combos, key=lambda c: abs(c["player_win_rate"] - 0.5))
                 results["most_balanced"] = (
@@ -2171,9 +2337,12 @@ def _launch_simulation(app_state):
 
 def _launch_pvpvai_simulation(app_state):
     """
-    Simulate the 1v1v1 PvPvAI format across all strategy pairings.
+    Simulate the 1v1v1 PvPvAI format across all strategy pairings in a background thread.
+
     Tests every combination of P1 strategy x P2 strategy x AI type.
-    Scoring: beat 1 = +1 pt, beat 2 = +2 pts; first to 5 wins the match.
+    Scoring: each round, beating one opponent = +1 pt, beating both = +2 pts.
+    First player to 5 total points wins the match.
+    Results are stored in app_state["sim_state"] as they arrive.
     """
     app_state["app_screen"] = "SIMULATION"
     app_state["sim_state"]  = {
@@ -2204,11 +2373,13 @@ def _launch_pvpvai_simulation(app_state):
             results = {}
 
             def _cmp(a, b):
+                """Compare two gestures: return 'win', 'lose', or 'draw'."""
                 if a == b:    return "draw"
                 if BEATS[a] == b: return "win"
                 return "lose"
 
             def _score_three(g1, g2, g_ai):
+                """Score a 3-way round: each player scores 1pt for each opponent they beat."""
                 p1 = (1 if _cmp(g1,g2)=="win" else 0) + (1 if _cmp(g1,g_ai)=="win" else 0)
                 p2 = (1 if _cmp(g2,g1)=="win" else 0) + (1 if _cmp(g2,g_ai)=="win" else 0)
                 pa = (1 if _cmp(g_ai,g1)=="win" else 0) + (1 if _cmp(g_ai,g2)=="win" else 0)
@@ -2285,7 +2456,7 @@ def _launch_pvpvai_simulation(app_state):
             best_ai   = max(ai_avg, key=ai_avg.get)
             best_strat = max(strat_avg, key=strat_avg.get)
 
-            # Most balanced: closest to three-way 33%
+            # Most balanced matchup: all three players closest to 33% win rate each
             most_balanced_key = min(results, key=lambda k: (
                 abs(results[k]["p1_win_rate"]-0.333) +
                 abs(results[k]["p2_win_rate"]-0.333) +
@@ -2331,9 +2502,12 @@ def _launch_pvpvai_simulation(app_state):
 
 def _launch_tournament_simulation(app_state):
     """
-    Clone Tournament: runs every saved player profile against every other
-    in a round-robin. Each matchup plays ROUNDS rounds using PlayerCloneAI
-    on both sides. Produces a win-rate leaderboard.
+    Clone Tournament: simulate every saved player profile against every other
+    in a round-robin bracket using PlayerCloneAI on both sides.
+
+    Each matchup plays ROUNDS (200) rounds.  Results are aggregated into a
+    leaderboard sorted by average win rate across all matchups.  Requires at
+    least 2 player profiles with 30+ rounds each to run.
     """
     app_state["app_screen"] = "SIMULATION"
     app_state["sim_state"]  = {
@@ -2354,6 +2528,7 @@ def _launch_tournament_simulation(app_state):
             COUNTER = {"Rock": "Paper", "Paper": "Scissors", "Scissors": "Rock"}
 
             def play_match(ai_a, ai_b, rounds):
+                """Run a single head-to-head match between two clone AIs, returning win rates."""
                 hist_a, hist_b = [], []
                 wins_a = wins_b = draws = 0
                 for rn in range(1, rounds + 1):
@@ -2368,6 +2543,7 @@ def _launch_tournament_simulation(app_state):
                     else:
                         result_a, result_b = "lose", "win"
                         wins_b += 1
+                    # Build history in the format PlayerCloneAI.choose_robot_move expects
                     hist_a.append({"player_gesture": move_a, "robot_gesture": move_b,
                                    "player_outcome": result_a})
                     hist_b.append({"player_gesture": move_b, "robot_gesture": move_a,
@@ -2466,7 +2642,13 @@ def _launch_tournament_simulation(app_state):
 
 
 def activate_settings_item(app_state):
-    """Handle Enter on a settings schema action item."""
+    """
+    Handle Enter on a settings row that has type 'action'.
+
+    Non-action rows (text, choice, float) are handled by apply_setting_change;
+    this function only fires for the special action rows at the bottom of the
+    settings list (Back, Enroll Fingerprint, Switch Player, Recalibrate, Privacy).
+    """
     item = SETTINGS_SCHEMA[app_state["settings_index"]]
 
     if item["key"] == "__back__":
@@ -2498,6 +2680,8 @@ def activate_settings_item(app_state):
 
 
 def format_setting_value(app_state, item):
+    """Return the display string for a settings item's current value.
+    Used by the renderer to show the value alongside the label."""
     if item["type"] == "action":
         return ""
 
@@ -2516,6 +2700,13 @@ def format_setting_value(app_state, item):
 
 
 def handle_menu_key(app_state, key):
+    """
+    Handle keyboard input on the Menu and Game Category screens.
+
+    The menu has three navigation levels (same as activate_menu_item).
+    Sound effects are played on move and select.  Returns 'quit' if the user
+    activates the Quit item, otherwise None.
+    """
     sp = app_state.get("sound_player")
 
     # ── Level 3: inside a category's mode list ─────────────────────────────
@@ -2569,6 +2760,13 @@ def handle_menu_key(app_state, key):
 
 
 def handle_settings_key(app_state, key):
+    """
+    Handle keyboard input on the Settings screen.
+
+    When _settings_text_edit is True, all printable keys are captured for the
+    active text field.  Otherwise, arrow keys navigate rows and left/right change
+    values.
+    """
     item = SETTINGS_SCHEMA[app_state["settings_index"]]
     is_text_edit = app_state.get("_settings_text_edit", False)
 
@@ -2588,10 +2786,10 @@ def handle_settings_key(app_state, key):
                 open_player_stats(app_state)
             save_config(app_state["config"])
             app_state["_settings_text_edit"] = False
-        elif key == 8 or key == 127:  # backspace
+        elif key == 8 or key == 127:  # backspace - delete last character
             current = app_state["config"].get(item["key"], "")
             app_state["config"][item["key"]] = current[:-1]
-        elif 32 <= key <= 126:  # printable ASCII
+        elif 32 <= key <= 126:  # printable ASCII - append up to 20 chars
             current = app_state["config"].get(item["key"], "")
             if len(current) < 20:
                 app_state["config"][item["key"]] = current + chr(key)
@@ -2731,6 +2929,21 @@ def _set_app_icon():
 
 
 def run():
+    """
+    Main application loop.
+
+    Initialises the camera, MediaPipe hand detectors, and app state, then
+    enters a per-frame loop that:
+      1. Reads a camera frame.
+      2. Runs the appropriate hand/gesture processing for the current screen.
+      3. Updates the active game controller.
+      4. Renders all UI overlays onto the frame.
+      5. Displays the frame and reads keyboard input.
+      6. Dispatches key events and voice events to the correct screen handler.
+
+    The loop exits on 'q', voice 'quit', or window close.  On exit, the IO
+    worker is flushed, voice is stopped, and the terminal window is closed.
+    """
     app_state = build_app_state()
 
     # Check for updates silently in background  -  won't slow startup
@@ -2771,11 +2984,13 @@ def run():
     _idle_frame = None   # last rendered frame, shown frozen during idle
 
     with create_hands_detector() as hands, create_nav_detector() as nav_hands:
+        # nav_hands is a second MediaPipe instance used only on menu screens
+        # so gesture navigation doesn't interfere with in-game hand detection.
         _nav_skip_tick = 0   # throttle nav gesture processing on menu screens
         while True:
             _loop_now = time.monotonic()
 
-            # Minimise detection - single integer property read, zero cost
+            # Check if the window was minimised (single int property read, near zero cost)
             try:
                 if cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1:
                     if not _idle:
@@ -2822,7 +3037,8 @@ def run():
                 finalize_active_challenge_run(app_state, status="abandoned")
                 break
 
-            # Rolling FPS -- exponential moving average, updated every frame
+            # Rolling FPS: exponential moving average (alpha=0.1) updated every frame
+            # Displayed in Diagnostic mode; low values hint at performance problems.
             _now = time.monotonic()
             _dt  = _now - app_state["_fps_last_t"]
             app_state["_fps_last_t"] = _now
@@ -2849,7 +3065,7 @@ def run():
                 show_session_summary = False      # set in single-player path
 
                 if _is_two_player:
-                    # ── Two-player path: process both hands simultaneously ──
+                    # ── Two-player path: detect and classify both hands in one pass ──
                     frame, p1_hand, p2_hand, _rgb = process_two_hands_frame(
                         frame=frame,
                         hands=hands,
@@ -2863,11 +3079,12 @@ def run():
                     # Stash for diagnostic screen
                     app_state["_tp_last_p1_hand"] = p1_hand
                     app_state["_tp_last_p2_hand"] = p2_hand
-                    # Dummy single-player values for shared code that reads them
+                    # Alias to p1 so single-player code paths that still run
+                    # (e.g. round recording) have a valid hand_state to read
                     hand_state    = p1_hand
                     tracker_state = p1_tracker
-                    _rgb = _rgb  # available for emotion if needed
-                    app_state["emotion_state"] = None  # no emotion in two-player
+                    # Emotion detection is skipped in two-player mode to save CPU
+                    app_state["emotion_state"] = None
 
                     controller = get_active_controller(app_state)
                     if app_state["play_mode"] == "ReflexTwoPlayer":
@@ -2914,12 +3131,13 @@ def run():
                     )
 
                     # ArcadeSnake uses its own vote-buffer debouncing inside the
-                    # controller. Still call tracker.update() so confirmed_gesture
-                    # and stable_gesture are populated, but skip emotion entirely.
+                    # controller, so no extra smoothing is needed here.
+                    # Emotion tracking is also skipped for Snake to save CPU.
                     if _mode == "ArcadeSnake":
                         tracker_state = app_state["tracker"].update(hand_state["raw_gesture"])
                     else:
                         if app_state["config"].get("emotion_enabled"):
+                            # Only process emotion every 3rd frame (reduces CPU ~66%)
                             app_state["_emotion_frame_skip"] = (app_state["_emotion_frame_skip"] + 1) % 3
                             if app_state["_emotion_frame_skip"] == 0:
                                 emotion_state = app_state["emotion_tracker"].update(_rgb)
@@ -2929,7 +3147,8 @@ def run():
 
                         tracker_state = app_state["tracker"].update(hand_state["raw_gesture"])
 
-                    # Rolling gesture-quality monitor (calibration nudge)
+                    # Rolling gesture-quality monitor: if >50% of the last 300 frames
+                    # (~10 seconds) produced 'Unknown', show a calibration nudge.
                     _gqb = app_state["_gesture_quality_buf"]
                     _gqb.append(tracker_state.get("stable_gesture", "Unknown") == "Unknown")
                     if len(_gqb) > 300:
@@ -3006,9 +3225,10 @@ def run():
                 # --- Sound effects ---
                 _dispatch_sounds(app_state, game_state)
 
-                # Modes that don't use RPS round mechanics  -  skip all the
-                # round-result bookkeeping, profile recording, flash/streak,
-                # commentary, voice dispatch, and session summary entirely.
+                # Flag used to gate round-result bookkeeping, profile recording,
+                # flash/streak effects, commentary, and session summaries.
+                # Non-RPS modes don't produce gesture-vs-gesture rounds, so all
+                # that logic is bypassed to keep their code paths clean.
                 _is_rps_mode = _mode not in (
                     "ArcadeSnake", "GestureRehab", "SquidGame", "SquidGame2P",
                     "ReflexSolo", "ReflexTwoPlayer", "SimonSaysSolo", "SimonSays2P",
@@ -3049,6 +3269,7 @@ def run():
                             app_state["_streak_count"] = 0
                             app_state["_streak_type"]  = ""
 
+                    # Flash effect lasts exactly 5 frames then turns off
                     if fi["active"]:
                         fi["frame_idx"] += 1
                         if fi["frame_idx"] >= 5:
@@ -3077,7 +3298,8 @@ def run():
                     else:
                         game_state["streak_label"] = ""
 
-                    # Voice beat/throw dispatch
+                    # Route buffered voice events (collected earlier in this frame)
+                    # into the active controller's voice injection methods.
                     if app_state["voice_mode_active"]:
                         for event in app_state.pop("_voice_game_events", []):
                             if event["type"] == "beat":
@@ -3104,13 +3326,16 @@ def run():
                     show_session_summary        = False
 
                 # --- Record round to player profile (RPS modes only) ---
-                # Emotion is captured at the END of the ROUND_RESULT display.
-                # Non-RPS modes (Snake, Rehab, Squid, Reflex, Simon) don't
-                # produce gesture vs gesture round records  -  skip entirely.
+                # Two-step approach: when ROUND_RESULT first appears we store a
+                # pending log entry; we only flush it to disk once the state
+                # leaves ROUND_RESULT so the emotion snapshot captures the player's
+                # reaction to seeing the result (not just their throw gesture).
+                # Non-RPS modes never produce round records - skip entirely.
                 player_name = app_state["config"].get("player_name", "").strip()
                 if player_name and _is_rps_mode:
                     gs_state = game_state.get("state")
-                    # Normalise computer gesture key - different modes use different names
+                    # Normalise the AI gesture key - different controllers use
+                    # different field names for the robot's throw
                     _comp_gest = (game_state.get("computer_gesture")
                                   or game_state.get("ai_actual")
                                   or game_state.get("ai_gesture")
@@ -3121,8 +3346,8 @@ def run():
                         _comp_gest,
                     )
 
-                    # Step 1: When we first enter ROUND_RESULT, store a pending
-                    # log entry (gestures + outcome) but do NOT record yet.
+                    # Step 1: On the first frame of ROUND_RESULT, capture gesture
+                    # data and outcome into a pending dict but don't write yet.
                     if (
                         gs_state == "ROUND_RESULT"
                         and game_state.get("player_gesture") not in ("Unknown", "", None)
@@ -3167,16 +3392,15 @@ def run():
                             "reaction_ms":    game_state.get("reaction_ms"),
                         }
 
-                    # Step 2: Once we leave ROUND_RESULT (state changed), flush
-                    # the pending log with the emotion captured NOW - i.e. after
-                    # the player has seen and reacted to the result.
+                    # Step 2: When the state moves away from ROUND_RESULT, flush
+                    # the pending entry with the emotion captured NOW (reaction emotion).
                     pending = app_state.get("_pending_round_log")
                     if pending and gs_state != "ROUND_RESULT":
                         app_state["_last_recorded_round"] = pending["key"]
                         app_state["_pending_round_log"]   = None
 
-                        # Dispatch to background thread - JSON + Excel I/O
-                        # would otherwise freeze the frame on round result.
+                        # Offload to the IO worker so JSON + Excel writes never
+                        # freeze the frame loop (would cause a visible stutter).
                         _io_worker.submit(
                             app_state["profile_store"].record_round,
                             player_name=player_name,
@@ -3336,23 +3560,23 @@ def run():
                         voice_mode=voice_on,
                     )
 
-                # ── Commentary overlay (draws on top of any game mode) ──
+                # ── Commentary overlay: drawn on top of any game mode ──────
+                # Shows the latest AI commentary line in a strip above the HUD bar.
                 commentary_line = app_state["commentary_engine"].get_latest()
                 if commentary_line:
                     _h = frame.shape[0]
                     _w = frame.shape[1]
-                    # Position above the bottom bar  -  bottom bar is ~8% from bottom
+                    # Strip sits just above the bottom HUD bar (~8% from bottom)
                     strip_y1 = _h - _ix(_h * 0.16)
                     strip_y2 = _h - _ix(_h * 0.09)
-                    # Dark semi-transparent strip
+                    # Semi-transparent dark backing panel
                     overlay2 = frame.copy()
                     cv2.rectangle(overlay2, (0, strip_y1), (_w, strip_y2),
                                   (8, 6, 24), -1)
                     cv2.addWeighted(overlay2, 0.78, frame, 0.22, 0, frame)
-                    # Coloured top edge
+                    # Thin accent line at the top edge of the strip
                     cv2.line(frame, (0, strip_y1), (_w, strip_y1),
                              (80, 60, 180), 1)
-                    # Text centred in the strip
                     from ui_base import draw_centered_text_in_rect, _ix as _ix2
                     draw_centered_text_in_rect(frame,
                         f"\u25b6  {commentary_line}",
@@ -3383,8 +3607,8 @@ def run():
                         frame, _gnav.get_cursor_info())
 
                 # ── Hand recognition data overlay ────────────────────────────
-                # Shows landmark confidence, detected gesture, ML score.
-                # Always visible in Diagnostic mode; compact badge otherwise.
+                # Shows the detected gesture, heuristic confidence, and ML score.
+                # Full strip in Diagnostic mode; compact badge in Game mode.
                 if hand_state and hand_state.get("_landmarks"):
                     _hw, _hh = frame.shape[1], frame.shape[0]
                     _gesture  = hand_state.get("gesture", "")
@@ -3420,10 +3644,10 @@ def run():
                                 (12, _hh - 50),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.40,
                                 (100, 220, 180), 1, cv2.LINE_AA)
-                # Non-RPS modes get a compact badge: mic status + mode hint.
-                # Positioned below the top bar (9% - 18% height, right-aligned)
-                # except Squid Game which has a full-width banner at 0 - 13%,
-                # so its badge drops to 14% - 23%.
+                # Non-RPS modes: show a compact mic-status badge so the user knows
+                # voice is active and what they can say.  Positioned below the top
+                # bar (9%-18% height, right-aligned).  Squid Game's full-width
+                # countdown banner occupies 0-13%, so that badge drops to 14%-23%.
                 if (app_state.get("voice_mode_active") and not _is_rps_mode):
                     from ui_base import _ix as _ix
                     _vw = frame.shape[1]
@@ -3431,7 +3655,7 @@ def run():
                     _lw = app_state["voice_controller"].get_last_word()
                     _ml = app_state["voice_controller"].get_mic_level()
 
-                    # Badge text: mic indicator + last heard word
+                    # Badge line 1: show the last recognised word if any, else a static "ON"
                     _badge = (f"MIC  {_lw.upper()}" if _lw else "MIC  ON")
 
                     # Per-mode hint line  -  what can actually be said
@@ -3457,7 +3681,7 @@ def run():
                     _bh  = _by2 - _by1
                     _bw  = _bx2 - _bx1
 
-                    # Only draw if badge fits  -  skip at very low resolutions
+                    # Guard: badge must have enough pixels to be legible
                     if _bw > 60 and _bh > 20:
                         # Semi-transparent dark panel
                         _ov = frame.copy()
@@ -3465,7 +3689,7 @@ def run():
                                       (4, 8, 20), -1)
                         cv2.addWeighted(_ov, 0.80, frame, 0.20, 0, frame)
 
-                        # Border colour: green when mic active, dim when silent
+                        # Green border when mic is detecting audio, dim when silent
                         _border_col = (50, 170, 90) if _ml > 0.04 else (35, 55, 45)
                         cv2.rectangle(frame, (_bx1, _by1), (_bx2, _by2),
                                       _border_col, 1)
@@ -3498,6 +3722,11 @@ def run():
                             cv2.rectangle(frame,
                                 (_bx1, _bar_y), (_fill_x, _by2),
                                 _bar_col, -1)
+
+            # ── Per-screen rendering and hand processing ──────────────────────
+            # Each branch flips the frame (all non-GAME screens show mirrored
+            # feed so it feels like a mirror), runs optional gesture navigation,
+            # then calls the appropriate draw_ function from ui_renderer.
 
             elif app_state["app_screen"] == "MENU":
                 _nav_enabled = app_state["config"].get("gesture_nav_enabled")
@@ -3565,26 +3794,29 @@ def run():
                 )
 
             elif app_state["app_screen"] == "RPSLS_SIDE_NOTICE":
+                # Show the player how to make each RPSLS gesture before the game starts.
+                # Hand detection runs in 5-gesture mode so Spock/Lizard are recognised.
                 frame, _notice_hand, _ = process_hand_frame(
                     frame=frame, hands=hands,
                     target_hand=app_state["target_hand"],
                     display_mode="Game",
                     handedness_threshold=app_state["config"]["handedness_threshold"],
-                    hand_orientation="Side",   # always Side on this screen
+                    hand_orientation="Side",   # always Side - RPSLS needs side view
                     _ema_state=app_state["_ema_state"],
-                    five_gesture_mode=True,    # need Spock/Lizard on this screen
+                    five_gesture_mode=True,    # enable Spock and Lizard detection
                 )
                 # ── 1.5-second dwell-to-tick logic ───────────────────────────
-                # We track how long a gesture has been held continuously.
-                # Only tick it off after DWELL_SECS of stable confirmed output.
+                # The player must hold each gesture for DWELL_SECS before it is
+                # "ticked off" on the checklist.  This prevents accidental flickers
+                # from counting as a completed check.
                 _DWELL_SECS = 1.5
                 _ticked  = app_state.setdefault("_rpsls_ticked", set())
                 _dwell_g = app_state.setdefault("_rpsls_dwell_gesture", None)
                 _dwell_t = app_state.setdefault("_rpsls_dwell_since",   0.0)
 
                 if _notice_hand:
-                    # process_hand_frame returns raw hand state (not tracker state).
-                    # Use raw_gesture directly  -  dwell timer provides the stability.
+                    # Use raw_gesture from hand state directly - the dwell timer
+                    # provides all the stability we need, no tracker required.
                     _notice_raw  = _notice_hand.get("raw_gesture", "Unknown")
                     _notice_cur  = _notice_raw if _notice_raw in (
                         "Rock", "Paper", "Scissors", "Spock", "Lizard") else "Unknown"
@@ -3908,7 +4140,9 @@ def run():
                 cal_state = ctrl.update(hand_state=hand_state)
                 draw_calibration_view(frame, cal_state, hand_state=hand_state)
 
-            # --- Emotion landmark debug overlay (Diagnostic mode only) ---
+            # --- Emotion landmark debug overlay (Diagnostic mode + E key) ---
+            # Draws FaceMesh landmark dots and emotion score bars onto the frame.
+            # Only active when the user has toggled the overlay on (E key or Settings).
             if app_state.get("emotion_debug") and app_state.get("display_mode") == "Diagnostic":
                 debug_info = app_state["emotion_tracker"].get_debug_overlay(
                     frame.shape[1], frame.shape[0]
@@ -3921,11 +4155,15 @@ def run():
             key = cv2.waitKey(1) & 0xFF
 
             # --- Global voice nav dispatch (all screens) ---
+            # Drain all events queued by the VoiceController background thread.
+            # "nav" events are dispatched globally; "beat"/"throw" are buffered
+            # in _voice_game_events to be consumed by the game logic above.
             if app_state.get("voice_mode_active"):
                 for event in app_state["voice_controller"].drain_events():
                     if event["type"] == "nav":
                         result = handle_voice_nav(app_state, event["action"])
                         if result == "quit":
+                            # Quit via voice - clean up and exit gracefully
                             finalize_active_challenge_run(app_state, status="abandoned")
                             cap.release()
                             cv2.destroyAllWindows()
@@ -3940,6 +4178,8 @@ def run():
                         elif app_state["app_screen"] == "TUTORIAL" and app_state.get("tutorial_voice_mode"):
                             handle_voice_tutorial_event(app_state, event)
 
+            # Block global shortcuts (q/SPACE) on screens that use the keyboard
+            # for text entry so pressing Q doesn't quit mid-typing.
             _on_notes       = app_state["app_screen"] == "NOTES"
             _on_calibration = app_state["app_screen"] == "CALIBRATION"
             _block_globals  = _on_notes or _on_calibration
@@ -3953,7 +4193,8 @@ def run():
                 _idle = not _idle
                 print(f"[Idle] {'Paused' if _idle else 'Resumed'} via SPACE")
 
-            # U key - apply update from ANY screen (so users never get stuck)
+            # U key - apply a pending update from any screen so the user is never
+            # blocked waiting to get back to the menu before updating
             if key in (ord("u"), ord("U")):
                 if auto_updater.get_state()["status"] == "update_available":
                     auto_updater.apply_and_restart(
@@ -4078,7 +4319,8 @@ def run():
             elif app_state["app_screen"] == "GAME":
                 if key == KEY_ESC:
                     app_state["show_help"] = False
-                    # Build a brief session summary from last game state
+                    # Build a brief session summary from the last cached game state
+                    # so the player can see their score as they return to the menu.
                     _gs = app_state.get("_last_game_state", {})
                     _p_score = _gs.get("player_score", 0)
                     _r_score = _gs.get("robot_score", 0)
@@ -4172,6 +4414,10 @@ def run():
                     switch_play_mode(app_state, "Challenge")
 
                 # --- Data collection keys (Diagnostic mode only) ---
+                # These are research/development shortcuts not shown in normal UI.
+                # F = toggle landmark collection, 7/8/9 = label current frame,
+                # T = train the front-on ML model, R = refresh research report,
+                # H = open the hardware (robot arm) test screen.
                 elif app_state["display_mode"] == "Diagnostic":
                     if key == ord("f"):
                         is_on = app_state["landmark_collector"].toggle()
@@ -4181,11 +4427,13 @@ def run():
                         )
 
                     elif key in (ord("7"), ord("8"), ord("9")):
+                        # Record the current frame as a labelled training sample
                         ok, label, msg = app_state["landmark_collector"].try_record(key)
                         if msg:
                             app_state["collector_message"] = msg
 
                     elif key == ord("t"):
+                        # Train the front-on gesture ML model from collected samples
                         app_state["collector_message"] = "Training model..."
                         print("[Main] Training front-on model...")
                         from front_on_trainer import train_and_save
@@ -4202,9 +4450,8 @@ def run():
                         _io_worker.submit(_run_report_updater_bg)
 
                     elif key == ord("h") or key == ord("H"):
-                        # Launch Hardware Test screen
-                        # Both BLE and Serial are available - user can switch
-                        # between them inside the hardware test screen with B key
+                        # Launch Hardware Test screen (robot arm / BLE bridge)
+                        # BLE is preferred; Serial is a fallback; user can switch in-screen
                         from hardware_test_mode import HardwareTestController
                         try:
                             from ble_bridge import BLEBridge
@@ -4235,6 +4482,8 @@ def run():
                             app_state["app_screen"] = "HARDWARE_TEST"
 
             # ── LOGIN screen ───────────────────────────────────────────────
+            # Two sub-modes: "type" (keyboard entry) and "fingerprint" (gesture biometric).
+            # Tab switches to fingerprint only if verified fingerprints exist.
             elif app_state["app_screen"] == "LOGIN":
                 verified = app_state["fingerprint_store"].list_verified()
                 if app_state["_login_mode"] == "type":
@@ -4246,7 +4495,7 @@ def run():
                             app_state["config"]["player_name"] = name
                             app_state["config"]["first_run_complete"] = True
                             save_config(app_state["config"])
-                            # Load or create profile
+                            # Ensure a profile JSON exists for this name
                             ps = app_state["profile_store"]
                             ps.get_or_create_profile(name)
                             open_menu(app_state)
@@ -4254,7 +4503,7 @@ def run():
                         if len(app_state["_login_text"]) < 20:
                             app_state["_login_text"] += chr(key)
                     elif key == ord("\t") and verified:
-                        # Tab switches to fingerprint login mode
+                        # Tab: switch to biometric fingerprint login
                         app_state["_login_mode"] = "fingerprint"
                         store = app_state["fingerprint_store"]
                         app_state["_fp_login_controller"] = HandLoginController(store=store)
@@ -4265,10 +4514,12 @@ def run():
                         app_state["_login_mode"] = "type"
 
             # ── CALIBRATION screen ───────────────────────────────────────────
+            # ESC lets the user skip calibration (warning stays visible in menu).
+            # When the controller signals "done", clear the warning flag.
             elif app_state["app_screen"] == "CALIBRATION":
                 ctrl = app_state.get("_calibration_ctrl")
                 if key == KEY_ESC:
-                    # User chose to skip - go to menu, keep warning flag
+                    # Skip calibration - menu warning will keep nudging them
                     open_menu(app_state)
                 elif ctrl:
                     result = ctrl.handle_key(key)
@@ -4277,6 +4528,8 @@ def run():
                         open_menu(app_state)
 
             # ── CONSENT screen ────────────────────────────────────────────────
+            # Left/Right or Tab selects Accept (0) or Decline (1).  Enter confirms.
+            # After consenting, navigate to LOGIN if no name is set, else MENU.
             elif app_state["app_screen"] == "CONSENT":
                 sel = app_state.get("_consent_selected", 0)
                 if key in KEY_LEFT:
@@ -4284,13 +4537,13 @@ def run():
                 elif key in KEY_RIGHT:
                     app_state["_consent_selected"] = 1
                 elif key == ord("\t"):
-                    # TAB toggles between the two buttons
+                    # TAB toggles between Accept and Decline buttons
                     app_state["_consent_selected"] = 1 - sel
                 elif key in KEY_ENTER:
                     accepted = (sel == 0)
                     set_consent(app_state["config"], accepted)
                     save_config(app_state["config"])
-                    # Update calibration warning now that we know consent state
+                    # Recalculate calibration warning after consent is stored
                     app_state["_needs_calibration"] = not model_exists()
                     if not app_state["config"].get("player_name", "").strip():
                         app_state["app_screen"] = "LOGIN"
@@ -4298,9 +4551,12 @@ def run():
                         open_menu(app_state)
 
             # ── NOTES screen ─────────────────────────────────────────────────
+            # Free-text feedback entry.  Enter submits (saves locally + optionally
+            # to Sentry if the player consented), ESC cancels.  After submission,
+            # the next key press returns to the screen they came from.
             elif app_state["app_screen"] == "NOTES":
                 if app_state["_notes_submitted"]:
-                    # Return to wherever the player came from
+                    # Any key after submission returns to the originating screen
                     _return_to = app_state.get("_notes_from_screen", "MENU")
                     if _return_to == "MENU":
                         open_menu(app_state)
@@ -4367,6 +4623,9 @@ def run():
             if key == ord("?"):
                 app_state["show_help"] = not app_state.get("show_help", False)
 
+    # ── Shutdown sequence ─────────────────────────────────────────────────
+    # Flush pending IO (profile saves, Excel writes) before releasing the camera
+    # so no data is lost if the user quits mid-session.
     _io_worker.flush()
     app_state["voice_controller"].stop()
     app_state["emotion_tracker"].close()
@@ -4403,7 +4662,12 @@ if __name__ == "__main__":
     try:
         run()
     except Exception as _exc:
-        # ── Crash reporter ────────────────────────────────────────────────
+        # ── Crash reporter ───────────────────────────────────────────────
+        # On an unhandled exception, write a timestamped crash report to disk
+        # (in both CapStone/ and CapStone/crash_reports/) and optionally send
+        # it to Sentry if the player previously gave consent.  Re-raise so the
+        # stack trace is still visible in the terminal.
+        # ─────────────────────────────────────────────────────────────────
         _ts        = _dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         try:
             from capstone_paths import CAPSTONE_DIR

@@ -33,21 +33,21 @@ FEATURE GROUPS (for default lookback=3, 21 values total + 1 optional = 22):
 # Constants
 # ---------------------------------------------------------------------------
 
-# Encode gestures as integers for sklearn's numeric labels
+# Map gesture strings to integer indices for sklearn's numeric labels
 GESTURE_INDEX = {"Rock": 0, "Paper": 1, "Scissors": 2}
 
-# Encode round outcomes as integers
+# Map round outcomes to integer indices
 OUTCOME_INDEX = {"win": 0, "lose": 1, "draw": 2}
 
-# Given your last gesture, what would be an "upgrade" (beats the thing that
-# beats you)?  e.g. if you just played Rock and lost to Paper, upgrade = Scissors
+# Given a gesture, what is the "upgrade" — the move that beats what beats you?
+# e.g. lost to Paper while playing Rock -> upgrade is Scissors (beats Paper)
 UPGRADE_MOVE = {
     "Rock":     "Paper",
     "Paper":    "Scissors",
     "Scissors": "Rock",
 }
 
-# What would be a "downgrade" (the move your last move beats)?
+# Given a gesture, what is the "downgrade" — the move your gesture beats?
 DOWNGRADE_MOVE = {
     "Rock":     "Scissors",
     "Paper":    "Rock",
@@ -61,9 +61,9 @@ DOWNGRADE_MOVE = {
 
 def _one_hot_gesture(gesture):
     """
-    Turn a gesture string into a 3-element binary vector [Rock, Paper, Scissors].
+    Turn a gesture string into a 3-element binary list [Rock, Paper, Scissors].
     e.g. "Paper" -> [0.0, 1.0, 0.0]
-    Returns all zeros for an unrecognised gesture (treated as missing data).
+    Returns all zeros for an unrecognised or missing gesture.
     """
     vec = [0.0, 0.0, 0.0]
     idx = GESTURE_INDEX.get(gesture)
@@ -74,8 +74,9 @@ def _one_hot_gesture(gesture):
 
 def _one_hot_outcome(outcome):
     """
-    Turn an outcome string into [win, lose, draw].
+    Turn an outcome string into a 3-element binary list [win, lose, draw].
     e.g. "lose" -> [0.0, 1.0, 0.0]
+    Returns all zeros for an unrecognised outcome.
     """
     vec = [0.0, 0.0, 0.0]
     idx = OUTCOME_INDEX.get(outcome)
@@ -107,8 +108,8 @@ def _get_response_type(previous_gesture, current_gesture):
 
 def _one_hot_response_type(response_type):
     """
-    Encode response type as [stay, upgrade, downgrade].
-    "unknown" maps to all zeros.
+    Encode response type as a 3-element list [stay, upgrade, downgrade].
+    "unknown" maps to all zeros (no signal).
     """
     mapping = {"stay": 0, "upgrade": 1, "downgrade": 2}
     vec = [0.0, 0.0, 0.0]
@@ -120,20 +121,25 @@ def _one_hot_response_type(response_type):
 
 def _gesture_frequencies(history):
     """
-    Compute what fraction of ALL rounds so far the player has used each gesture.
+    Compute what fraction of all rounds so far the player has used each gesture.
 
-    Returns [rock_frac, paper_frac, scissors_frac], normalised so they sum to 1.
-    If there is no history yet, return equal thirds (no information = assume uniform).
+    Returns [rock_frac, paper_frac, scissors_frac].
+    If there is no history yet, return equal thirds — no information means we
+    assume the player is equally likely to throw anything.
     """
     counts = [0, 0, 0]
+
+    # Tally up how many times each gesture has appeared
     for record in history:
         idx = GESTURE_INDEX.get(record["player_gesture"])
         if idx is not None:
             counts[idx] += 1
 
     total = sum(counts)
+
+    # Avoid dividing by zero if the history is empty
     if total == 0:
-        return [0.333, 0.333, 0.333]  # no data — assume uniform distribution
+        return [0.333, 0.333, 0.333]
 
     return [c / total for c in counts]
 
@@ -147,21 +153,21 @@ def get_feature_names(lookback=3):
     Return an ordered list of human-readable feature names matching the
     vector produced by extract_features() for the given lookback window.
 
-    Useful for debugging (e.g. printing which features the model relies on
-    most heavily via get_feature_importance()).
+    Useful for debugging — e.g. printing which features the model relies on
+    most heavily via get_feature_importance().
     """
     names = []
 
-    # Last N gestures, oldest first (prev3, prev2, prev1)
+    # Last N gestures: oldest first (prev3 is oldest, prev1 is most recent)
     for i in range(lookback):
-        step = lookback - i
+        step = lookback - i    # counts down: 3, 2, 1
         names.extend([
             f"prev{step}_rock",
             f"prev{step}_paper",
             f"prev{step}_scissors",
         ])
 
-    # Last N outcomes, oldest first
+    # Last N outcomes: same oldest-first ordering
     for i in range(lookback):
         step = lookback - i
         names.extend([
@@ -173,10 +179,10 @@ def get_feature_names(lookback=3):
     # How the player transitioned on the most recent throw
     names.extend(["response_stay", "response_upgrade", "response_downgrade"])
 
-    # Overall session frequencies — tells the model "this player mostly plays Rock"
+    # Overall session gesture counts (tells the model "this player mostly plays Rock")
     names.extend(["freq_rock", "freq_paper", "freq_scissors"])
 
-    # Streak and reaction time
+    # Streak and reaction time (one value each)
     names.append("streak_norm")
     names.append("reaction_time_norm")
 
@@ -205,14 +211,14 @@ def extract_features(history, current_index, lookback=3, reaction_time_ms=None):
     features = []
 
     # --- 1. Last N player gestures (one-hot each) ----------------------------
-    # We encode the window [current_index - (lookback-1)  ...  current_index].
-    # Rounds before the session started are filled with zeros (no information).
+    # Encode the window [current_index - (lookback-1)  ...  current_index],
+    # oldest round first. Rounds before the session started are zero-padded.
     for i in range(lookback):
-        idx = current_index - (lookback - 1 - i)  # oldest to newest
+        idx = current_index - (lookback - 1 - i)   # walks from oldest to newest
         if idx >= 0:
             features.extend(_one_hot_gesture(history[idx]["player_gesture"]))
         else:
-            features.extend([0.0, 0.0, 0.0])  # pre-session padding
+            features.extend([0.0, 0.0, 0.0])   # pre-session: no data, so all zeros
 
     # --- 2. Last N outcomes (one-hot each) -----------------------------------
     for i in range(lookback):
@@ -229,30 +235,30 @@ def extract_features(history, current_index, lookback=3, reaction_time_ms=None):
         curr_gesture = history[current_index]["player_gesture"]
         response = _get_response_type(prev_gesture, curr_gesture)
     else:
-        response = "unknown"  # first round — no transition to measure
+        response = "unknown"   # first round has no previous round to compare to
 
     features.extend(_one_hot_response_type(response))
 
     # --- 4. Session-wide gesture frequencies ---------------------------------
-    # Slice the history up to (and including) the current round
-    freq_history = history[: current_index + 1]
+    # Use the history up to and including this round (not the whole session yet)
+    freq_history = history[:current_index + 1]
     features.extend(_gesture_frequencies(freq_history))
 
     # --- 5. Current win streak -----------------------------------------------
-    # Count how many consecutive wins the player has going into this round.
-    # Divide by 20 to roughly normalise to [0, 1] (cap at 1.0 if longer).
+    # Count consecutive wins ending at this round. Divide by 20 to normalise
+    # roughly to [0, 1]. Cap at 1.0 if the streak is unusually long.
     streak = 0
     for j in range(current_index, -1, -1):
         if history[j]["player_outcome"] == "win":
             streak += 1
         else:
-            break  # streak is broken; stop counting
+            break   # streak is broken; stop counting backwards
+
     features.append(min(streak / 20.0, 1.0))
 
     # --- 6. Reaction time ----------------------------------------------------
-    # Divide by 500 ms to normalise: a "typical" fast throw is ~200-400 ms,
-    # so this puts most values in [0.4, 0.8].
-    # We use 0.0 as a sentinel for "not recorded" — the model learns this.
+    # Divide by 500 ms so that typical fast throws (~200-400 ms) land in [0.4, 0.8].
+    # Use 0.0 as a "not recorded" sentinel — the model learns this.
     if reaction_time_ms is not None:
         features.append(min(reaction_time_ms / 500.0, 1.0))
     else:
@@ -265,9 +271,9 @@ def build_training_set(rounds_by_run, lookback=3):
     """
     Convert a full multi-session history dict into (X, y) arrays for training.
 
-    For each run, we treat every consecutive (round_N, round_N+1) pair as a
-    training sample: the features come from round N, and the label is what
-    the player actually threw on round N+1.
+    For each run, we treat every consecutive (round_N, round_N+1) pair as one
+    training sample. The features come from round N, and the label is what the
+    player actually threw on round N+1.
 
     Parameters:
         rounds_by_run — dict of {run_id: [list of round dicts]}
@@ -281,7 +287,8 @@ def build_training_set(rounds_by_run, lookback=3):
     y = []
 
     for run_id, rounds in rounds_by_run.items():
-        # We need at least two rounds to form one (features, label) pair
+        # We need at least two rounds to form one (features, label) pair.
+        # Stop one round early so round i+1 always exists as the label.
         for i in range(len(rounds) - 1):
             features = extract_features(
                 history=rounds,
@@ -290,15 +297,17 @@ def build_training_set(rounds_by_run, lookback=3):
                 reaction_time_ms=rounds[i].get("reaction_time_ms"),
             )
 
+            # Skip this round if feature extraction failed (shouldn't happen normally)
             if features is None:
-                continue  # skip if feature extraction failed for this round
+                continue
 
-            # The target label is what the player threw on the NEXT round
+            # The label is what the player actually threw on the NEXT round
             next_gesture = rounds[i + 1]["player_gesture"]
             target = GESTURE_INDEX.get(next_gesture)
 
+            # Skip if the gesture string is unrecognised (e.g. a data entry error)
             if target is None:
-                continue  # skip unrecognised gesture strings
+                continue
 
             X.append(features)
             y.append(target)

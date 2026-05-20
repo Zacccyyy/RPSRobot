@@ -49,7 +49,8 @@ except ImportError:
 CSV_PATH   = MODEL_DIR / "front_on_training_data.csv"
 MODEL_PATH = MODEL_DIR / "front_on_gesture_model.pkl"
 
-# Integer label encoding used in the CSV and the saved model
+# Integer label encoding used in the CSV and the saved model.
+# Keep the order consistent — changing it would break a trained model.
 LABEL_TO_INT = {"Rock": 0, "Scissors": 1, "Paper": 2}
 INT_TO_LABEL = {0: "Rock",  1: "Scissors", 2: "Paper"}
 
@@ -60,9 +61,9 @@ INT_TO_LABEL = {0: "Rock",  1: "Scissors", 2: "Paper"}
 
 def load_data():
     """
-    Read the training CSV and return (X, y) numpy arrays.
+    Read the training CSV and return (X, y) as numpy arrays.
 
-    The CSV has one row per sample.  The first column is the gesture label
+    The CSV has one row per sample. The first column is the gesture label
     (Rock / Scissors / Paper), and the remaining FEATURE_DIM columns are
     the numeric features produced by front_on_features.extract_features().
 
@@ -77,18 +78,18 @@ def load_data():
 
     with open(CSV_PATH, "r") as f:
         reader = csv.reader(f)
-        next(reader, None)  # skip the header row
+        next(reader, None)   # skip the header row
 
         for row in reader:
-            # Skip blank rows and rows whose label we don't recognise
+            # Skip blank rows and rows with unrecognised labels
             if not row or row[0] not in LABEL_TO_INT:
                 continue
 
             label    = LABEL_TO_INT[row[0]]
             features = [float(v) for v in row[1:]]
 
-            # Skip rows with the wrong number of features — they were likely
-            # recorded with an older feature format and are incompatible
+            # Skip rows with the wrong feature count — they were recorded with
+            # an older version of the feature extractor and are incompatible
             if len(features) != FEATURE_DIM:
                 continue
 
@@ -99,6 +100,7 @@ def load_data():
         print("[Trainer] No valid samples found in CSV.")
         return None, None
 
+    # Convert to numpy arrays for sklearn compatibility
     X = np.array(X_rows, dtype=np.float32)
     y = np.array(y_rows, dtype=np.int32)
 
@@ -115,12 +117,12 @@ def train_and_save():
     the resulting model to disk.
 
     We use a small two-layer MLP (64 -> 32 nodes) because:
-    - It's fast to train on the small dataset we collect in Diagnostic mode
-    - It handles the non-linear boundaries between gestures well enough
-    - It's easy to re-train in-app without noticeable lag
+    - It's fast to train on the small dataset collected in Diagnostic mode
+    - It handles the non-linear decision boundaries between gestures well enough
+    - It can be retrained in-app without noticeable lag
 
     Returns:
-        float — cross-validation accuracy (0-1), or None if training failed.
+        float — cross-validation accuracy (0.0 to 1.0), or None if training failed.
     """
     X, y = load_data()
     if X is None:
@@ -129,7 +131,7 @@ def train_and_save():
     from sklearn.neural_network import MLPClassifier
     from sklearn.model_selection import cross_val_score
 
-    # Print a per-class breakdown so we can see if we need more samples
+    # Print a per-class breakdown so we can see if any gesture needs more samples
     unique, counts = np.unique(y, return_counts=True)
     print(f"[Trainer] Dataset: {len(X)} samples")
     for u, c in zip(unique, counts):
@@ -137,8 +139,8 @@ def train_and_save():
 
     min_count = min(counts)
 
-    # Require at least 5 samples per gesture; otherwise the model has basically
-    # nothing to learn from for the smallest class
+    # Require at least 5 samples per gesture — fewer than that and the model
+    # has almost nothing to learn for the underrepresented class
     if min_count < 5:
         print(
             f"[Trainer] Not enough data to train. Need at least 5 per gesture, "
@@ -147,11 +149,11 @@ def train_and_save():
         return None
 
     # Enable early stopping only when the dataset is large enough to spare
-    # a 15% validation split (we need >=60 samples so each split stays meaningful)
+    # a 15% validation split — we need at least 60 samples so each split is useful
     use_early_stopping = len(X) >= 60
 
     model = MLPClassifier(
-        hidden_layer_sizes=(64, 32),   # two hidden layers — enough for 3 classes
+        hidden_layer_sizes=(64, 32),   # two hidden layers, enough for 3 output classes
         activation="relu",
         max_iter=1000,
         random_state=42,               # fixed seed for reproducible results
@@ -159,36 +161,36 @@ def train_and_save():
         validation_fraction=0.15 if use_early_stopping else 0.0,
     )
 
-    # Cross-validation: gives a more honest accuracy estimate than a single split,
-    # because it tests on every part of the data at least once
+    # Cross-validation gives a more honest accuracy estimate than a single train/test
+    # split, because it tests on every part of the data at least once
     if len(X) >= 30:
         # Use at most 5 folds, but never more folds than samples in the smallest class
-        n_folds = min(5, min_count)
-        scores  = cross_val_score(model, X, y, cv=n_folds, scoring="accuracy")
+        n_folds  = min(5, min_count)
+        scores   = cross_val_score(model, X, y, cv=n_folds, scoring="accuracy")
         accuracy = scores.mean()
         print(
             f"[Trainer] Cross-val accuracy: {accuracy:.1%} "
             f"(+/-{scores.std():.1%}, {n_folds}-fold)"
         )
     else:
-        # Too few samples for meaningful cross-validation; just report None
+        # Too few samples for meaningful cross-validation — report None
         accuracy = None
         print("[Trainer] Too few samples for cross-validation, training on all data.")
 
-    # Train the final model on ALL available data (not a subset) so we get
-    # the most coverage possible before saving
+    # Train the final model on ALL available data so we get maximum coverage
     model.fit(X, y)
 
-    # Make sure the output directory exists before trying to write the file
+    # Create the output directory if it doesn't exist yet
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Save everything the classifier needs to load and run predictions
     with open(MODEL_PATH, "wb") as f:
         pickle.dump({
-            "model":         model,
-            "int_to_label":  INT_TO_LABEL,
-            "label_to_int":  LABEL_TO_INT,
-            "n_samples":     len(X),
-            "accuracy":      accuracy,
+            "model":        model,
+            "int_to_label": INT_TO_LABEL,
+            "label_to_int": LABEL_TO_INT,
+            "n_samples":    len(X),
+            "accuracy":     accuracy,
         }, f)
 
     print(f"[Trainer] Model saved to {MODEL_PATH}")
@@ -200,7 +202,7 @@ def train_and_save():
 
 
 # ---------------------------------------------------------------------------
-# Loading (used by front_on_classifier.py as a convenience)
+# Loading helper (convenience function used by front_on_classifier.py)
 # ---------------------------------------------------------------------------
 
 def load_model():
