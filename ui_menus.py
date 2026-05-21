@@ -723,6 +723,45 @@ def draw_features_screen(frame, features_schema, selected_index, config,
                 draw_outlined_text(frame, val_text, x2 - tw - _ix(w * 0.025), y,
                                    0.46, pill_col, thickness=2, outline=2)
 
+    # ── Hand Animations section ────────────────────────────────────────────────
+    anim_y = start_y + n_items * row_gap + 24
+
+    cv2.line(frame, (x1 + 8, anim_y), (x2 - 8, anim_y), COL_BORDER_HAIR, 1)
+    anim_y += 16
+    draw_outlined_text(frame, "HAND ANIMATIONS",
+                       x1 + 12, anim_y,
+                       SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
+    anim_y += 22
+
+    dances = [
+        ("1", "Wave"),
+        ("2", "Drumroll"),
+        ("3", "Mexican Wave"),
+        ("4", "Beckon"),
+        ("5", "Count"),
+        ("6", "Heartbeat"),
+        ("7", "Random"),
+    ]
+    for key_char, dance_name in dances:
+        if anim_y > y2 - _ix((y2 - y1) * 0.25):
+            break
+        kx = x1 + 12
+        cv2.rectangle(frame, (kx, anim_y - 12), (kx + 18, anim_y + 4),
+                      COL_PANEL_BG, -1)
+        cv2.rectangle(frame, (kx, anim_y - 12), (kx + 18, anim_y + 4),
+                      COL_BORDER_HAIR, 1)
+        draw_outlined_text(frame, key_char, kx + 5, anim_y + 3,
+                           SCALE_MICRO, COL_ACCENT, thickness=1, outline=2)
+        draw_outlined_text(frame, dance_name, kx + 26, anim_y + 3,
+                           SCALE_BODY, COL_TEXT_SECONDARY, thickness=1, outline=2)
+        anim_y += 26
+
+    if anim_y <= y2 - _ix((y2 - y1) * 0.25):
+        anim_y += 8
+        draw_outlined_text(frame, "M  Mirror Mode  --  live finger control",
+                           x1 + 12, anim_y,
+                           SCALE_BODY, COL_TEXT_SECONDARY, thickness=1, outline=2)
+
     # Description box — same layout as settings screen but green-tinted panel
     desc_y1 = y2 - _ix((y2 - y1) * 0.22)
     desc_y2 = y2 - _ix((y2 - y1) * 0.03)

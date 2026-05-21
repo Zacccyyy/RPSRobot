@@ -122,6 +122,10 @@ class BLEBridge:
         # Flag for the optional background auto-scan/reconnect loop.
         self._auto_running = False
 
+        # Async queue for fire-and-forget sends (mirror mode, dance commands).
+        # Initialised inside the event loop thread; None until then.
+        self._send_queue = None
+
         # Create and start the background asyncio event loop in a daemon thread.
         # Using a dedicated loop (rather than asyncio.run) lets us submit
         # coroutines from the main thread at any time via run_coroutine_threadsafe.
@@ -164,10 +168,30 @@ class BLEBridge:
                     print(f"[BLE] Auto-scan error: {exc}")
             await asyncio.sleep(5)
 
+    def send_mirror(self, thumb, index, middle, ring):
+        """Send live finger curl values directly — bypasses GESTURE_CMD_MAP."""
+        if not self._connected or self._loop is None or self._send_queue is None:
+            return False
+        cmd = f"CMD|MIRROR|{thumb}|{index}|{middle}|{ring}"
+        asyncio.run_coroutine_threadsafe(self._send_queue.put(cmd), self._loop)
+        return True
+
     def _run_loop(self):
         """Entry point for the background daemon thread — runs the event loop forever."""
         asyncio.set_event_loop(self._loop)
+        self._send_queue = asyncio.Queue()
+        self._loop.create_task(self._send_queue_drain())
         self._loop.run_forever()
+
+    async def _send_queue_drain(self):
+        """Drains the fire-and-forget send queue — writes each command to the ESP32."""
+        while True:
+            cmd = await self._send_queue.get()
+            if self._connected and self._client is not None:
+                try:
+                    await self._async_write((cmd + "\n").encode("utf-8"))
+                except Exception:
+                    pass
 
     def _run_async(self, coro, timeout=10.0):
         """

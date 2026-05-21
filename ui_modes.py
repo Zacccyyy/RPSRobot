@@ -3553,3 +3553,71 @@ def draw_hand_diag_view(frame, diag_state, hand_state=None):
                 base_scale=0.30, color=(60, 70, 90), thickness=1, outline=1)
 
     draw_bottom_bar(frame, "Hold your open hand up to the camera  |  ESC Back")
+
+
+# ============================================================
+# MIRROR MODE SCREEN
+# ============================================================
+
+def draw_mirror_mode_screen(frame, app_state, hand_state):
+    """
+    Mirror — Live finger mirroring mode.
+    Shows 4 curl bars, BLE status, detected gesture.
+    Minimal UI — all processing power for tracking.
+    """
+    w, h = _frame_size(frame)
+
+    draw_top_bar(frame, "MIRROR MODE  *  Live finger tracking", "ESC Exit")
+
+    mirror = app_state.get("mirror_state")
+    curls  = mirror.get_curls() if mirror else None
+    ble    = app_state.get("ble_bridge")
+
+    # BLE status pill centred at y 14%
+    connected = ble and ble._connected
+    dot_col   = COL_GREEN if connected else COL_AMBER
+    status    = "HAND CONNECTED" if connected else "HAND SCANNING..."
+    cv2.circle(frame, (_ix(w * 0.48), _ix(h * 0.14)), 6, dot_col, -1)
+    draw_outlined_text(frame, status, _ix(w * 0.50), _ix(h * 0.145),
+                       SCALE_CAPTION, dot_col, thickness=1, outline=2)
+
+    # Main panel
+    px1, py1 = _ix(w * 0.20), _ix(h * 0.22)
+    px2, py2 = _ix(w * 0.80), _ix(h * 0.82)
+    draw_panel(frame, px1, py1, px2, py2,
+               fill=COL_PANEL_BG, alpha=0.78,
+               border=COL_BORDER_HAIR, border_thickness=1)
+
+    finger_names = ["THUMB", "INDEX", "MIDDLE", "RING"]
+    bar_w  = _ix((px2 - px1) * 0.55)
+    bar_h  = 10
+    row_h  = _ix((py2 - py1) / 5)
+    bar_x  = px1 + _ix((px2 - px1) * 0.32)
+
+    for i, name in enumerate(finger_names):
+        row_y  = py1 + _ix(row_h * (i + 0.5))
+        curl   = (curls[i] if curls else 0) / 100.0
+
+        # Finger name label
+        draw_outlined_text(frame, name, px1 + 16, row_y + 5,
+                           SCALE_BODY, COL_TEXT_SECONDARY, thickness=1, outline=2)
+
+        # Bar track
+        cv2.rectangle(frame, (bar_x, row_y - bar_h // 2),
+                      (bar_x + bar_w, row_y + bar_h // 2), (28, 28, 28), -1)
+        # Bar fill
+        fill_w = int(bar_w * curl)
+        if fill_w > 0:
+            cv2.rectangle(frame, (bar_x, row_y - bar_h // 2),
+                          (bar_x + fill_w, row_y + bar_h // 2), COL_ACCENT, -1)
+
+        # Percentage
+        draw_outlined_text(frame, f"{int(curl * 100):3d}%",
+                           bar_x + bar_w + 10, row_y + 5,
+                           SCALE_CAPTION, COL_TEXT_DIM, thickness=1, outline=2)
+
+    # Hint at panel bottom
+    draw_centered_text(frame, "Move your fingers to control the hand",
+                       py2 - 20, SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
+
+    draw_bottom_bar(frame, "ESC Exit mirror mode")

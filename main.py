@@ -82,6 +82,7 @@ from ui_renderer import (
     draw_consent_screen,
     draw_calibration_view,
     _draw_ble_dot,
+    draw_mirror_mode_screen,
 )
 
 from config_store import (
@@ -600,6 +601,8 @@ def build_app_state():
     _ble_bridge = BLEBridge()
     _ble_bridge.start()
     robot_output.set_bridge(_ble_bridge)
+    from mirror_mode_state import MirrorModeState
+    _mirror_state = MirrorModeState(ble_bridge=_ble_bridge)
     challenge_logger = _AsyncChallengeStatsLogger(ChallengeStatsLogger())
 
     app_state = {
@@ -711,6 +714,11 @@ def build_app_state():
         "_practice_mode": False,
         # BLE bridge (auto-connects to ESP32 in background)
         "ble_bridge": _ble_bridge,
+        # Mirror mode
+        "mirror_state": _mirror_state,
+        # Idle dance tracking
+        "_last_activity_time": time.monotonic(),
+        "_dance_triggered":    False,
     }
 
     update_challenge_logger_context(app_state)
@@ -894,6 +902,12 @@ def start_game(app_state, mode=None, from_category=False):
     update_challenge_logger_context(app_state)
     reset_all_modes(app_state)
     app_state["app_screen"] = "GAME"
+
+    _sg_ble = app_state.get("ble_bridge")
+    if _sg_ble and _sg_ble.is_connected:
+        _sg_ble.send_command("CMD|DANCE|STOP")
+    app_state["_dance_triggered"]    = False
+    app_state["_last_activity_time"] = time.monotonic()
 
     # ── Cross-session AI learning: restore bandit weights for this player ──
     player_name = app_state["config"].get("player_name", "").strip()
@@ -1084,6 +1098,22 @@ def handle_features_key(app_state, key):
             apply_feature_toggle(app_state, item["key"], direction=1)
     elif key == KEY_ESC:
         open_menu(app_state)
+    else:
+        _feat_ble = app_state.get("ble_bridge")
+        _dance_map = {
+            ord('1'): "CMD|DANCE|WAVE",
+            ord('2'): "CMD|DANCE|DRUMROLL",
+            ord('3'): "CMD|DANCE|MEXICAN",
+            ord('4'): "CMD|DANCE|BECKON",
+            ord('5'): "CMD|DANCE|COUNT",
+            ord('6'): "CMD|DANCE|HEARTBEAT",
+            ord('7'): "CMD|DANCE|RANDOM",
+        }
+        if key in _dance_map and _feat_ble and _feat_ble.is_connected:
+            _feat_ble.send_command(_dance_map[key])
+        elif key in (ord('m'), ord('M')):
+            app_state["app_screen"] = "MIRROR"
+            app_state["mirror_state"].start()
 
 
 def open_clone_setup(app_state):
@@ -3052,6 +3082,14 @@ def run():
             if _dt > 0:
                 app_state["_fps_val"] = 0.9 * app_state["_fps_val"] + 0.1 * (1.0 / _dt)
 
+            # Idle dance trigger — 10 seconds no activity
+            if _now - app_state["_last_activity_time"] > 10.0:
+                if not app_state["_dance_triggered"]:
+                    _idle_ble = app_state.get("ble_bridge")
+                    if _idle_ble and _idle_ble.is_connected:
+                        _idle_ble.send_command("CMD|DANCE|RANDOM")
+                        app_state["_dance_triggered"] = True
+
             # ── Performance: on menu screens skip gesture nav every other frame ──
             # The display and keyboard always run every frame for responsiveness.
             # Only the MediaPipe nav-hand processing is throttled.
@@ -3153,6 +3191,10 @@ def run():
                             app_state["emotion_state"] = None
 
                         tracker_state = app_state["tracker"].update(hand_state["raw_gesture"])
+
+                    if hand_state.get("current_gesture") not in (None, "Unknown", ""):
+                        app_state["_last_activity_time"] = time.monotonic()
+                        app_state["_dance_triggered"]    = False
 
                     # Rolling gesture-quality monitor: if >50% of the last 300 frames
                     # (~10 seconds) produced 'Unknown', show a calibration nudge.
@@ -4123,6 +4165,13 @@ def run():
                     disp["ble_bridge"] = app_state.get("ble_bridge")
                     draw_hardware_test_view(frame, disp)
 
+            elif app_state["app_screen"] == "MIRROR":
+                mirror = app_state["mirror_state"]
+                _lm = hand_state.get("_landmarks") if hand_state else None
+                if _lm:
+                    mirror.update(_lm)
+                draw_mirror_mode_screen(frame, app_state, hand_state)
+
             elif app_state["app_screen"] == "NOTES":
                 draw_notes_screen(frame,
                     text_buffer  = app_state["_notes_text"],
@@ -4162,6 +4211,10 @@ def run():
             cv2.imshow(WINDOW_NAME, frame)
 
             key = cv2.waitKey(1) & 0xFF
+
+            if key != 255:
+                app_state["_last_activity_time"] = time.monotonic()
+                app_state["_dance_triggered"]    = False
 
             # --- Global voice nav dispatch (all screens) ---
             # Drain all events queued by the VoiceController background thread.
@@ -4261,6 +4314,14 @@ def run():
 
             elif app_state["app_screen"] == "FEATURES":
                 handle_features_key(app_state, key)
+
+            elif app_state["app_screen"] == "MIRROR":
+                if key == KEY_ESC:
+                    app_state["mirror_state"].stop()
+                    _mir_ble = app_state.get("ble_bridge")
+                    if _mir_ble:
+                        _mir_ble.send_command("CMD|OPEN")
+                    open_menu(app_state)
 
             elif app_state["app_screen"] == "PERSONALITY_SELECT":
                 if key == KEY_ESC:
