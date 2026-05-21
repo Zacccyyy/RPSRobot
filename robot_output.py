@@ -35,6 +35,11 @@ class RobotOutputBuffer:
         # Set to None once the round resolves.
         self.pending_locked = None
 
+        self.bridge = None
+
+    def set_bridge(self, bridge):
+        self.bridge = bridge
+
     def clear_pending_locked(self):
         """Clear the pending locked move (call this after the round resolves)."""
         self.pending_locked = None
@@ -106,6 +111,8 @@ class RobotOutputBuffer:
             f"[RobotOutput] RESOLVED | {game_mode} | {command} | "
             f"{round_result} | player={player_gesture} | robot={robot_gesture}"
         )
+        if self.bridge is not None:
+            self.bridge.send_command(f"ROBOT_PLAY_{robot_gesture.upper()}")
         return packet
 
     def get_latest_summary(self):

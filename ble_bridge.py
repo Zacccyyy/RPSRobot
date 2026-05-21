@@ -57,6 +57,7 @@ except ImportError:
 
 
 # Maps human-readable action names to the wire format the ESP32 expects.
+# ROBOT_PLAY_* entries allow robot_output.py to fire the hand directly.
 HARDWARE_COMMANDS = {
     "ROCK":     "CMD|ROCK",
     "PAPER":    "CMD|PAPER",
@@ -64,6 +65,13 @@ HARDWARE_COMMANDS = {
     "OPEN":     "CMD|OPEN",
     "CLOSE":    "CMD|CLOSE",
     "PING":     "CMD|PING",
+}
+
+GESTURE_CMD_MAP = {
+    **HARDWARE_COMMANDS,
+    "ROBOT_PLAY_ROCK":     "CMD|ROCK",
+    "ROBOT_PLAY_PAPER":    "CMD|PAPER",
+    "ROBOT_PLAY_SCISSORS": "CMD|SCISSORS",
 }
 
 
@@ -111,6 +119,9 @@ class BLEBridge:
         # Rolling log of (direction, message, timestamp) tuples.
         self.command_log = deque(maxlen=log_limit)
 
+        # Flag for the optional background auto-scan/reconnect loop.
+        self._auto_running = False
+
         # Create and start the background asyncio event loop in a daemon thread.
         # Using a dedicated loop (rather than asyncio.run) lets us submit
         # coroutines from the main thread at any time via run_coroutine_threadsafe.
@@ -121,6 +132,37 @@ class BLEBridge:
             name="BLEEventLoop",
         )
         self._thread.start()
+
+    def start(self):
+        """Start a background auto-scan + auto-reconnect loop (for robot_output integration)."""
+        if not BLEAK_AVAILABLE:
+            print("[BLE] bleak not installed — pip install bleak"); return
+        if self._auto_running: return
+        self._auto_running = True
+        asyncio.run_coroutine_threadsafe(self._auto_connect_main(), self._loop)
+        print("[BLE] Auto-connect loop started — scanning for RPS Robot")
+
+    def stop(self):
+        """Stop the auto-connect loop and disconnect."""
+        self._auto_running = False
+        self.disconnect()
+
+    async def _auto_connect_main(self):
+        """Runs on the background event loop: scan, connect, reconnect on drop."""
+        while self._auto_running:
+            if not self._connected:
+                try:
+                    device = await BleakScanner.find_device_by_filter(
+                        lambda d, ad: NUS_SERVICE_UUID.lower() in
+                            [str(u).lower() for u in (ad.service_uuids or [])],
+                        timeout=8.0)
+                    if device is not None:
+                        await self._async_connect(device.address, device.name or device.address)
+                    else:
+                        print("[BLE] Auto-scan: device not found — will retry")
+                except Exception as exc:
+                    print(f"[BLE] Auto-scan error: {exc}")
+            await asyncio.sleep(2)
 
     def _run_loop(self):
         """Entry point for the background daemon thread — runs the event loop forever."""
@@ -296,7 +338,7 @@ class BLEBridge:
         if not self._connected or self._client is None:
             return False
 
-        wire_text  = HARDWARE_COMMANDS.get(action, f"CMD|{action}")
+        wire_text  = GESTURE_CMD_MAP.get(action.upper(), f"CMD|{action.upper()}")
         wire_bytes = (wire_text + "\n").encode("utf-8")
 
         try:

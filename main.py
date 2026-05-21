@@ -595,6 +595,10 @@ def build_app_state():
     """
     config = load_config()
     robot_output = RobotOutputBuffer()
+    from ble_bridge import BLEBridge
+    _ble_bridge = BLEBridge()
+    _ble_bridge.start()
+    robot_output.set_bridge(_ble_bridge)
     challenge_logger = _AsyncChallengeStatsLogger(ChallengeStatsLogger())
 
     app_state = {
@@ -704,6 +708,8 @@ def build_app_state():
         "_match_summary": None,
         # Practice mode flag
         "_practice_mode": False,
+        # BLE bridge (auto-connects to ESP32 in background)
+        "ble_bridge": _ble_bridge,
     }
 
     update_challenge_logger_context(app_state)
