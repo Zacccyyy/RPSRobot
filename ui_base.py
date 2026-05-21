@@ -46,7 +46,7 @@ __all__ = [
     'draw_gesture_confidence_bar', 'draw_quality_warnings', 'draw_round_history_dots',
     'draw_help_overlay', 'get_fit_scale', 'draw_outlined_text',
     'draw_centered_text', 'draw_centered_text_in_rect',
-    'draw_top_bar', 'draw_bottom_bar',
+    'draw_top_bar', 'draw_bottom_bar', '_draw_ble_dot',
     'draw_status_chip', 'get_result_banner_color',
     # Spec primitives
     'draw_gesture_glyph', 'draw_gesture_badge', 'draw_beat_track',
@@ -700,6 +700,14 @@ def draw_bottom_bar(frame, hints=''):
         text_y = y1 + _ix(bar_h * 0.68)
         draw_outlined_text(frame, hints, _ix(w * 0.02), text_y,
                            SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
+
+def _draw_ble_dot(frame, ble_bridge):
+    """5 px status dot at the top-bar right edge. Green=connected, amber=scanning."""
+    if ble_bridge is None:
+        return
+    w, h  = _frame_size(frame)
+    col   = COL_GREEN if ble_bridge._connected else COL_AMBER
+    cv2.circle(frame, (w - _ix(w * 0.015), _ix(h * 0.03)), 5, col, -1)
 
 # ============================================================
 # STATUS CHIP

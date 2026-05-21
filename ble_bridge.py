@@ -155,14 +155,14 @@ class BLEBridge:
                     device = await BleakScanner.find_device_by_filter(
                         lambda d, ad: NUS_SERVICE_UUID.lower() in
                             [str(u).lower() for u in (ad.service_uuids or [])],
-                        timeout=8.0)
+                        timeout=6.0)
                     if device is not None:
                         await self._async_connect(device.address, device.name or device.address)
                     else:
                         print("[BLE] Auto-scan: device not found — will retry")
                 except Exception as exc:
                     print(f"[BLE] Auto-scan error: {exc}")
-            await asyncio.sleep(2)
+            await asyncio.sleep(5)
 
     def _run_loop(self):
         """Entry point for the background daemon thread — runs the event loop forever."""

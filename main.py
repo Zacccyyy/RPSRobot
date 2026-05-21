@@ -81,6 +81,7 @@ from ui_renderer import (
     draw_notes_screen,
     draw_consent_screen,
     draw_calibration_view,
+    _draw_ble_dot,
 )
 
 from config_store import (
@@ -3553,8 +3554,8 @@ def run():
                         show_session_summary=show_session_summary,
                         diagnostic=(app_state["display_mode"] == "Diagnostic"),
                         gesture_quality_low=app_state.get("_gesture_quality_low", False),
-                        ble_bridge=app_state.get("ble_bridge"),
                     )
+                    _draw_ble_dot(frame, app_state.get("ble_bridge"))
 
                 # ── Help overlay for non-RPS modes (? key) ─────────────────
                 # RPS modes handle show_help inside draw_game_mode_view.
