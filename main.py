@@ -4456,11 +4456,13 @@ def run():
                         _io_worker.submit(_run_report_updater_bg)
 
                     elif key == ord("h") or key == ord("H"):
-                        # Launch Hardware Test screen (robot arm / BLE bridge)
-                        # BLE is preferred; Serial is a fallback; user can switch in-screen
+                        # Launch Hardware Test screen (robot arm / BLE bridge).
+                        # Reuse the already-connected BLE bridge from app_state so
+                        # hardware test shares the live connection; fall back to a
+                        # fresh SerialBridge if no BLE bridge is available.
                         from hardware_test_mode import HardwareTestController
                         try:
-                            from ble_bridge import BLEBridge
+                            from ble_bridge import BLEBridge as _BLEClass  # noqa: F401
                             _ble_available = True
                         except ImportError:
                             _ble_available = False
@@ -4470,17 +4472,18 @@ def run():
                         except ImportError:
                             _serial_available = False
 
-                        if _ble_available:
-                            bridge = BLEBridge()
-                        elif _serial_available:
-                            bridge = SerialBridge()
-                        else:
-                            app_state["collector_message"] = "Install bleak (BLE) or pyserial (USB)"
-                            bridge = None
+                        _hw_bridge = app_state.get("ble_bridge")
+                        if _hw_bridge is None:
+                            if _serial_available:
+                                _hw_bridge = SerialBridge()
+                            else:
+                                app_state["collector_message"] = (
+                                    "Install bleak (BLE) or pyserial (USB)"
+                                )
 
-                        if bridge is not None:
+                        if _hw_bridge is not None:
                             ctrl = HardwareTestController(
-                                bridge,
+                                _hw_bridge,
                                 ble_available=_ble_available,
                                 serial_available=_serial_available,
                             )

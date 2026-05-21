@@ -70,7 +70,8 @@ class HardwareTestController:
             return
         try:
             from ble_bridge import BLEBridge
-            self.bridge.disconnect()
+            if hasattr(self.bridge, 'disconnect') and not getattr(self.bridge, '_auto_running', False):
+                self.bridge.disconnect()
             self.bridge              = BLEBridge()
             self._mode               = "BLE"
             self.available_ports     = []
@@ -92,7 +93,8 @@ class HardwareTestController:
             return
         try:
             from serial_bridge import SerialBridge
-            self.bridge.disconnect()
+            if hasattr(self.bridge, 'disconnect') and not getattr(self.bridge, '_auto_running', False):
+                self.bridge.disconnect()
             self.bridge              = SerialBridge()
             self._mode               = "SERIAL"
             self.available_ports     = []
@@ -113,8 +115,20 @@ class HardwareTestController:
         self._is_scanning   = True
         self.status_message = "Scanning..."
 
-        self.available_ports = self.bridge.list_ports()
-        self._is_scanning    = False
+        # Skip the slow BLE scan when the bridge is already connected
+        # (e.g. the shared auto-connect bridge from app_state).
+        if self.bridge.is_connected:
+            label = getattr(self.bridge, 'port_name', None) or "BLE: Connected"
+            self.available_ports = [label]
+            self._is_scanning    = False
+            self.status_message  = "Connected — use R/P/S to send commands"
+            return
+
+        if hasattr(self.bridge, 'list_ports'):
+            self.available_ports = self.bridge.list_ports()
+        else:
+            self.available_ports = []
+        self._is_scanning = False
 
         if not self.available_ports:
             # Tell the user what kind of thing we were looking for.
@@ -177,7 +191,8 @@ class HardwareTestController:
         Flushes any pending data from the bridge's receive buffer so incoming
         ACK/ERR responses don't pile up unread.
         """
-        self.bridge.read_response()
+        if hasattr(self.bridge, 'read_response'):
+            self.bridge.read_response()
 
     # ── UI data ───────────────────────────────────────────────────────────────
 
@@ -229,6 +244,13 @@ class HardwareTestController:
         For BLE entries the format is "Name | Address" — we split it to extract
         the address that bleak needs.
         """
+        if not hasattr(self.bridge, 'connect'):
+            self.status_message = "BLE: connects automatically in background"
+            return
+        if self.bridge.is_connected:
+            self.status_message = "Already connected"
+            return
+
         self.refresh_ports()
         if not self.available_ports:
             self.status_message = "No devices available"
@@ -251,6 +273,14 @@ class HardwareTestController:
 
     def _disconnect(self):
         """Disconnect from the current device and update the status message."""
+        if not hasattr(self.bridge, 'disconnect'):
+            self.status_message = "Disconnect not supported on this bridge"
+            return
+        # Don't tear down a shared auto-connect bridge — it would just reconnect
+        # and leaves robot_output without a working bridge in the meantime.
+        if getattr(self.bridge, '_auto_running', False):
+            self.status_message = "BLE auto-connect active — stop the app to disconnect"
+            return
         self.bridge.disconnect()
         self.status_message = "Disconnected"
 
