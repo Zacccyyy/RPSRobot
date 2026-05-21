@@ -13,8 +13,8 @@ Communication protocol (same as serial):
 
 BLE service layout (must match the ESP32 firmware exactly):
     Service UUID:       6E400001-B5A3-F393-E0A9-E50E24DCCA9E  (Nordic UART)
-    TX Characteristic:  6E400002-B5A3-F393-E0A9-E50E24DCCA9E  (Python writes here)
-    RX Characteristic:  6E400003-B5A3-F393-E0A9-E50E24DCCA9E  (ESP32 notifies here)
+    RX Characteristic:  6E400002-B5A3-F393-E0A9-E50E24DCCA9E  (ESP32 receives — Python writes)
+    TX Characteristic:  6E400003-B5A3-F393-E0A9-E50E24DCCA9E  (ESP32 sends   — Python subscribes)
 
 The Nordic UART Service (NUS) emulates a serial port over BLE.  It is
 supported by the NimBLE-Arduino library on ESP32 and by the nRF Connect
@@ -37,10 +37,10 @@ import threading
 import asyncio
 from collections import deque
 
-# Nordic UART Service UUIDs — standard BLE UART emulation protocol.
+# Nordic UART Service UUIDs — named from the ESP32's perspective (NUS standard).
 NUS_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
-NUS_TX_UUID      = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"  # Python writes to this characteristic
-NUS_RX_UUID      = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"  # ESP32 notifies on this characteristic
+NUS_RX_UUID      = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"  # ESP32 receives — Python writes here
+NUS_TX_UUID      = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"  # ESP32 sends    — Python subscribes here
 
 # The BLE advertisement name the ESP32 firmware broadcasts.
 ESP32_DEVICE_NAME = "RPS Robot"
@@ -274,9 +274,18 @@ class BLEBridge:
         try:
             client = BleakClient(address, disconnected_callback=self._on_disconnect)
             await client.connect(timeout=10.0)
+            # Give the stack a moment to finish service/characteristic enumeration.
+            await asyncio.sleep(0.5)
 
-            # Subscribe to notifications from the ESP32's TX (our RX) characteristic.
-            await client.start_notify(NUS_RX_UUID, self._on_notify)
+            # Subscribe to notifications from the ESP32's TX characteristic.
+            try:
+                await client.start_notify(NUS_TX_UUID, self._on_notify)
+            except Exception as notify_err:
+                print(f"[BLE] start_notify failed: {notify_err}")
+                for svc in client.services:
+                    for char in svc.characteristics:
+                        print(f"  CHAR: {char.uuid} — {char.properties}")
+                raise
 
             with self._lock:
                 self._client      = client
@@ -355,11 +364,8 @@ class BLEBridge:
             return False
 
     async def _async_write(self, data):
-        """
-        Write raw bytes to the ESP32's RX (our TX) characteristic.
-        response=False means "write without response" — faster, fire-and-forget.
-        """
-        await self._client.write_gatt_char(NUS_TX_UUID, data, response=False)
+        """Write raw bytes to the ESP32's RX characteristic (Python → ESP32)."""
+        await self._client.write_gatt_char(NUS_RX_UUID, data, response=False)
 
     # ── Receive ───────────────────────────────────────────────────────────────
 
