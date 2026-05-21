@@ -883,7 +883,7 @@ def draw_game_mode_view(frame, game_state, emotion_state=None, voice_mode_active
                         last_heard_word="", tracker_state=None, hand_state=None,
                         flash_info=None, show_help=False, sound_on=True,
                         colourblind=False, show_session_summary=False, diagnostic=False,
-                        gesture_quality_low=False):
+                        gesture_quality_low=False, ble_bridge=None):
     """
     Top-level function that assembles the entire game screen each frame.
 
@@ -921,6 +921,15 @@ def draw_game_mode_view(frame, game_state, emotion_state=None, voice_mode_active
 
     draw_top_bar(frame, left_label, right_hints)
     draw_bottom_bar(frame, bottom_hint)
+
+    # Compact BLE status dot in the top bar (right edge)
+    if ble_bridge is not None:
+        w_f, h_f = frame.shape[1], frame.shape[0]
+        bar_h_px = _ix(h_f * 0.06)
+        dot_col  = COL_GREEN if ble_bridge.is_connected else COL_AMBER
+        bx = w_f - _ix(w_f * 0.015)
+        by = _ix(bar_h_px * 0.50)
+        cv2.circle(frame, (bx, by), 5, dot_col, -1)
 
     # Decide which gesture to highlight: prefer confirmed, fall back to stable
     detected = ""

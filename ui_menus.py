@@ -2173,6 +2173,27 @@ def draw_hardware_test_view(frame, diag_state):
 
     row_h  = 68
     row_y  = top_y + title_h
+
+    # ── BLE status row (always shown at the top of the devices panel) ──────
+    ble_bridge = diag_state.get("ble_bridge")
+    if ble_bridge is not None and ble_bridge.is_connected:
+        dot_col, status_text, label_col = COL_GREEN, "CONNECTED", COL_GREEN
+    elif ble_bridge is not None:
+        dot_col, status_text, label_col = COL_AMBER, "SCANNING...", COL_AMBER
+    else:
+        dot_col, status_text, label_col = COL_TEXT_DIM, "OFFLINE", COL_TEXT_DIM
+
+    row_cy  = row_y + row_h // 2
+    dot_x   = lx1 + _ix(lpw * 0.07)
+    label_x = lx1 + _ix(lpw * 0.13)
+    cv2.circle(frame, (dot_x, row_cy), 6, dot_col, -1)
+    draw_outlined_text(frame, f"RPS ROBOT  {status_text}", label_x, row_cy + 5,
+                       SCALE_BODY, label_col, thickness=1, outline=2)
+    draw_outlined_text(frame, "BLE  *  Nordic UART", label_x, row_cy + 22,
+                       SCALE_MICRO, COL_TEXT_DIM, thickness=1, outline=2)
+    cv2.line(frame, (lx1 + 3, row_y + row_h), (lx2 - 3, row_y + row_h), COL_BORDER_HAIR, 1)
+    row_y += row_h
+
     if not available:
         draw_outlined_text(frame, "(no devices found)",
                            lx1 + _ix(lpw * 0.05), row_y + 28,

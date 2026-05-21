@@ -3553,6 +3553,7 @@ def run():
                         show_session_summary=show_session_summary,
                         diagnostic=(app_state["display_mode"] == "Diagnostic"),
                         gesture_quality_low=app_state.get("_gesture_quality_low", False),
+                        ble_bridge=app_state.get("ble_bridge"),
                     )
 
                 # ── Help overlay for non-RPS modes (? key) ─────────────────
@@ -4118,6 +4119,7 @@ def run():
                 if ctrl:
                     ctrl.update()
                     disp = ctrl.get_display_state()
+                    disp["ble_bridge"] = app_state.get("ble_bridge")
                     draw_hardware_test_view(frame, disp)
 
             elif app_state["app_screen"] == "NOTES":
