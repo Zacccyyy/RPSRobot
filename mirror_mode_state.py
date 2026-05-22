@@ -29,23 +29,29 @@ def _dist(a, b):
 
 def extract_finger_curls(landmarks):
     """
-    landmarks: list of 21 (x, y, z) tuples from MediaPipe (normalised 0-1).
+    landmarks: MediaPipe NormalizedLandmarkList OR list of 21 (x, y, z) tuples.
     Returns [thumb, index, middle, ring] curl values as ints 0-100.
     Returns None if landmarks are invalid.
     """
-    if not landmarks or len(landmarks) < 21:
+    # Normalise: MediaPipe returns a NormalizedLandmarkList (protobuf), not a list.
+    if hasattr(landmarks, 'landmark'):
+        lm = [(p.x, p.y, p.z) for p in landmarks.landmark]
+    else:
+        lm = landmarks
+
+    if not lm or len(lm) < 21:
         return None
 
-    wrist    = landmarks[WRIST_IDX]
-    hand_ref = landmarks[HAND_REF_MCP]
+    wrist    = lm[WRIST_IDX]
+    hand_ref = lm[HAND_REF_MCP]
     hand_size = _dist(wrist, hand_ref)
     if hand_size < 1e-6:
         return None
 
     curls = []
     for tip_idx, mcp_idx in FINGER_LANDMARKS:
-        tip = landmarks[tip_idx]
-        mcp = landmarks[mcp_idx]
+        tip = lm[tip_idx]
+        mcp = lm[mcp_idx]
         tip_to_mcp = _dist(tip, mcp)
         # Extended finger: tip far from mcp → low curl
         # Curled finger:   tip close to mcp → high curl
