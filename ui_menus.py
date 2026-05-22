@@ -714,6 +714,10 @@ def draw_features_screen(frame, features_schema, selected_index, config,
                                    0.40, COL_TEXT_DIM, thickness=1, outline=1)
                 draw_outlined_text(frame, "[>]", x2 - _ix(w * 0.068), y,
                                    0.44, arrow_col, thickness=2, outline=2)
+            elif key == "__mirror__":
+                arrow_col = COL_CYAN if selected else (40, 100, 100)
+                draw_outlined_text(frame, "[>]", x2 - _ix(w * 0.068), y,
+                                   0.44, arrow_col, thickness=2, outline=2)
             else:
                 val_text  = str(config.get(key, item.get("options", ["?"])[0])) \
                             if is_choice else ("ON" if config.get(key, False) else "OFF")

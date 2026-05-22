@@ -311,6 +311,15 @@ FEATURES_SCHEMA = [
         ),
     },
     {
+        "key": "__mirror__",
+        "label": "Mirror Mode",
+        "type": "action",
+        "desc": (
+            "Live finger mirroring. Your hand controls the robot hand in real "
+            "time at 10 fps. Requires BLE connection. ESC to exit."
+        ),
+    },
+    {
         "key": "__back__",
         "label": "Back",
         "type": "action",
@@ -905,7 +914,7 @@ def start_game(app_state, mode=None, from_category=False):
 
     _sg_ble = app_state.get("ble_bridge")
     if _sg_ble and _sg_ble.is_connected:
-        _sg_ble.send_command("CMD|DANCE|STOP")
+        _sg_ble.send_command("DANCE|STOP")
     app_state["_dance_triggered"]    = False
     app_state["_last_activity_time"] = time.monotonic()
 
@@ -1083,7 +1092,7 @@ def handle_features_key(app_state, key):
         app_state["features_index"] = (app_state["features_index"] + 1) % len(schema)
     elif key in KEY_LEFT:
         item = schema[app_state["features_index"]]
-        if item.get("key") not in ("__back__", "__personalities__"):
+        if item.get("key") not in ("__back__", "__personalities__", "__mirror__"):
             apply_feature_toggle(app_state, item["key"], direction=-1)
     elif key in KEY_RIGHT or key in KEY_ENTER:
         item = schema[app_state["features_index"]]
@@ -1094,6 +1103,9 @@ def handle_features_key(app_state, key):
             cur = app_state["config"].get("ai_personality", "Normal")
             app_state["personality_index"] = PERSONALITY_NAMES.index(cur) \
                 if cur in PERSONALITY_NAMES else 0
+        elif item.get("key") == "__mirror__":
+            app_state["app_screen"] = "MIRROR"
+            app_state["mirror_state"].start()
         else:
             apply_feature_toggle(app_state, item["key"], direction=1)
     elif key == KEY_ESC:
@@ -1101,13 +1113,13 @@ def handle_features_key(app_state, key):
     else:
         _feat_ble = app_state.get("ble_bridge")
         _dance_map = {
-            ord('1'): "CMD|DANCE|WAVE",
-            ord('2'): "CMD|DANCE|DRUMROLL",
-            ord('3'): "CMD|DANCE|MEXICAN",
-            ord('4'): "CMD|DANCE|BECKON",
-            ord('5'): "CMD|DANCE|COUNT",
-            ord('6'): "CMD|DANCE|HEARTBEAT",
-            ord('7'): "CMD|DANCE|RANDOM",
+            ord('1'): "DANCE|WAVE",
+            ord('2'): "DANCE|DRUMROLL",
+            ord('3'): "DANCE|MEXICAN",
+            ord('4'): "DANCE|BECKON",
+            ord('5'): "DANCE|COUNT",
+            ord('6'): "DANCE|HEARTBEAT",
+            ord('7'): "DANCE|RANDOM",
         }
         if key in _dance_map and _feat_ble and _feat_ble.is_connected:
             _feat_ble.send_command(_dance_map[key])
@@ -3074,6 +3086,8 @@ def run():
                 finalize_active_challenge_run(app_state, status="abandoned")
                 break
 
+            hand_state = None   # always defined; set per-screen below
+
             # Rolling FPS: exponential moving average (alpha=0.1) updated every frame
             # Displayed in Diagnostic mode; low values hint at performance problems.
             _now = time.monotonic()
@@ -3087,7 +3101,7 @@ def run():
                 if not app_state["_dance_triggered"]:
                     _idle_ble = app_state.get("ble_bridge")
                     if _idle_ble and _idle_ble.is_connected:
-                        _idle_ble.send_command("CMD|DANCE|RANDOM")
+                        _idle_ble.send_command("DANCE|RANDOM")
                         app_state["_dance_triggered"] = True
 
             # ── Performance: on menu screens skip gesture nav every other frame ──
@@ -4166,8 +4180,17 @@ def run():
                     draw_hardware_test_view(frame, disp)
 
             elif app_state["app_screen"] == "MIRROR":
+                frame, hand_state, _ = process_hand_frame(
+                    frame=frame,
+                    hands=hands,
+                    target_hand=app_state["target_hand"],
+                    display_mode="Game",
+                    handedness_threshold=app_state["config"]["handedness_threshold"],
+                    hand_orientation=app_state["config"]["hand_orientation"],
+                    _ema_state=app_state["_ema_state"],
+                )
                 mirror = app_state["mirror_state"]
-                _lm = hand_state.get("_landmarks") if hand_state else None
+                _lm = hand_state.get("_landmarks")
                 if _lm:
                     mirror.update(_lm)
                 draw_mirror_mode_screen(frame, app_state, hand_state)
@@ -4320,7 +4343,7 @@ def run():
                     app_state["mirror_state"].stop()
                     _mir_ble = app_state.get("ble_bridge")
                     if _mir_ble:
-                        _mir_ble.send_command("CMD|OPEN")
+                        _mir_ble.send_command("OPEN")
                     open_menu(app_state)
 
             elif app_state["app_screen"] == "PERSONALITY_SELECT":
